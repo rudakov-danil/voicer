@@ -24,6 +24,8 @@ export interface Seller {
   avg_score?: number
   conversion_rate?: number
   conversations_count?: number
+  weakest_step?: string
+  score_trend?: 'up' | 'down' | 'stable'
   trend?: number
 }
 
@@ -73,10 +75,12 @@ export interface DashboardOverview {
   avg_score: number
   conversion_rate: number
   avg_check?: number
-  conversations_by_day: { date: string; count: number }[]
-  score_by_store: { store_name: string; avg_score: number }[]
-  outcomes: { outcome: string; count: number }[]
-  alerts: { severity: 'danger' | 'warning' | 'info'; message: string }[]
+  score_distribution?: { excellent: number; good: number; poor: number }
+  daily_stats: { date: string; total: number; avg_score: number; conversion_rate: number }[]
+  conversations_by_day?: { date: string; count: number }[]
+  score_by_store?: { store_name: string; avg_score: number }[]
+  outcomes?: { outcome: string; count: number }[]
+  alerts?: { severity: 'danger' | 'warning' | 'info'; message: string }[]
 }
 
 export interface ScriptTemplate {

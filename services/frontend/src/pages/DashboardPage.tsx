@@ -53,7 +53,7 @@ export function DashboardPage() {
     },
     {
       label: 'Средний чек',
-      value: Math.round(overview?.avg_check || 0),
+      value: 0,
       trend: 8,
       prefix: '₽',
       format: true
@@ -65,24 +65,14 @@ export function DashboardPage() {
     value: o.count
   }))
 
-  const storesChartData = (overview?.score_by_store || []).map((s) => ({
-    label: s.store_name,
-    value: s.avg_score
-  }))
+  const storesChartData: {label: string, value: number}[] = []
 
-  const conversationsByDayData = (overview?.conversations_by_day || []).map((d) => ({
+  const conversationsByDayData = (overview?.daily_stats || []).map((d) => ({
     label: d.date,
-    value: d.count
+    value: d.total
   }))
 
-  const outcomesDonutData = (overview?.outcomes || []).map((o, i) => {
-    const colors = ['#16A34A', '#D97706', '#DC2626', '#7C3AED', '#94A3B8']
-    return {
-      name: o.outcome,
-      value: o.count,
-      color: colors[i % colors.length]
-    }
-  })
+  const outcomesDonutData: {name: string, value: number, color: string}[] = []
 
   return (
     <div>
