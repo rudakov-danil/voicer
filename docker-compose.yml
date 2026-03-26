@@ -151,6 +151,7 @@ services:
       AUTH_SERVICE_URL: http://auth-service:8001
       JWT_SECRET: ${JWT_SECRET}
       JWT_ALGORITHM: HS256
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       ENVIRONMENT: development
       LOG_LEVEL: INFO
     depends_on:
@@ -173,6 +174,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: voiceiq-recordings
       ADMIN_SERVICE_URL: http://admin-service:8007
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       ENVIRONMENT: development
       LOG_LEVEL: INFO
     depends_on:
@@ -227,6 +229,7 @@ services:
       LLM_EXTRA_HEADER_NAME: ${LLM_EXTRA_HEADER_NAME}
       LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE}
       LLM_MODEL_NAME: ${LLM_MODEL_NAME}
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       ENVIRONMENT: development
       LOG_LEVEL: INFO
     depends_on:
@@ -273,6 +276,8 @@ services:
       LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE}
       LLM_MODEL_NAME: ${LLM_MODEL_NAME}
       SCRIPTS_SERVICE_URL: http://scripts-service:8005
+      TRANSCRIPTION_SERVICE_URL: http://transcription-service:8003
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       JWT_SECRET: ${JWT_SECRET}
       JWT_ALGORITHM: HS256
       ENVIRONMENT: development
@@ -317,6 +322,7 @@ services:
       RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
       AUTH_SERVICE_URL: http://auth-service:8001
       ADMIN_SERVICE_URL: http://admin-service:8007
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       JWT_SECRET: ${JWT_SECRET}
       JWT_ALGORITHM: HS256
       ENVIRONMENT: development
@@ -337,6 +343,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       ENVIRONMENT: development
       LOG_LEVEL: INFO
     depends_on:
