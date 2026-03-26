@@ -1,0 +1,223 @@
+{
+  "title": "VoiceIQ — Система",
+  "uid": "voiceiq-main",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "🟢 Статус контейнеров",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"voiceiq.*\"}[1m])) * 100",
+          "legendFormat": "{{name}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        { "id": "labelsToFields", "options": { "valueLabel": "name" } },
+        { "id": "organize", "options": { "renameByName": { "Value": "CPU %" } } }
+      ],
+      "options": { "sortBy": [{ "displayName": "CPU %", "desc": true }] }
+    },
+    {
+      "id": 2,
+      "title": "📊 CPU контейнеров, %",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"voiceiq.*\"}[1m])) * 100",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 3,
+      "title": "💾 RAM контейнеров",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "container_memory_usage_bytes{name=~\"voiceiq.*\"}",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 4,
+      "title": "🐇 Очереди RabbitMQ — сообщений ожидает",
+      "type": "bargauge",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rabbitmq_queue_messages_ready{queue=~\"queue\\\\..*\"}",
+          "legendFormat": "{{queue}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "displayMode": "gradient"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "📈 Глубина очередей по времени",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "datasource": { "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rabbitmq_queue_messages{queue=~\"queue\\\\..*\"}",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 6,
+      "title": "🎙️ Записей принято сегодня",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 24, "w": 6, "h": 5 },
+      "datasource": { "uid": "postgres" },
+      "targets": [
+        {
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) as value FROM recorder.recordings WHERE session_date = CURRENT_DATE",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": 0 }] } } }
+    },
+    {
+      "id": 7,
+      "title": "📝 Транскрибировано сегодня",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 24, "w": 6, "h": 5 },
+      "datasource": { "uid": "postgres" },
+      "targets": [
+        {
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) as value FROM transcription.transcripts WHERE DATE(created_at) = CURRENT_DATE",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "purple", "value": 0 }] } } }
+    },
+    {
+      "id": 8,
+      "title": "🤖 Проанализировано сегодня",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 24, "w": 6, "h": 5 },
+      "datasource": { "uid": "postgres" },
+      "targets": [
+        {
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) as value FROM analytics.conversations WHERE session_date = CURRENT_DATE",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": 0 }] } } }
+    },
+    {
+      "id": 9,
+      "title": "⭐ Средний балл сегодня",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 24, "w": 6, "h": 5 },
+      "datasource": { "uid": "postgres" },
+      "targets": [
+        {
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(AVG(overall_score)::numeric, 1) as value FROM analytics.conversations WHERE session_date = CURRENT_DATE AND overall_score IS NOT NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 60 },
+              { "color": "green", "value": 80 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "🔄 Пайплайн — записи за последние 24ч",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 29, "w": 24, "h": 8 },
+      "datasource": { "uid": "postgres" },
+      "targets": [
+        {
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1h'), COUNT(*) as \"Принято\" FROM recorder.recordings WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        },
+        {
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1h'), COUNT(*) as \"Транскрибировано\" FROM transcription.transcripts WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "refId": "B"
+        },
+        {
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(analyzed_at, '1h'), COUNT(*) as \"Проанализировано\" FROM analytics.conversations WHERE $__timeFilter(analyzed_at) GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2 } }
+      }
+    }
+  ],
+  "templating": { "list": [] },
+  "annotations": { "list": [] }
+}

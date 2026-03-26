@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Контейнеры — CPU, RAM, сеть
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # RabbitMQ — очереди, соединения, сообщения
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ['rabbitmq:15692']
+
+  # Метрики самих сервисов FastAPI (endpoint /metrics)
+  - job_name: voiceiq-services
+    static_configs:
+      - targets:
+          - 'auth-service:8001'
+          - 'admin-service:8007'
+          - 'recorder-service:8002'
+          - 'transcription-service:8003'
+          - 'analytics-engine:8004'
+          - 'scripts-service:8005'
+          - 'dashboard-service:8006'
+    metrics_path: /metrics
