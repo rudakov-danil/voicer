@@ -72,15 +72,9 @@ async def upload_chunk(
     db.add(chunk)
     await db.commit()
 
-    # Publish stitch task every 10 chunks or on first chunk
-    if chunk_index % 10 == 0 or chunk_index == 0:
-        await publish("queue.stitch", {
-            "device_id": str(device.id),
-            "session_date": session_date,
-            "organization_id": str(device.organization_id),
-            "store_id": str(device.store_id),
-            "seller_id": str(device.seller_id) if device.seller_id else None,
-        })
+    # Stitch is triggered only on finalize — not during upload.
+    # Badges upload all chunks when placed on charger, so we wait
+    # for the explicit finalize signal before starting stitching.
 
     return ChunkUploadResponse(chunk_id=chunk_id, status="received")
 

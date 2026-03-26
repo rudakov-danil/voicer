@@ -33,27 +33,40 @@ async def process_stitch_message(
             organization_id = payload["organization_id"]
             store_id = payload["store_id"]
             seller_id = payload.get("seller_id")
+            total_chunks = payload.get("total_chunks")  # expected total, sent by finalize
 
             async with session_maker() as db:
-                # Get all unstitched chunks for this device+date, sorted by index
+                # Get ALL chunks for this device+date (stitched or not), sorted by index
                 result = await db.execute(
                     select(AudioChunk)
                     .where(
                         AudioChunk.device_id == device_id,
                         AudioChunk.session_date == session_date_obj,
-                        AudioChunk.stitched == False,
                     )
                     .order_by(AudioChunk.chunk_index)
                 )
                 chunks = result.scalars().all()
 
                 if not chunks:
-                    logger.info(f"No unstitched chunks for device={device_id} date={session_date}")
+                    logger.info(f"No chunks for device={device_id} date={session_date}")
                     return
 
-                # Download chunk audio from MinIO
+                # If badge told us total_chunks — verify all arrived before stitching
+                if total_chunks is not None and len(chunks) < total_chunks:
+                    logger.warning(
+                        f"device={device_id} date={session_date}: "
+                        f"expected {total_chunks} chunks, got {len(chunks)} — waiting"
+                    )
+                    return
+
+                # Download chunk audio from MinIO (only unstitched ones)
+                unstitched = [c for c in chunks if not c.stitched]
+                if not unstitched:
+                    logger.info(f"All chunks already stitched for device={device_id} date={session_date}")
+                    return
+
                 chunk_data_list = []
-                for chunk in chunks:
+                for chunk in unstitched:
                     # audio_path format: "bucket/object_name"
                     parts = chunk.audio_path.split("/", 1)
                     bucket = parts[0]
@@ -70,7 +83,7 @@ async def process_stitch_message(
                 upload_bytes(AUDIO_FULL_BUCKET, full_object_name, full_audio)
 
                 # Mark chunks as stitched
-                chunk_ids = [c.id for c in chunks]
+                chunk_ids = [c.id for c in unstitched]
                 await db.execute(
                     update(AudioChunk)
                     .where(AudioChunk.id.in_(chunk_ids))
