@@ -1,0 +1,243 @@
+import uuid
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, or_, and_
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.models import ScriptTemplate, ScriptStep, SellerScriptAssignment
+from app.schemas import TemplateCreate, TemplatePatch, TemplateListItem, TemplateDetail, AssignedSeller, ScriptStepOut
+from app.validators import validate_weights_sum
+
+router = APIRouter(prefix="/api/v1/scripts/templates", tags=["templates"])
+
+
+def _build_visibility_condition(user: dict):
+    org_id = uuid.UUID(user["organization_id"])
+    if user["role"] in ("director", "admin"):
+        return ScriptTemplate.organization_id == org_id
+    # manager: org_level + own manager_level
+    return and_(
+        ScriptTemplate.organization_id == org_id,
+        or_(
+            ScriptTemplate.scope == "org_level",
+            and_(
+                ScriptTemplate.scope == "manager_level",
+                ScriptTemplate.created_by == uuid.UUID(user["sub"]),
+            ),
+        ),
+    )
+
+
+@router.get("")
+async def list_templates(
+    scope: str | None = None,
+    is_active: bool | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    condition = _build_visibility_condition(user)
+    q = select(ScriptTemplate).where(condition)
+    if scope is not None:
+        q = q.where(ScriptTemplate.scope == scope)
+    if is_active is not None:
+        q = q.where(ScriptTemplate.is_active == is_active)
+
+    total_q = select(func.count()).select_from(q.subquery())
+    total = (await db.execute(total_q)).scalar_one()
+
+    q = q.offset(offset).limit(limit)
+    templates = (await db.execute(q)).scalars().all()
+
+    items = []
+    for t in templates:
+        step_count = len(t.steps)
+        seller_count = len(t.assignments)
+        items.append(TemplateListItem(
+            id=t.id,
+            name=t.name,
+            description=t.description,
+            scope=t.scope,
+            is_active=t.is_active,
+            step_count=step_count,
+            seller_count=seller_count,
+            created_at=t.created_at,
+        ))
+
+    return {"items": items, "total": total}
+
+
+@router.post("", status_code=201)
+async def create_template(
+    body: TemplateCreate,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Role check for scope
+    if body.scope == "org_level" and user["role"] == "manager":
+        raise HTTPException(status_code=403, detail="Managers cannot create org_level scripts")
+
+    # Validate weights
+    weights = [s.weight for s in body.steps]
+    if not validate_weights_sum(weights):
+        total = sum(weights)
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "INVALID_WEIGHTS", "message": f"Sum of step weights must equal 1.000, got {total:.3f}"},
+        )
+
+    template = ScriptTemplate(
+        organization_id=uuid.UUID(user["organization_id"]),
+        name=body.name,
+        description=body.description,
+        scope=body.scope,
+        context_description=body.context_description,
+        created_by=uuid.UUID(user["sub"]),
+    )
+    db.add(template)
+    await db.flush()
+
+    for step_data in body.steps:
+        step = ScriptStep(
+            template_id=template.id,
+            name=step_data.name,
+            description=step_data.description,
+            weight=step_data.weight,
+            is_required=step_data.is_required,
+            step_order=step_data.step_order,
+            recommendation_text=step_data.recommendation_text,
+        )
+        db.add(step)
+
+    await db.commit()
+    await db.refresh(template)
+
+    return _template_detail(template)
+
+
+@router.get("/{template_id}")
+async def get_template(
+    template_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    template = await _get_visible_template(template_id, user, db)
+    return _template_detail(template)
+
+
+@router.put("/{template_id}")
+async def replace_template(
+    template_id: uuid.UUID,
+    body: TemplateCreate,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    template = await _get_visible_template(template_id, user, db)
+
+    # Only creator or director/admin can update
+    if user["role"] not in ("director", "admin") and str(template.created_by) != user["sub"]:
+        raise HTTPException(status_code=403, detail="Not allowed to modify this template")
+
+    # Validate weights
+    weights = [s.weight for s in body.steps]
+    if not validate_weights_sum(weights):
+        total = sum(weights)
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "INVALID_WEIGHTS", "message": f"Sum of step weights must equal 1.000, got {total:.3f}"},
+        )
+
+    # Update template fields (scope and org_id cannot change)
+    template.name = body.name
+    template.description = body.description
+    template.context_description = body.context_description
+    template.updated_at = datetime.utcnow()
+
+    # Replace steps
+    for step in list(template.steps):
+        await db.delete(step)
+    await db.flush()
+
+    for step_data in body.steps:
+        step = ScriptStep(
+            template_id=template.id,
+            name=step_data.name,
+            description=step_data.description,
+            weight=step_data.weight,
+            is_required=step_data.is_required,
+            step_order=step_data.step_order,
+            recommendation_text=step_data.recommendation_text,
+        )
+        db.add(step)
+
+    await db.commit()
+    await db.refresh(template)
+    return _template_detail(template)
+
+
+@router.patch("/{template_id}")
+async def patch_template(
+    template_id: uuid.UUID,
+    body: TemplatePatch,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    template = await _get_visible_template(template_id, user, db)
+
+    if user["role"] not in ("director", "admin") and str(template.created_by) != user["sub"]:
+        raise HTTPException(status_code=403, detail="Not allowed to modify this template")
+
+    if body.name is not None:
+        template.name = body.name
+    if body.description is not None:
+        template.description = body.description
+    if body.is_active is not None:
+        template.is_active = body.is_active
+    template.updated_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(template)
+    return _template_detail(template)
+
+
+async def _get_visible_template(template_id: uuid.UUID, user: dict, db: AsyncSession) -> ScriptTemplate:
+    result = await db.execute(select(ScriptTemplate).where(ScriptTemplate.id == template_id))
+    template = result.scalar_one_or_none()
+    if template is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if str(template.organization_id) != user["organization_id"]:
+        raise HTTPException(status_code=404, detail="Template not found")
+    # visibility check
+    if user["role"] not in ("director", "admin"):
+        if template.scope == "manager_level" and str(template.created_by) != user["sub"]:
+            raise HTTPException(status_code=404, detail="Template not found")
+    return template
+
+
+def _template_detail(template: ScriptTemplate) -> dict:
+    return {
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "scope": template.scope,
+        "context_description": template.context_description,
+        "is_active": template.is_active,
+        "steps": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "weight": float(s.weight),
+                "is_required": s.is_required,
+                "step_order": s.step_order,
+                "recommendation_text": s.recommendation_text,
+            }
+            for s in template.steps
+        ],
+        "assigned_sellers": [
+            {"seller_id": a.seller_id, "is_mandatory": a.is_mandatory}
+            for a in template.assignments
+        ],
+    }

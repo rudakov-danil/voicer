@@ -1,0 +1,352 @@
+version: "3.9"
+
+services:
+  # ─── Инфраструктура ───────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: voiceiq
+      POSTGRES_USER: voiceiq
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voiceiq"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: voiceiq
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"   # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"   # Console UI
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── API Gateway (nginx) ──────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - auth-service
+      - admin-service
+      - recorder-service
+      - transcription-service
+      - analytics-engine
+      - scripts-service
+      - dashboard-service
+
+  # ─── Бизнес-сервисы ───────────────────────────────────────────────────────
+  auth-service:
+    build: ./services/auth-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 15
+      REFRESH_TOKEN_EXPIRE_DAYS: 30
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  admin-service:
+    build: ./services/admin-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      AUTH_SERVICE_URL: http://auth-service:8001
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+
+  scripts-service:
+    build: ./services/scripts-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      AUTH_SERVICE_URL: http://auth-service:8001
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+
+  recorder-service:
+    build: ./services/recorder-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: voiceiq-recordings
+      ADMIN_SERVICE_URL: http://admin-service:8007
+      AUTH_SERVICE_URL: http://auth-service:8001
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  recorder-worker:
+    build: ./services/recorder-service
+    restart: unless-stopped
+    command: python -m worker.stitch_worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: voiceiq-recordings
+      ADMIN_SERVICE_URL: http://admin-service:8007
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  transcription-service:
+    build: ./services/transcription-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: voiceiq-recordings
+      WHISPER_SERVER_URL: ${WHISPER_SERVER_URL}
+      LLM_SERVER_URL: ${LLM_SERVER_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_EXTRA_HEADER_NAME: ${LLM_EXTRA_HEADER_NAME}
+      LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  transcription-worker:
+    build: ./services/transcription-service
+    restart: unless-stopped
+    command: python -m worker.transcribe_worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: voiceiq-recordings
+      WHISPER_SERVER_URL: ${WHISPER_SERVER_URL}
+      LLM_SERVER_URL: ${LLM_SERVER_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_EXTRA_HEADER_NAME: ${LLM_EXTRA_HEADER_NAME}
+      LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME}
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  diarize-worker:
+    build: ./services/transcription-service
+    restart: unless-stopped
+    command: python -m worker.diarize_worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: voiceiq-recordings
+      LLM_SERVER_URL: ${LLM_SERVER_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_EXTRA_HEADER_NAME: ${LLM_EXTRA_HEADER_NAME}
+      LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME}
+      ADMIN_SERVICE_URL: http://admin-service:8007
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  analytics-engine:
+    build: ./services/analytics-engine
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      LLM_SERVER_URL: ${LLM_SERVER_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_EXTRA_HEADER_NAME: ${LLM_EXTRA_HEADER_NAME}
+      LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME}
+      SCRIPTS_SERVICE_URL: http://scripts-service:8005
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  analytics-worker:
+    build: ./services/analytics-engine
+    restart: unless-stopped
+    command: python -m worker.analyze_worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      LLM_SERVER_URL: ${LLM_SERVER_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_EXTRA_HEADER_NAME: ${LLM_EXTRA_HEADER_NAME}
+      LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME}
+      LLM_SCRIPT_TIMEOUT: ${LLM_SCRIPT_TIMEOUT}
+      LLM_GENERAL_TIMEOUT: ${LLM_GENERAL_TIMEOUT}
+      SCRIPTS_SERVICE_URL: http://scripts-service:8005
+      TRANSCRIPTION_SERVICE_URL: http://transcription-service:8003
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  dashboard-service:
+    build: ./services/dashboard-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      AUTH_SERVICE_URL: http://auth-service:8001
+      ADMIN_SERVICE_URL: http://admin-service:8007
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  dashboard-worker:
+    build: ./services/dashboard-service
+    restart: unless-stopped
+    command: python -m worker.cache_invalidation_worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://voiceiq:${RABBITMQ_PASSWORD}@rabbitmq:5672/?heartbeat=0
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  minio_data:
