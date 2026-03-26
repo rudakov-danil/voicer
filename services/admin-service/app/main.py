@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 
 from app.config import settings
@@ -86,6 +87,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="VoiceIQ Admin Service", version="1.0.0", lifespan=lifespan)
 
+app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
