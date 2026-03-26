@@ -30,7 +30,7 @@ export function LoginPage() {
       setGeneralError('')
       const response = await authApi.login(data)
       setTokens(response.access_token, response.refresh_token)
-      setUser(response.user)
+      setUser(response.user as import('@/types').User)
       navigate('/dashboard')
     } catch (error: any) {
       if (error.response?.status === 401) {
