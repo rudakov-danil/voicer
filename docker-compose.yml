@@ -378,11 +378,17 @@ services:
     privileged: true
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
     ports:
       - "8888:8080"
+    command:
+      - --docker_only=true
+      - --store_container_labels=true
 
   grafana:
     image: grafana/grafana:10.4.2
