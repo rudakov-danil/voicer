@@ -123,7 +123,7 @@ export function TeamPage() {
                     })
                   }
                   return acc
-                }, [] as any[]).map((store) => (
+                }, [] as any[])?.map((store) => (
                   <tr key={store.store_id}>
                     <td>{store.store_id}</td>
                     <td>{store.count}</td>

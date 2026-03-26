@@ -25,7 +25,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'voiceiq-auth',
-      partialize: (state) => ({ refreshToken: state.refreshToken, user: state.user })
+      partialize: (state) => ({ accessToken: state.accessToken, refreshToken: state.refreshToken, user: state.user })
     }
   )
 )

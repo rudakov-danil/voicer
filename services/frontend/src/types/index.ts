@@ -31,13 +31,17 @@ export interface Conversation {
   id: string
   seller_id: string
   store_id: string
-  recorded_at: string
-  duration_seconds: number
+  session_date: string
+  analyzed_at?: string
+  recorded_at?: string
+  duration_seconds?: number
   overall_score: number
   outcome: 'purchase' | 'deferred' | 'price_objection' | 'competitor' | 'unknown'
-  has_upsell: boolean
-  compliance_ok: boolean
+  has_upsell?: boolean
+  has_violations?: boolean
+  compliance_ok?: boolean
   topic?: string
+  recording_id?: string
 }
 
 export interface ConversationDetail extends Conversation {
