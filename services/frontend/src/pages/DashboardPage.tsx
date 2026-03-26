@@ -186,16 +186,17 @@ export function DashboardPage() {
             </thead>
             <tbody>
               {(conversations?.items || []).map((c) => {
-                const durationMinutes = Math.floor(c.duration_seconds / 60)
-                const durationSeconds = c.duration_seconds % 60
-                const dateStr = new Date(c.recorded_at).toLocaleDateString('ru-RU', {
+                const durationMinutes = Math.floor((c.duration_seconds || 0) / 60)
+                const durationSeconds = (c.duration_seconds || 0) % 60
+                const dateSource = c.analyzed_at || c.recorded_at || c.session_date || ''
+                const dateStr = dateSource ? new Date(dateSource).toLocaleDateString('ru-RU', {
                   day: 'numeric',
                   month: 'short'
-                })
-                const timeStr = new Date(c.recorded_at).toLocaleTimeString('ru-RU', {
+                }) : '—'
+                const timeStr = (c.analyzed_at || c.recorded_at) ? new Date(c.analyzed_at || c.recorded_at!).toLocaleTimeString('ru-RU', {
                   hour: '2-digit',
                   minute: '2-digit'
-                })
+                }) : ''
                 return (
                   <tr
                     key={c.id}
