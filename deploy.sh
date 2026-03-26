@@ -19,9 +19,10 @@ else
 fi
 
 echo "==> Running database migrations..."
+# dashboard-service reads from analytics DB — no own schema, no migrations
 for service in auth-service admin-service recorder-service transcription-service analytics-engine scripts-service; do
   echo "  -> $service"
-  $COMPOSE run --rm $service alembic upgrade head
+  $COMPOSE run --rm $service alembic upgrade head 2>&1 | tail -5
 done
 
 echo "==> Restarting services..."
