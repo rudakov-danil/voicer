@@ -108,6 +108,8 @@ services:
   admin-service:
     build: ./services/admin-service
     restart: unless-stopped
+    ports:
+      - "8007:8007"
     environment:
       DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
       AUTH_SERVICE_URL: http://auth-service:8001
