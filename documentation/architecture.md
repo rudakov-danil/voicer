@@ -40,16 +40,16 @@ VoiceIQ построен по микросервисной архитектур�
 | Кэш / сессии | Redis | Кэширование агрегаций, JWT blacklist |
 | Очередь сообщений | RabbitMQ | Асинхронные задачи между сервисами |
 | Хранилище аудио | MinIO (S3-совместимый) | Объектное хранилище для аудиофайлов |
-| STT-движок | **Whisper (self-hosted, отдельный GPU-сервер)** | Транскрибация речи в текст |
-| LLM для анализа | **Локальные модели через Ollama (MVP) → vLLM** | Скоринг скриптов, классификация возражений, диаризация |
+| STT-движок | **Whisper (self-hosted, отдельный сервер)** | Транскрибация речи в текст |
+| LLM для анализа | **1BitAI cloud API (dev) / self-hosted GPU (prod)** | Скоринг скриптов, диаризация, анализ возражений |
 | Контейнеризация | Docker + Docker Compose | Единообразное окружение |
-| CI/CD | GitHub Actions | Автоматическая сборка, тесты, деплой |
-| Мониторинг | Prometheus + Grafana | Метрики сервисов, алерты |
-| Логирование | Loki / ELK | Централизованные логи |
+| CI/CD | GitHub (приватный репо) + deploy.sh | Ручной деплой через git pull + rebuild |
+| Мониторинг | Prometheus + Grafana + node-exporter | Метрики хоста, контейнеров, очередей |
+| Панель управления | sqladmin (встроен в admin-service) | Веб-интерфейс для управления данными |
 
 > **STT:** используется только Whisper (self-hosted). Яндекс SpeechKit не используется — данные не передаются во внешние API при транскрибации.
 
-> **LLM:** используются локальные языковые модели, запущенные на собственном GPU-сервере. MVP — Ollama (простой запуск, REST API). Продакшн — vLLM (выше производительность, поддерживает OpenAI-совместимый API). Данные не покидают инфраструктуру, соответствие 152-ФЗ.
+> **LLM (dev):** временно используется облачный 1BitAI API (OpenAI-совместимый, модель `qwen2.5:14b`). Данные передаются во внешний API — не подходит для продакшена с реальными ПД. В продакшене — self-hosted GPU сервер (Ollama или vLLM), данные не покидают инфраструктуру.
 
 ---
 
@@ -196,8 +196,12 @@ Frontend → API Gateway → auth-service          (вход, токен, про
 Frontend → API Gateway → dashboard-service     (дашборды, метрики)
 Frontend → API Gateway → scripts-service       (CRUD скриптов)
 Frontend → API Gateway → admin-service         (магазины, продавцы, устройства)
-analytics-engine → scripts-service             (получить скрипты продавца для скоринга)
+analytics-worker → transcription-service       (сегменты транскрипта, X-Internal-Key)
+analytics-worker → scripts-service             (скрипты продавца, X-Internal-Key)
+diarize-worker   → admin-service               (данные продавца, X-Internal-Key)
 ```
+
+> **Service-to-service auth:** воркеры не имеют JWT токена пользователя. Они авторизуются через заголовок `X-Internal-Key: <INTERNAL_SERVICE_KEY>`. Все API-сервисы поддерживают этот заголовок наряду с JWT.
 
 ---
 

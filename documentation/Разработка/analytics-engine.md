@@ -10,7 +10,7 @@
 2. Параллельная загрузка трансрибе из transcription-service и списка скриптов из scripts-service
 3. Разделение скриптов на обязательные и условные (контекстные)
 4. Скрининг условных скриптов: LLM определяет, применим ли скрипт к данному разговору
-5. Параллельное выполнение анализа:
+5. Последовательное выполнение анализа (LLM обрабатывает один запрос за раз):
    - Оценка каждого применимого скрипта с вычислением баллов по этапам
    - Общий анализ разговора: определение исхода, тональности, возражений
 6. Расчет итогового балла как взвешенное среднее по всем примененным скриптам
@@ -37,18 +37,23 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://analytics_service:pass@localhost:5432/voiceiq"
+    DATABASE_URL: str = "postgresql+asyncpg://voiceiq:pass@postgres:5432/voiceiq"
     RABBITMQ_URL: str = "amqp://voiceiq:pass@rabbitmq:5672/"
-    LLM_SERVER_URL: str = "http://localhost:11434"
+    # LLM — в dev используется 1BitAI cloud API, в prod — self-hosted GPU
+    LLM_SERVER_URL: str = "https://llm.1bitai.ru"
+    LLM_API_KEY: str = "1bitai"
+    LLM_EXTRA_HEADER_NAME: str = "X-PROXY-AUTH"
+    LLM_EXTRA_HEADER_VALUE: str = ""
     LLM_MODEL_NAME: str = "qwen2.5:14b"
     LLM_TEMPERATURE: float = 0.0
     LLM_MAX_TOKENS: int = 2000
     LLM_SCRIPT_TIMEOUT: int = 120
-    LLM_GENERAL_TIMEOUT: int = 60
-    LLM_MAX_PARALLEL_SCRIPTS: int = 3
+    LLM_GENERAL_TIMEOUT: int = 120
+    LLM_MAX_PARALLEL_SCRIPTS: int = 1  # последовательно — LLM один запрос за раз
     TRANSCRIPTION_SERVICE_URL: str = "http://transcription-service:8003"
     SCRIPTS_SERVICE_URL: str = "http://scripts-service:8005"
     AUTH_SERVICE_URL: str = "http://auth-service:8001"
+    INTERNAL_SERVICE_KEY: str = ""  # ключ для X-Internal-Key заголовка
 
     class Config:
         env_file = ".env"

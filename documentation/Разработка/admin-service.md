@@ -15,6 +15,8 @@ Admin Service отвечает за управление инфраструкт�
    - manager видит только свой магазин
 3. **Изоляция данных**: По organization_id и store_id
 4. **Асинхронная БД**: SQLAlchemy с AsyncSession
+5. **Service-to-service auth**: заголовок `X-Internal-Key` позволяет воркерам (diarize-worker) запрашивать данные продавца без JWT
+6. **sqladmin**: веб-панель управления данными, доступна по `/admin` с паролем из `ADMIN_PANEL_PASSWORD`
 
 ### Основная логика
 
@@ -35,7 +37,7 @@ Admin Service отвечает за управление инфраструкт�
 **Sellers** (`/api/v1/admin/sellers`):
 - `GET /` — список продавцов (с фильтрацией по store_id, is_active)
 - `POST /` — создание продавца (director/admin/manager, manager только в своём магазине)
-- `GET /{seller_id}` — получение продавца
+- `GET /{seller_id}` — получение продавца (JWT **или** X-Internal-Key — используется diarize-worker)
 - `PATCH /{seller_id}` — обновление продавца
 
 **Devices** (`/api/v1/admin/devices`):
