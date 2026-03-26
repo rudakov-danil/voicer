@@ -379,9 +379,9 @@ services:
     volumes:
       - /:/rootfs:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
     devices:
       - /dev/kmsg
     ports:
@@ -389,6 +389,7 @@ services:
     command:
       - --docker_only=true
       - --store_container_labels=true
+      - --disable_metrics=disk,diskIO
 
   grafana:
     image: grafana/grafana:10.4.2
