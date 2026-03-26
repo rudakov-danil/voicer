@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
+from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import ScriptTemplate, ScriptStep, SellerScriptAssignment
@@ -39,7 +40,10 @@ async def list_templates(
     db: AsyncSession = Depends(get_db),
 ):
     condition = _build_visibility_condition(user)
-    q = select(ScriptTemplate).where(condition)
+    q = select(ScriptTemplate).options(
+        selectinload(ScriptTemplate.steps),
+        selectinload(ScriptTemplate.assignments)
+    ).where(condition)
     if scope is not None:
         q = q.where(ScriptTemplate.scope == scope)
     if is_active is not None:

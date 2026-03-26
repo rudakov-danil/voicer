@@ -3,6 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, delete
+from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Conversation, ConversationScriptResult, ConversationScore, Objection
@@ -48,6 +49,7 @@ async def list_conversations(
 
     q = select(Conversation).where(and_(*conditions))
     total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    q = q.options(selectinload(Conversation.script_results))
     conversations = (await db.execute(q.offset(offset).limit(limit))).scalars().all()
 
     items = []
@@ -73,7 +75,15 @@ async def get_conversation(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Conversation).where(Conversation.id == conversation_id))
+    result = await db.execute(
+        select(Conversation)
+        .options(
+            selectinload(Conversation.script_results),
+            selectinload(Conversation.scores),
+            selectinload(Conversation.objections),
+        )
+        .where(Conversation.id == conversation_id)
+    )
     conv = result.scalar_one_or_none()
     if conv is None or str(conv.organization_id) != user["organization_id"]:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -141,7 +151,10 @@ async def get_seller_stats(
         Conversation.session_date <= date_to,
     ]
 
-    q = select(Conversation).where(and_(*conditions))
+    q = select(Conversation).options(
+        selectinload(Conversation.script_results),
+        selectinload(Conversation.scores),
+    ).where(and_(*conditions))
     conversations = (await db.execute(q)).scalars().all()
 
     if not conversations:
