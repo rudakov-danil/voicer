@@ -369,27 +369,26 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=30d'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - cadvisor
+      - node-exporter
 
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
     restart: unless-stopped
-    privileged: true
+    pid: host
     volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
       - /:/rootfs:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-    devices:
-      - /dev/kmsg
-    ports:
-      - "8888:8080"
     command:
-      - --docker_only=true
-      - --store_container_labels=true
-      - --disable_metrics=disk,diskIO
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   grafana:
     image: grafana/grafana:10.4.2
