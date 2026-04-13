@@ -20,6 +20,7 @@ export interface Seller {
   first_name: string
   last_name: string
   store_id: string
+  store_name?: string
   is_active: boolean
   avg_score?: number
   conversion_rate?: number
@@ -93,7 +94,182 @@ export interface ScriptTemplate {
 export interface ScriptStep {
   id: string
   name: string
+  description?: string
   weight: number
   order: number
   is_required: boolean
+  recommendation_text?: string
+}
+
+// --- Analytics Types ---
+
+export interface ObjectionDistribution {
+  type: string
+  count: number
+  percentage: number
+}
+
+export interface ObjectionCorrelation {
+  type: string
+  total: number
+  purchases: number
+  refusals: number
+  conversion_after: number
+  best_technique: string
+}
+
+export interface ConversionFunnel {
+  stage: string
+  count: number
+  percentage: number
+}
+
+export interface ConversionByStore {
+  store_name: string
+  conversion_rate: number
+}
+
+export interface SentimentData {
+  positive: number
+  neutral: number
+  negative: number
+}
+
+export interface SentimentTrend {
+  week: string
+  positive: number
+  neutral: number
+  negative: number
+}
+
+// --- Intelligence Types ---
+
+export interface CompetitorMention {
+  name: string
+  mentions: number
+  trend: number
+  sentiment: 'positive' | 'negative' | 'mixed' | 'neutral'
+}
+
+export interface TopicTrend {
+  topic: string
+  mentions: number
+  trend: number
+  is_hot: boolean
+}
+
+export interface UnmetDemand {
+  rank: number
+  description: string
+  mentions: number
+}
+
+export interface ProductFeedback {
+  product: string
+  pros: string[]
+  cons: string[]
+}
+
+// --- Training Types ---
+
+export interface NewcomerProgress {
+  seller_id: string
+  first_name: string
+  last_name: string
+  store_name: string
+  weeks_in_company: number
+  progress: number
+  development_zone: string
+  weekly_scores: { week: string; score: number }[]
+}
+
+export interface BestConversation {
+  id: string
+  seller_name: string
+  topic: string
+  score: number
+  highlight: string
+}
+
+// --- Compliance Types ---
+
+export interface ComplianceMetrics {
+  compliance_level: number
+  conversations_reviewed: number
+  violations_count: number
+}
+
+export interface Violation {
+  id: string
+  date: string
+  seller_name: string
+  store_name: string
+  violation: string
+  status: string
+}
+
+export interface ComplianceRule {
+  industry: string
+  rules_count: number
+  is_active: boolean
+}
+
+export interface ViolationType {
+  name: string
+  count: number
+  severity: 'high' | 'medium' | 'low'
+}
+
+// --- Admin Types ---
+
+export interface Device {
+  id: string
+  serial_number: string
+  model: string
+  store_id: string
+  seller_id?: string
+  is_active: boolean
+  last_seen_at?: string
+}
+
+export interface PrivacySettings {
+  employee_consent: boolean
+  client_notification: boolean
+  advance_notice: boolean
+  data_localization: boolean
+  encryption: boolean
+  anonymize_pii: boolean
+  retention_days: number
+}
+
+export interface AlertSettings {
+  compliance_violations: boolean
+  upsell_gaps: boolean
+  competitor_spike: boolean
+  weekly_report: boolean
+  low_scoring_alert: boolean
+}
+
+// --- Seller Detail ---
+
+export interface SellerDetail {
+  id: string
+  first_name: string
+  last_name: string
+  store_name: string
+  conversion_rate: number
+  avg_score: number
+  avg_check: number
+  conversations_count: number
+  score_trend: number
+  step_scores: { name: string; score: number }[]
+  recommendations: { severity: 'warning' | 'info'; text: string }[]
+  recent_conversations: {
+    id: string
+    topic: string
+    date: string
+    duration_seconds: number
+    score: number
+    outcome: string
+  }[]
 }

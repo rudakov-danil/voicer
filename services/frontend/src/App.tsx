@@ -12,6 +12,7 @@ import { IntelligencePage } from '@/pages/IntelligencePage'
 import { TrainingPage } from '@/pages/TrainingPage'
 import { CompliancePage } from '@/pages/CompliancePage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { AdminPage } from '@/pages/AdminPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +41,7 @@ export default function App() {
               <Route path="training" element={<TrainingPage />} />
               <Route path="compliance" element={<CompliancePage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="admin" element={<AdminPage />} />
             </Route>
           </Route>
         </Routes>

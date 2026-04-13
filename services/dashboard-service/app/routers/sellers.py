@@ -78,9 +78,15 @@ async def list_sellers(
             c.total_conversations,
             c.avg_score,
             c.conversion_rate,
-            COALESCE(p.prev_avg_score, 0) AS prev_avg_score
+            COALESCE(p.prev_avg_score, 0) AS prev_avg_score,
+            s.first_name AS seller_first_name,
+            s.last_name AS seller_last_name,
+            s.store_id,
+            st.name AS store_name
         FROM current_period c
         LEFT JOIN prev_period p ON c.seller_id = p.seller_id
+        LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
+        LEFT JOIN admin_schema.stores st ON st.id = s.store_id
         ORDER BY {order_clause}
         LIMIT :limit
     """)
@@ -123,6 +129,10 @@ async def list_sellers(
 
         items.append({
             "seller_id": row.seller_id,
+            "first_name": row.seller_first_name or "",
+            "last_name": row.seller_last_name or "",
+            "store_id": str(row.store_id) if row.store_id else None,
+            "store_name": row.store_name or "",
             "total_conversations": row.total_conversations,
             "avg_score": round(curr, 1),
             "conversion_rate": round(float(row.conversion_rate), 4),

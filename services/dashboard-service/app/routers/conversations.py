@@ -34,8 +34,8 @@ async def list_conversations(
         date_to = date.today()
 
     conditions = [
-        "organization_id = :org_id",
-        "session_date BETWEEN :date_from AND :date_to",
+        "c.organization_id = :org_id",
+        "c.session_date BETWEEN :date_from AND :date_to",
     ]
     params: dict = {
         "org_id": uuid.UUID(org_id),
@@ -46,24 +46,24 @@ async def list_conversations(
     }
 
     if effective_store_id:
-        conditions.append("store_id = :store_id")
+        conditions.append("c.store_id = :store_id")
         params["store_id"] = effective_store_id
     if seller_id:
-        conditions.append("seller_id = :seller_id")
+        conditions.append("c.seller_id = :seller_id")
         params["seller_id"] = seller_id
     if outcome:
-        conditions.append("outcome = :outcome")
+        conditions.append("c.outcome = :outcome")
         params["outcome"] = outcome
     if score_min is not None:
-        conditions.append("overall_score >= :score_min")
+        conditions.append("c.overall_score >= :score_min")
         params["score_min"] = score_min
     if score_max is not None:
-        conditions.append("overall_score <= :score_max")
+        conditions.append("c.overall_score <= :score_max")
         params["score_max"] = score_max
 
     where = " AND ".join(conditions)
 
-    count_sql = text(f"SELECT COUNT(*) FROM analytics.conversations WHERE {where}")
+    count_sql = text(f"SELECT COUNT(*) FROM analytics.conversations c WHERE {where}")
     total = (await db.execute(count_sql, params)).scalar_one()
 
     list_sql = text(f"""
@@ -75,12 +75,20 @@ async def list_conversations(
             c.session_date,
             c.overall_score,
             c.outcome,
+            c.topic,
             c.analyzed_at,
+            r.duration_seconds,
+            s.first_name AS seller_first_name,
+            s.last_name AS seller_last_name,
+            st.name AS store_name,
             EXISTS(
                 SELECT 1 FROM analytics.conversation_script_results csr
                 WHERE csr.conversation_id = c.id AND cardinality(csr.violations) > 0
             ) AS has_violations
         FROM analytics.conversations c
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
+        LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
+        LEFT JOIN admin_schema.stores st ON st.id = c.store_id
         WHERE {where}
         ORDER BY c.session_date DESC, c.analyzed_at DESC
         LIMIT :limit OFFSET :offset
@@ -93,9 +101,13 @@ async def list_conversations(
             "recording_id": r.recording_id,
             "seller_id": r.seller_id,
             "store_id": r.store_id,
+            "seller_name": f"{r.seller_first_name or ''} {r.seller_last_name or ''}".strip() or None,
+            "store_name": r.store_name,
             "session_date": str(r.session_date),
             "overall_score": float(r.overall_score) if r.overall_score is not None else None,
             "outcome": r.outcome,
+            "topic": r.topic,
+            "duration_seconds": r.duration_seconds,
             "has_violations": r.has_violations,
             "analyzed_at": r.analyzed_at,
         }
@@ -113,12 +125,18 @@ async def get_conversation_detail(
 ):
     org_id, _ = org_store_conditions(user)
 
-    # Get conversation from analytics
+    # Get conversation from analytics with seller/store names
     sql = text("""
-        SELECT id, recording_id, seller_id, store_id, session_date,
-               overall_score, outcome, outcome_confidence, topic, sentiment_avg, analyzed_at
-        FROM analytics.conversations
-        WHERE id = :conv_id AND organization_id = :org_id
+        SELECT c.id, c.recording_id, c.seller_id, c.store_id, c.session_date,
+               c.overall_score, c.outcome, c.outcome_confidence, c.topic, c.sentiment_avg, c.analyzed_at,
+               r.duration_seconds,
+               s.first_name AS seller_first_name, s.last_name AS seller_last_name,
+               st.name AS store_name
+        FROM analytics.conversations c
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
+        LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
+        LEFT JOIN admin_schema.stores st ON st.id = c.store_id
+        WHERE c.id = :conv_id AND c.organization_id = :org_id
     """)
     row = (await db.execute(sql, {"conv_id": conversation_id, "org_id": uuid.UUID(org_id)})).fetchone()
     if not row:
@@ -126,15 +144,41 @@ async def get_conversation_detail(
 
     recording_id = str(row.recording_id)
 
-    # Fetch transcript from transcription-service in parallel
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            transcript_resp = await client.get(
-                f"{settings.TRANSCRIPTION_SERVICE_URL}/api/v1/transcription/transcripts/{recording_id}"
-            )
-            transcript_data = transcript_resp.json() if transcript_resp.status_code == 200 else {}
-        except httpx.HTTPError:
-            transcript_data = {}
+    # Fetch transcript directly from DB (same postgres, no auth needed)
+    transcript_sql = text("""
+        SELECT id, full_text, language, duration_seconds, status
+        FROM transcription.transcripts
+        WHERE recording_id = :rec_id
+        LIMIT 1
+    """)
+    t_row = (await db.execute(transcript_sql, {"rec_id": row.recording_id})).fetchone()
+
+    segments = []
+    transcript_data = {}
+    if t_row:
+        seg_sql = text("""
+            SELECT id, speaker_role, text, start_ms, end_ms, segment_index
+            FROM transcription.transcript_segments
+            WHERE transcript_id = :t_id
+            ORDER BY segment_index
+        """)
+        seg_rows = (await db.execute(seg_sql, {"t_id": t_row.id})).fetchall()
+        segments = [
+            {
+                "speaker_role": s.speaker_role,
+                "text": s.text,
+                "start_ms": s.start_ms,
+                "end_ms": s.end_ms,
+            }
+            for s in seg_rows
+        ]
+        transcript_data = {
+            "id": str(t_row.id),
+            "full_text": t_row.full_text,
+            "duration_seconds": t_row.duration_seconds or (row.duration_seconds if hasattr(row, 'duration_seconds') else None),
+            "status": t_row.status,
+            "segments": segments,
+        }
 
     # Get script results
     scripts_sql = text("""
@@ -167,11 +211,18 @@ async def get_conversation_detail(
                 "evidence": sr.evidence_text,
             })
 
+    seller_name = f"{row.seller_first_name or ''} {row.seller_last_name or ''}".strip() or None
+    duration = transcript_data.get("duration_seconds") or (row.duration_seconds if hasattr(row, 'duration_seconds') else None)
+
     conversation_data = {
         "id": row.id,
         "recording_id": row.recording_id,
         "seller_id": row.seller_id,
+        "seller_name": seller_name,
+        "store_name": row.store_name,
         "session_date": str(row.session_date),
+        "analyzed_at": str(row.analyzed_at) if row.analyzed_at else None,
+        "duration_seconds": duration,
         "overall_score": float(row.overall_score) if row.overall_score is not None else None,
         "outcome": row.outcome,
         "outcome_confidence": float(row.outcome_confidence) if row.outcome_confidence else None,
@@ -183,5 +234,4 @@ async def get_conversation_detail(
     return {
         "conversation": conversation_data,
         "transcript": transcript_data,
-        "audio_url": transcript_data.get("audio_url"),
     }

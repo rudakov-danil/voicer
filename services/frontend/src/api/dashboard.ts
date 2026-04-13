@@ -6,7 +6,17 @@ export const dashboardApi = {
     period?: number
     store_id?: string
   }) => {
-    const response = await apiClient.get<DashboardOverview>('/api/v1/dashboard/overview', { params })
+    // Backend expects date_from/date_to, not period
+    const days = params.period || 30
+    const dateTo = new Date()
+    const dateFrom = new Date()
+    dateFrom.setDate(dateFrom.getDate() - days)
+    const apiParams: Record<string, string> = {
+      date_from: dateFrom.toISOString().split('T')[0],
+      date_to: dateTo.toISOString().split('T')[0],
+    }
+    if (params.store_id) apiParams.store_id = params.store_id
+    const response = await apiClient.get<DashboardOverview>('/api/v1/dashboard/overview', { params: apiParams })
     return response.data
   },
 
@@ -40,6 +50,7 @@ export const dashboardApi = {
       first_name: s.first_name || '',
       last_name: s.last_name || '',
       store_id: s.store_id || '',
+      store_name: s.store_name || '',
       is_active: true,
       avg_score: s.avg_score,
       conversion_rate: s.conversion_rate,

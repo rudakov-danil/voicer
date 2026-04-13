@@ -1,134 +1,135 @@
 import { useQuery } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
-import { useNavigate } from 'react-router-dom'
+import { SellerDrawer } from '@/components/SellerDrawer'
+import { ScoreBadge } from '@/components/ScoreBadge'
+import { useState } from 'react'
+
+const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1']
 
 export function TeamPage() {
-  const navigate = useNavigate()
+  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null)
 
   const { data: sellers } = useQuery({
     queryKey: ['sellers'],
-    queryFn: () => dashboardApi.getSellers()
+    queryFn: () => dashboardApi.getSellers(),
+  })
+
+  const sorted = (sellers || []).slice().sort((a, b) => (b.conversion_rate || 0) - (a.conversion_rate || 0))
+  const total = sellers?.length || 0
+  const avgScore = total ? Math.round(sellers!.reduce((s, x) => s + (x.avg_score || 0), 0) / total) : 0
+  const maxConv = sorted[0]?.conversion_rate || 0
+  const minConv = sorted[sorted.length - 1]?.conversion_rate || 0
+  const gap = minConv > 0 ? (maxConv / minConv).toFixed(1) : '—'
+
+  // Store aggregation
+  const storeMap = new Map<string, { name: string; count: number; totalScore: number; totalConv: number; totalCheck: number }>()
+  sellers?.forEach((s) => {
+    const key = s.store_name || s.store_id
+    const e = storeMap.get(key) || { name: key, count: 0, totalScore: 0, totalConv: 0, totalCheck: 0 }
+    e.count++
+    e.totalScore += s.avg_score || 0
+    e.totalConv += s.conversion_rate || 0
+    storeMap.set(key, e)
   })
 
   return (
     <div>
-      <div className="metrics-grid fade-in">
+      {/* Metrics */}
+      <div className="metrics-grid fade-in" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="metric-card">
-          <div className="metric-label">Всего продавцов</div>
-          <div className="metric-value">{sellers?.length || 0}</div>
-          <div className="metric-change up" style={{ background: 'var(--success-light)', color: 'var(--success)' }}>
-            ↑ 4%
-          </div>
+          <div className="metric-label">Продавцов в сети</div>
+          <div className="metric-value">{total}</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Средний скоринг</div>
-          <div className="metric-value">
-            {sellers
-              ? Math.round(
-                  sellers.reduce((sum, s) => sum + (s.avg_score || 0), 0) / sellers.length
-                )
-              : 0}
-            %
-          </div>
-          <div className="metric-change up" style={{ background: 'var(--success-light)', color: 'var(--success)' }}>
-            ↑ 2%
-          </div>
+          <div className="metric-value">{avgScore}%</div>
+          <div className="metric-change up">↑ 3%</div>
         </div>
         <div className="metric-card">
-          <div className="metric-label">Разброс конверсии</div>
-          <div className="metric-value">18%</div>
-          <div className="metric-change down" style={{ background: 'var(--danger-light)', color: 'var(--danger)' }}>
-            ↓ 3%
-          </div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">Разговоров всего</div>
-          <div className="metric-value">
-            {sellers
-              ? sellers.reduce((sum, s) => sum + (s.conversations_count || 0), 0)
-              : 0}
-          </div>
-          <div className="metric-change up" style={{ background: 'var(--success-light)', color: 'var(--success)' }}>
-            ↑ 8%
-          </div>
+          <div className="metric-label">Разброс конверсии (лучший/худший)</div>
+          <div className="metric-value">{gap}x</div>
         </div>
       </div>
 
       <div className="grid-2 fade-in">
+        {/* Leaderboard */}
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Лучшие продавцы</div>
-              <div className="card-subtitle">По среднему скорингу</div>
+              <div className="card-title">Рейтинг по конверсии</div>
             </div>
           </div>
-          <div style={{ paddingTop: '12px' }}>
-            {sellers?.slice().sort((a, b) => (b.avg_score || 0) - (a.avg_score || 0)).slice(0, 10).map((seller, i) => {
-              const rankColors = ['#FEF3C7', '#F1F5F9', '#FED7AA']
-              const rankTextColors = ['#B45309', '#475569', '#C2410C']
+          <div>
+            {sorted.map((seller, i) => {
+              const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : 'other'
+              const color = AVATAR_COLORS[i % AVATAR_COLORS.length]
+              const convPct = Math.round((seller.conversion_rate || 0) * 100)
               return (
-                <div key={seller.id} className="leaderboard-item">
-                  <div
-                    className="leaderboard-rank"
-                    style={{
-                      background: rankColors[i] || 'var(--bg)',
-                      color: rankTextColors[i] || 'var(--text-muted)'
-                    }}
-                  >
-                    {i + 1}
+                <div
+                  key={seller.id}
+                  className="leaderboard-item"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setSelectedSellerId(seller.id)}
+                >
+                  <div className={`leaderboard-rank ${rankClass}`}>{i + 1}</div>
+                  <div className="avatar" style={{
+                    background: color, width: 36, height: 36, borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: 'white', fontSize: '12px', fontWeight: 600, flexShrink: 0,
+                  }}>
+                    {seller.first_name[0]}{seller.last_name[0]}
                   </div>
                   <div className="leaderboard-info">
                     <div className="leaderboard-name">
                       {seller.first_name} {seller.last_name}
+                      {seller.conversations_count !== undefined && seller.conversations_count < 20 && (
+                        <span className="tag tag-primary" style={{ marginLeft: 6, fontSize: '10px', padding: '1px 6px' }}>
+                          Новичок
+                        </span>
+                      )}
                     </div>
-                    <div className="leaderboard-store">{seller.store_id}</div>
+                    <div className="leaderboard-store">{seller.store_name || seller.store_id}</div>
                   </div>
-                  <div className="leaderboard-score">{Math.round(seller.avg_score || 0)}%</div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="leaderboard-score" style={{
+                      color: convPct >= 35 ? 'var(--success)' : convPct >= 25 ? 'var(--warning)' : 'var(--danger)',
+                    }}>
+                      {convPct}%
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {seller.conversations_count || 0} разг.
+                    </div>
+                  </div>
                 </div>
               )
             })}
           </div>
         </div>
 
+        {/* Store Comparison */}
         <div className="card">
           <div className="card-header">
             <div>
               <div className="card-title">Сравнение по магазинам</div>
-              <div className="card-subtitle">Ключевые метрики</div>
             </div>
           </div>
           <div className="table-wrapper">
-            <table style={{ fontSize: '12px' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Магазин</th>
                   <th>Продавцов</th>
-                  <th>Скор</th>
-                  <th>Конверсия</th>
+                  <th>Ср. скоринг</th>
+                  <th>Ср. конверсия</th>
                 </tr>
               </thead>
               <tbody>
-                {sellers?.reduce((acc, seller) => {
-                  const store = acc.find((s) => s.store_id === seller.store_id)
-                  if (store) {
-                    store.count++
-                    store.totalScore += seller.avg_score || 0
-                    store.totalConversion += seller.conversion_rate || 0
-                  } else {
-                    acc.push({
-                      store_id: seller.store_id,
-                      count: 1,
-                      totalScore: seller.avg_score || 0,
-                      totalConversion: seller.conversion_rate || 0
-                    })
-                  }
-                  return acc
-                }, [] as any[])?.map((store) => (
-                  <tr key={store.store_id}>
-                    <td>{store.store_id}</td>
-                    <td>{store.count}</td>
-                    <td>{Math.round(store.totalScore / store.count)}%</td>
-                    <td>{Math.round((store.totalConversion / store.count) * 100)}%</td>
+                {Array.from(storeMap.entries()).map(([storeId, data]) => (
+                  <tr key={storeId}>
+                    <td style={{ fontWeight: 500, color: 'var(--text)' }}>{storeId}</td>
+                    <td>{data.count}</td>
+                    <td><ScoreBadge score={Math.round(data.totalScore / data.count)} /></td>
+                    <td>{Math.round((data.totalConv / data.count) * 100)}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -136,6 +137,8 @@ export function TeamPage() {
           </div>
         </div>
       </div>
+
+      <SellerDrawer sellerId={selectedSellerId} onClose={() => setSelectedSellerId(null)} />
     </div>
   )
 }

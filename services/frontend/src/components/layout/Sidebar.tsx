@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import {
@@ -10,7 +11,9 @@ import {
   GraduationCap,
   Shield,
   Settings as SettingsIcon,
-  LogOut
+  LogOut,
+  ChevronUp,
+  Wrench
 } from 'lucide-react'
 
 const COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981']
@@ -20,8 +23,22 @@ export function Sidebar() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const isActive = (path: string) => location.pathname === path
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const isAdmin = user?.role === 'director' || user?.role === 'admin'
 
   const navigationItems = [
     { path: '/dashboard', label: 'Обзор', icon: LayoutGrid, group: 'Основное' },
@@ -87,8 +104,54 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="user-info">
+      <div className="sidebar-footer" ref={menuRef} style={{ position: 'relative' }}>
+        {menuOpen && (
+          <div style={{
+            position: 'absolute', bottom: '100%', left: 8, right: 8,
+            background: 'var(--bg-card)', border: '1px solid var(--border)',
+            borderRadius: 8, boxShadow: '0 -4px 12px rgba(0,0,0,0.1)',
+            overflow: 'hidden', zIndex: 50, marginBottom: 4,
+          }}>
+            {isAdmin && (
+              <button
+                onClick={() => { navigate('/admin'); setMenuOpen(false) }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  width: '100%', padding: '10px 14px', border: 'none',
+                  background: isActive('/admin') ? 'var(--bg)' : 'transparent',
+                  color: 'var(--text)', cursor: 'pointer', fontSize: 13,
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = isActive('/admin') ? 'var(--bg)' : 'transparent')}
+              >
+                <Wrench size={14} />
+                Администрирование
+              </button>
+            )}
+            <button
+              onClick={() => { logout(); navigate('/login') }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                width: '100%', padding: '10px 14px', border: 'none',
+                background: 'transparent', color: 'var(--danger)',
+                cursor: 'pointer', fontSize: 13, textAlign: 'left',
+                borderTop: isAdmin ? '1px solid var(--border)' : 'none',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              <LogOut size={14} />
+              Выйти
+            </button>
+          </div>
+        )}
+
+        <div
+          className="user-info"
+          style={{ cursor: 'pointer' }}
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
           <div className="user-avatar" style={{ background: getAvatarColor() }}>
             {getInitials()}
           </div>
@@ -96,18 +159,11 @@ export function Sidebar() {
             <div className="user-name">
               {user?.first_name} {user?.last_name}
             </div>
-            <div className="user-role">{user?.role}</div>
+            <div className="user-role">{user?.role === 'director' ? 'Директор' : user?.role === 'admin' ? 'Админ' : user?.role === 'rop' ? 'РОП' : 'Менеджер'}</div>
           </div>
-          <button
-            className="icon-btn user-more"
-            onClick={() => {
-              logout()
-              navigate('/login')
-            }}
-            title="Выход"
-          >
-            <LogOut size={16} />
-          </button>
+          <div className="icon-btn user-more" style={{ transform: menuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+            <ChevronUp size={16} />
+          </div>
         </div>
       </div>
     </div>

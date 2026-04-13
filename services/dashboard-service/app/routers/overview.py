@@ -62,6 +62,18 @@ async def get_overview(
     """)
     agg_result = (await db.execute(agg_sql, params)).fetchone()
 
+    # Outcomes distribution
+    outcomes_sql = text(f"""
+        SELECT outcome, COUNT(*) AS cnt
+        FROM analytics.conversations
+        WHERE organization_id = :org_id
+          AND session_date BETWEEN :date_from AND :date_to
+          {store_filter}
+        GROUP BY outcome
+        ORDER BY cnt DESC
+    """)
+    outcome_rows = (await db.execute(outcomes_sql, params)).fetchall()
+
     # Daily stats
     daily_sql = text(f"""
         SELECT
@@ -98,6 +110,10 @@ async def get_overview(
                 "conversion_rate": round(float(row.conversion_rate), 4),
             }
             for row in daily_rows
+        ],
+        "outcomes": [
+            {"outcome": row.outcome or "unknown", "count": row.cnt}
+            for row in outcome_rows
         ],
     }
 

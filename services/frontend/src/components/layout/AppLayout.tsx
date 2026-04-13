@@ -16,7 +16,8 @@ export function AppLayout() {
     '/intelligence': 'Разведка',
     '/training': 'Обучение',
     '/compliance': 'Комплаенс',
-    '/settings': 'Настройки'
+    '/settings': 'Настройки',
+    '/admin': 'Администрирование'
   }
 
   const currentTitle = pageTitles[location.pathname] || 'VoiceIQ'
