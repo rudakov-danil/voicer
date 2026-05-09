@@ -1,8 +1,8 @@
 """
-Manual audio upload → Deepgram transcription → diarize queue.
+Manual audio upload → local Whisper transcription → diarize queue.
 
 Accepts a single audio file with seller_id and session_date,
-saves it to MinIO, calls Deepgram Whisper API for transcription,
+saves it to MinIO, calls local Whisper server for transcription,
 stores transcript in the transcription schema, then publishes
 to queue.diarize for Qwen role assignment.
 """
@@ -24,8 +24,7 @@ from app.rabbitmq import publish
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/recorder", tags=["upload"])
 
-DEEPGRAM_API_KEY = "279631e8fd1a33cd13b280f59e0f11bbb22721b7"
-DEEPGRAM_URL = "https://api.deepgram.com/v1/listen"
+import os; WHISPER_URL = os.environ.get("WHISPER_SERVER_URL", "http://whisper-server:8080") + "/transcribe"
 BUCKET = "voiceiq-recordings"
 
 CONTENT_TYPE_MAP = {
@@ -92,16 +91,16 @@ async def upload_audio(
     """), {
         "id": recording_id,
         "org_id": uuid.UUID(org_id),
-        "store_id": uuid.UUID(seller_id) if seller_id else None,  # will be overwritten below
+        "store_id": uuid.UUID(seller_id) if seller_id else None,
         "seller_id": uuid.UUID(seller_id),
-        "device_id": uuid.UUID("00000000-0000-0000-0000-000000000000"),  # manual upload placeholder
+        "device_id": uuid.UUID("00000000-0000-0000-0000-000000000000"),
         "session_date": sess_date,
         "started_at": now,
         "audio_path": audio_path,
         "file_size": len(audio_bytes),
         "now": now,
     })
-    # Fix store_id param (was mistakenly set to seller_id above)
+    # Fix store_id param
     await db.execute(text("""
         UPDATE recorder.recordings SET store_id = :store_id WHERE id = :id
     """), {"store_id": uuid.UUID(store_id), "id": recording_id})
@@ -117,6 +116,7 @@ async def upload_audio(
         store_id=store_id,
         seller_id=seller_id,
         session_date=session_date,
+        audio_path=audio_path,
     )
 
     return {
@@ -134,82 +134,59 @@ async def _transcribe_and_enqueue(
     store_id: str,
     seller_id: str,
     session_date: str,
+    audio_path: str = "",
 ):
-    """Background task: call Deepgram → save transcript → publish to diarize queue."""
+    """Background task: call local Whisper server -> save transcript -> publish to diarize queue."""
     transcript_id = uuid.uuid4()
     try:
-        # 1. Call Deepgram API
+        # 1. Call local Whisper server
+        filename = f"audio{ext}"
         content_type = CONTENT_TYPE_MAP.get(ext, "audio/wav")
-        params = {
-            "punctuate": "true",
-            "smart_format": "true",
-            "language": "ru",
-            "model": "whisper",
-        }
-        async with httpx.AsyncClient(timeout=300.0) as http:
+        logger.info(
+            f"Sending {len(audio_bytes)} bytes to Whisper for recording_id={recording_id}"
+        )
+        async with httpx.AsyncClient(timeout=86400.0) as http:
             resp = await http.post(
-                DEEPGRAM_URL,
-                headers={
-                    "Authorization": f"Token {DEEPGRAM_API_KEY}",
-                    "Content-Type": content_type,
-                },
-                content=audio_bytes,
-                params=params,
+                WHISPER_URL,
+                files={"file": (filename, audio_bytes, content_type)},
+                data={"language": "ru", "task": "transcribe"},
             )
         if resp.status_code != 200:
-            logger.error(f"Deepgram error {resp.status_code}: {resp.text[:500]}")
+            logger.error(f"Whisper error {resp.status_code}: {resp.text[:500]}")
             await _update_recording_status(recording_id, "failed")
             return
 
-        dg_result = resp.json()
-        logger.info(f"Deepgram transcription complete for recording_id={recording_id}")
+        whisper_result = resp.json()
+        full_text = whisper_result.get("text", "")
+        language = whisper_result.get("language", "ru")
+        whisper_segments = whisper_result.get("segments", [])
+        logger.info(
+            f"Whisper transcription complete for recording_id={recording_id}, "
+            f"{len(whisper_segments)} segments, text_len={len(full_text)}"
+        )
 
-        # 2. Parse Deepgram Whisper response — group words into sentences
-        channel = dg_result.get("results", {}).get("channels", [{}])[0]
-        alternative = channel.get("alternatives", [{}])[0]
-        full_text = alternative.get("transcript", "")
-        words = alternative.get("words", [])
-
+        # 2. Build segment list from Whisper output
         segments = []
-        if words:
-            current_seg: dict = {"text": "", "start_ms": 0, "end_ms": 0, "words": []}
-            for w in words:
-                if not current_seg["words"]:
-                    current_seg["start_ms"] = int(w.get("start", 0) * 1000)
-                current_seg["words"].append(w)
-                current_seg["end_ms"] = int(w.get("end", 0) * 1000)
-
-                # Split on sentence-ending punctuation
-                if w.get("punctuated_word", "").rstrip().endswith((".", "!", "?")):
-                    current_seg["text"] = " ".join(
-                        ww.get("punctuated_word", ww.get("word", "")) for ww in current_seg["words"]
-                    )
-                    segments.append({
-                        "text": current_seg["text"],
-                        "start_ms": current_seg["start_ms"],
-                        "end_ms": current_seg["end_ms"],
-                    })
-                    current_seg = {"text": "", "start_ms": 0, "end_ms": 0, "words": []}
-
-            if current_seg["words"]:
-                current_seg["text"] = " ".join(
-                    ww.get("punctuated_word", ww.get("word", "")) for ww in current_seg["words"]
-                )
+        for seg in whisper_segments:
+            start_ms = int(seg.get("start", 0) * 1000)
+            end_ms = int(seg.get("end", 0) * 1000)
+            text_seg = seg.get("text", "").strip()
+            if text_seg:
                 segments.append({
-                    "text": current_seg["text"],
-                    "start_ms": current_seg["start_ms"],
-                    "end_ms": current_seg["end_ms"],
+                    "text": text_seg,
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
                 })
 
         if not segments and full_text:
-            segments = [{"text": full_text, "start_ms": 0, "end_ms": 0, "speaker": None}]
+            segments = [{"text": full_text, "start_ms": 0, "end_ms": 0}]
 
         # Compute duration
         duration_seconds = 0
-        if segments:
+        if whisper_segments:
+            duration_seconds = int(whisper_segments[-1].get("end", 0))
+        elif segments:
             duration_seconds = max(s["end_ms"] for s in segments) // 1000
-        elif dg_result.get("metadata", {}).get("duration"):
-            duration_seconds = int(dg_result["metadata"]["duration"])
 
         # 3. Save transcript + segments to DB
         async with async_session_maker() as db:
@@ -219,7 +196,7 @@ async def _transcribe_and_enqueue(
                      full_text, language, duration_seconds, status, whisper_model, created_at)
                 VALUES
                     (:id, :rec_id, :org_id, :store_id, :seller_id,
-                     :full_text, 'ru', :duration, 'transcribed', 'deepgram-whisper', :now)
+                     :full_text, 'ru', :duration, 'transcribed', 'faster-whisper-small', :now)
             """), {
                 "id": transcript_id,
                 "rec_id": recording_id,
@@ -231,7 +208,6 @@ async def _transcribe_and_enqueue(
                 "now": datetime.now(timezone.utc),
             })
 
-            # All roles set to "unknown" — Qwen will assign roles via queue.diarize
             for idx, seg in enumerate(segments):
                 seg_id = uuid.uuid4()
                 await db.execute(text("""
@@ -249,7 +225,6 @@ async def _transcribe_and_enqueue(
                     "role": "unknown",
                 })
 
-            # Update recording status and duration
             await db.execute(text("""
                 UPDATE recorder.recordings
                 SET status = 'transcribed', duration_seconds = :dur, updated_at = :now
@@ -262,6 +237,7 @@ async def _transcribe_and_enqueue(
 
         # 4. Publish to queue.diarize for Qwen role assignment
         await publish("queue.diarize", {
+            "audio_path": audio_path,
             "recording_id": str(recording_id),
             "transcript_id": str(transcript_id),
             "seller_id": seller_id,

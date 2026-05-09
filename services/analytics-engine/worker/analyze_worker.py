@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 import aio_pika
 import httpx
+from openai import APIStatusError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -79,6 +80,22 @@ async def _score_one_script(segments: list[dict], script: dict, llm_client) -> d
             "violations": ["LLM_PARSE_ERROR"],
             "error": True,
         }
+    except APIStatusError as e:
+        if e.status_code < 500:
+            # 4xx — не ретраить (auth, rate limit, bad request)
+            logger.error(
+                "LLM API %d error (non-retryable) for script %s: %s",
+                e.status_code, script["id"], e.message,
+            )
+            return {
+                "script_id": script["id"],
+                "script_name": script["name"],
+                "script_score": 0.0,
+                "step_scores": [],
+                "violations": [f"LLM_API_ERROR_{e.status_code}"],
+                "error": True,
+            }
+        raise  # 5xx — пробрасываем, сообщение уйдёт в requeue
 
 
 async def _general_analysis(segments: list[dict], llm_client) -> dict:
@@ -145,9 +162,19 @@ async def process_analyze_message(
                 _fetch_transcript(recording_id),
                 _fetch_scripts(seller_id, organization_id),
             )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                # Транскрипт или скрипты не найдены — постоянная ошибка, не ретраить
+                logger.error(
+                    "Resource not found (404) for recording %s, dropping message: %s",
+                    recording_id, e.request.url,
+                )
+                return  # ACK — выбрасываем сообщение без повтора
+            logger.error("HTTP error fetching data for recording %s: %s", recording_id, e)
+            raise  # 5xx и другие — NACK, requeue
         except httpx.HTTPError as e:
-            logger.error("Failed to fetch data: %s", e)
-            raise  # Will NACK and requeue
+            logger.error("Failed to fetch data for recording %s: %s", recording_id, e)
+            raise  # Сетевые ошибки — NACK, requeue
 
         # Step 2: Split mandatory vs contextual
         mandatory_scripts = [s for s in scripts if s.get("is_mandatory")]
