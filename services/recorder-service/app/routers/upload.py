@@ -10,13 +10,13 @@ import uuid
 import logging
 from datetime import date, datetime, timezone
 
-import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, BackgroundTasks
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db, async_session_maker
+from app.deepgram_client import transcribe_audio
 from app.dependencies import get_current_user
 from app.minio_client import upload_bytes, get_minio
 from app.rabbitmq import publish
@@ -24,7 +24,6 @@ from app.rabbitmq import publish
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/recorder", tags=["upload"])
 
-import os; WHISPER_URL = os.environ.get("WHISPER_SERVER_URL", "http://whisper-server:8080") + "/transcribe"
 BUCKET = "voiceiq-recordings"
 
 CONTENT_TYPE_MAP = {
@@ -136,36 +135,29 @@ async def _transcribe_and_enqueue(
     session_date: str,
     audio_path: str = "",
 ):
-    """Background task: call local Whisper server -> save transcript -> publish to diarize queue."""
+    """Background task: call Deepgram -> save transcript -> publish to diarize queue."""
     transcript_id = uuid.uuid4()
     try:
-        # 1. Call local Whisper server
         filename = f"audio{ext}"
-        content_type = CONTENT_TYPE_MAP.get(ext, "audio/wav")
         logger.info(
-            f"Sending {len(audio_bytes)} bytes to Whisper for recording_id={recording_id}"
+            f"Sending {len(audio_bytes)} bytes to Deepgram for recording_id={recording_id}"
         )
-        async with httpx.AsyncClient(timeout=86400.0) as http:
-            resp = await http.post(
-                WHISPER_URL,
-                files={"file": (filename, audio_bytes, content_type)},
-                data={"language": "ru", "task": "transcribe"},
-            )
-        if resp.status_code != 200:
-            logger.error(f"Whisper error {resp.status_code}: {resp.text[:500]}")
+        try:
+            whisper_result = await transcribe_audio(audio_bytes, filename)
+        except Exception as e:
+            logger.error(f"Deepgram error: {e}", exc_info=True)
             await _update_recording_status(recording_id, "failed")
             return
 
-        whisper_result = resp.json()
         full_text = whisper_result.get("text", "")
         language = whisper_result.get("language", "ru")
         whisper_segments = whisper_result.get("segments", [])
         logger.info(
-            f"Whisper transcription complete for recording_id={recording_id}, "
+            f"Transcription complete for recording_id={recording_id}, "
             f"{len(whisper_segments)} segments, text_len={len(full_text)}"
         )
 
-        # 2. Build segment list from Whisper output
+        # 2. Build segment list from Deepgram output (с speaker_id из diarization)
         segments = []
         for seg in whisper_segments:
             start_ms = int(seg.get("start", 0) * 1000)
@@ -176,10 +168,11 @@ async def _transcribe_and_enqueue(
                     "text": text_seg,
                     "start_ms": start_ms,
                     "end_ms": end_ms,
+                    "speaker": seg.get("speaker"),  # ID кластера говорящего от Deepgram
                 })
 
         if not segments and full_text:
-            segments = [{"text": full_text, "start_ms": 0, "end_ms": 0}]
+            segments = [{"text": full_text, "start_ms": 0, "end_ms": 0, "speaker": None}]
 
         # Compute duration
         duration_seconds = 0
@@ -196,7 +189,7 @@ async def _transcribe_and_enqueue(
                      full_text, language, duration_seconds, status, whisper_model, created_at)
                 VALUES
                     (:id, :rec_id, :org_id, :store_id, :seller_id,
-                     :full_text, 'ru', :duration, 'transcribed', 'faster-whisper-small', :now)
+                     :full_text, 'ru', :duration, 'transcribed', 'deepgram-whisper', :now)
             """), {
                 "id": transcript_id,
                 "rec_id": recording_id,
@@ -212,9 +205,9 @@ async def _transcribe_and_enqueue(
                 seg_id = uuid.uuid4()
                 await db.execute(text("""
                     INSERT INTO transcription.transcript_segments
-                        (id, transcript_id, speaker_role, text, start_ms, end_ms, segment_index)
+                        (id, transcript_id, speaker_role, speaker_id, text, start_ms, end_ms, segment_index)
                     VALUES
-                        (:id, :t_id, :role, :text, :start_ms, :end_ms, :idx)
+                        (:id, :t_id, :role, :speaker_id, :text, :start_ms, :end_ms, :idx)
                 """), {
                     "id": seg_id,
                     "t_id": transcript_id,
@@ -223,6 +216,7 @@ async def _transcribe_and_enqueue(
                     "end_ms": seg["end_ms"],
                     "idx": idx,
                     "role": "unknown",
+                    "speaker_id": seg.get("speaker"),
                 })
 
             await db.execute(text("""

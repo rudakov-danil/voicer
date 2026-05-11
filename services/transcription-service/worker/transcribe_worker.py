@@ -16,7 +16,7 @@ from app.llm_client import get_llm_client
 from app.minio_client import delete_object, download_bytes, upload_bytes
 from app.models import Transcript, TranscriptSegment
 from app.rabbitmq import publish
-from app.whisper_client import transcribe_audio
+from app.deepgram_client import transcribe_audio
 
 logger = logging.getLogger(__name__)
 
@@ -141,19 +141,21 @@ async def process_transcribe_full_message(
                     language=language,
                     duration_seconds=conv_duration,
                     status="transcribed",
-                    whisper_model="faster-whisper-small",
+                    whisper_model="deepgram-whisper",
                 )
                 db.add(transcript)
                 await db.flush()
                 logger.info(f"Saved transcript {transcript.id}")
 
-                # Save raw segments (speaker_role=unknown)
+                # Save raw segments (speaker_role=unknown — будет проставлено в diarize_worker;
+                # speaker_id берётся из Deepgram diarization, может быть None для старых транскрипций)
                 for idx, seg in enumerate(conv_segments):
                     seg_start_ms = int(seg["start"] * 1000) - start_ms
                     seg_end_ms = int(seg["end"] * 1000) - start_ms
                     db_seg = TranscriptSegment(
                         transcript_id=transcript.id,
                         speaker_role="unknown",
+                        speaker_id=seg.get("speaker"),
                         text=seg["text"].strip(),
                         start_ms=max(0, seg_start_ms),
                         end_ms=max(0, seg_end_ms),

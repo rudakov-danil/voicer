@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     RABBITMQ_URL: str = "amqp://voiceiq:changeme@rabbitmq:5672/"
     ADMIN_SERVICE_URL: str = "http://admin-service:8007"
     AUTH_SERVICE_URL: str = "http://auth-service:8001"
+    DEEPGRAM_API_KEY: str = ""
+    DEEPGRAM_API_URL: str = "https://api.deepgram.com/v1/listen"
+    DEEPGRAM_LANGUAGE: str = "ru"
+    DEEPGRAM_MODEL: str = "whisper"
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 

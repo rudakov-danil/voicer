@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.diarization import diarize_segments
+from app.diarization import diarize_segments, identify_speaker_roles
 from app.llm_client import get_llm_client
 from app.models import Transcript, TranscriptSegment
 from app.rabbitmq import publish
@@ -58,11 +58,40 @@ async def process_diarize_message(
             except Exception as e:
                 logger.warning(f"Could not get seller name: {e}")
 
-            # 3. Diarize: rule-based keywords + LLM calibration on first 15 segments
+            # 3. Diarize. Стратегия:
+            #    a) Если у сегментов есть speaker_id от Deepgram — кластерная диаризация
+            #       (LLM только классифицирует спикеров на работник/клиент). Точно и дёшево.
+            #    b) Fallback: текстовая диаризация по содержанию реплик (старый путь,
+            #       для записей до включения Deepgram diarize).
             llm_client = get_llm_client()
-            seg_dicts = [{"text": s.text, "start_ms": s.start_ms, "end_ms": s.end_ms} for s in segments]
-            logger.info(f"Starting diarization of {len(seg_dicts)} segments for transcript_id={transcript_id}")
-            roles = await diarize_segments(seg_dicts, seller_name, llm_client)
+            seg_dicts = [
+                {
+                    "text": s.text,
+                    "start_ms": s.start_ms,
+                    "end_ms": s.end_ms,
+                    "speaker_id": s.speaker_id,
+                }
+                for s in segments
+            ]
+            has_speaker_ids = any(s["speaker_id"] is not None for s in seg_dicts)
+            logger.info(
+                f"Starting diarization of {len(seg_dicts)} segments for transcript_id={transcript_id}, "
+                f"strategy={'cluster' if has_speaker_ids else 'text-fallback'}"
+            )
+
+            if has_speaker_ids:
+                # Кластерная: один LLM-запрос «кто из спикеров — работник»
+                speaker_roles = await identify_speaker_roles(seg_dicts, seller_name, llm_client)
+                roles = []
+                for s in seg_dicts:
+                    sid = s["speaker_id"]
+                    if sid is None or sid not in speaker_roles:
+                        roles.append("unknown")
+                    else:
+                        roles.append(speaker_roles[sid])
+            else:
+                # Fallback на текстовую диаризацию
+                roles = await diarize_segments(seg_dicts, seller_name, llm_client)
 
             # 4. Update speaker_role in DB
             for seg, role in zip(segments, roles):

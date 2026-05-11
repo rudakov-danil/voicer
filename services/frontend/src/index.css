@@ -697,6 +697,22 @@ table tbody tr:last-child td { border-bottom: none; }
     padding: 1px 4px;
     border-radius: 3px;
 }
+.objection-mark {
+    padding: 0 3px;
+    border-radius: 3px;
+    font-weight: 500;
+    cursor: help;
+}
+.objection-mark.resolved {
+    background: #D1FAE5;
+    color: #065F46;
+    box-shadow: inset 0 -1px 0 rgba(6, 95, 70, 0.25);
+}
+.objection-mark.unresolved {
+    background: #FEE2E2;
+    color: #991B1B;
+    box-shadow: inset 0 -1px 0 rgba(153, 27, 27, 0.3);
+}
 
 /* ============================================================================
    CHECKLIST

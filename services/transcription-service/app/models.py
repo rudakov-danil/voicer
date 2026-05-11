@@ -50,6 +50,8 @@ class TranscriptSegment(Base):
     )
     speaker_role = Column(String(20), nullable=False, default="unknown")
     # seller | customer | unknown
+    speaker_id = Column(Integer, nullable=True)
+    # ID кластера говорящего от Deepgram diarization (0, 1, 2, ...). NULL если diarize выключен.
     text = Column(Text, nullable=False)
     start_ms = Column(Integer, nullable=False)
     end_ms = Column(Integer, nullable=False)

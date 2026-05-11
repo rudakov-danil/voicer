@@ -1,6 +1,6 @@
 import asyncio
 from logging.config import fileConfig
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
@@ -15,16 +15,23 @@ config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 target_metadata = Base.metadata
 
 
+VERSION_TABLE_SCHEMA = "recorder"
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(url=url, target_metadata=target_metadata, literal_binds=True,
-                      dialect_opts={"paramstyle": "named"})
+                      dialect_opts={"paramstyle": "named"},
+                      version_table_schema=VERSION_TABLE_SCHEMA, include_schemas=True)
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection):
-    context.configure(connection=connection, target_metadata=target_metadata)
+    connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {VERSION_TABLE_SCHEMA}"))
+    connection.commit()
+    context.configure(connection=connection, target_metadata=target_metadata,
+                      version_table_schema=VERSION_TABLE_SCHEMA, include_schemas=True)
     with context.begin_transaction():
         context.run_migrations()
 

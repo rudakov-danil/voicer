@@ -8,7 +8,10 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = "changeme_minio"
     MINIO_SECURE: bool = False
     RABBITMQ_URL: str = "amqp://voiceiq:changeme@rabbitmq:5672/"
-    WHISPER_SERVER_URL: str = "http://whisper-gpu-server:8080"
+    DEEPGRAM_API_KEY: str = ""
+    DEEPGRAM_API_URL: str = "https://api.deepgram.com/v1/listen"
+    DEEPGRAM_LANGUAGE: str = "ru"
+    DEEPGRAM_MODEL: str = "whisper"
     LLM_SERVER_URL: str = "http://llm-gpu-server:11434"
     LLM_API_KEY: str = "ollama"
     LLM_EXTRA_HEADER_NAME: str = ""

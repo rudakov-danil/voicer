@@ -7,8 +7,53 @@ import { OutcomeTag } from '@/components/OutcomeTag'
 import { Drawer } from '@/components/Drawer'
 import { AudioPlayer } from '@/components/AudioPlayer'
 import { AudioUploadModal } from '@/components/AudioUpload'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { Upload, RefreshCw, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+
+// Подсвечивает в тексте сегмента вхождения raw_text возражений.
+// Цвет: зелёный если возражение закрыто, красный если нет.
+function renderTranscriptText(text: string, objections: any[]): ReactNode {
+  if (!text || !objections || !objections.length) return text
+
+  type Range = { start: number; end: number; resolved: boolean; type: string }
+  const ranges: Range[] = []
+  const lower = text.toLowerCase()
+
+  for (const obj of objections) {
+    const raw = ((obj?.raw_text || '') as string).trim()
+    if (raw.length < 3) continue
+    const needle = raw.toLowerCase()
+    let pos = 0
+    while ((pos = lower.indexOf(needle, pos)) !== -1) {
+      ranges.push({ start: pos, end: pos + raw.length, resolved: !!obj.is_resolved, type: obj.type || '' })
+      pos += raw.length
+    }
+  }
+  if (!ranges.length) return text
+
+  ranges.sort((a, b) => a.start - b.start)
+  const merged: Range[] = []
+  for (const r of ranges) {
+    if (merged.length && r.start < merged[merged.length - 1].end) continue
+    merged.push(r)
+  }
+
+  const parts: ReactNode[] = []
+  let cursor = 0
+  merged.forEach((r, i) => {
+    if (cursor < r.start) parts.push(text.slice(cursor, r.start))
+    const cls = r.resolved ? 'objection-mark resolved' : 'objection-mark unresolved'
+    const tip = `Возражение${r.type ? `: ${r.type}` : ''} — ${r.resolved ? 'закрыто' : 'не закрыто'}`
+    parts.push(
+      <mark key={`m-${i}`} className={cls} title={tip}>
+        {text.slice(r.start, r.end)}
+      </mark>
+    )
+    cursor = r.end
+  })
+  if (cursor < text.length) parts.push(text.slice(cursor))
+  return parts
+}
 
 type SortBy  = 'date' | 'name' | 'duration' | 'store'
 type SortDir = 'asc' | 'desc'
@@ -315,7 +360,7 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
                           fontSize:13,
                           lineHeight:1.5,
                         }}>
-                          {seg.text}
+                          {renderTranscriptText(seg.text, objections)}
                         </div>
                       ))}
                     </div>

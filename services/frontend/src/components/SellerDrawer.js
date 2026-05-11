@@ -1,0 +1,37 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useQuery } from '@tanstack/react-query';
+import { dashboardApi } from '@/api/dashboard';
+import { Drawer } from '@/components/Drawer';
+import { ScoreBadge } from '@/components/ScoreBadge';
+import { OutcomeTag } from '@/components/OutcomeTag';
+import { AlertCircle, Info } from 'lucide-react';
+const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981'];
+export function SellerDrawer({ sellerId, onClose }) {
+    const { data, isLoading } = useQuery({
+        queryKey: ['seller-detail', sellerId],
+        queryFn: () => dashboardApi.getSellerDetail(sellerId),
+        enabled: !!sellerId,
+    });
+    const seller = data;
+    return (_jsxs(Drawer, { isOpen: !!sellerId, onClose: onClose, title: seller ? `${seller.first_name} ${seller.last_name}` : 'Профиль продавца', children: [isLoading && _jsx("div", { style: { padding: '20px', color: 'var(--text-muted)' }, children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }), seller && (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: '20px' }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: '16px' }, children: [_jsxs("div", { style: {
+                                    width: 56, height: 56, borderRadius: '50%',
+                                    background: AVATAR_COLORS[(seller.first_name?.charCodeAt(0) || 0) % AVATAR_COLORS.length],
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: 'white', fontSize: '20px', fontWeight: 700,
+                                }, children: [(seller.first_name?.[0] || ''), (seller.last_name?.[0] || '')] }), _jsxs("div", { children: [_jsxs("div", { style: { fontSize: '18px', fontWeight: 600, color: 'var(--text)' }, children: [seller.first_name, " ", seller.last_name] }), _jsx("div", { style: { fontSize: '13px', color: 'var(--text-muted)' }, children: seller.store_name || seller.store_id })] })] }), _jsxs("div", { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }, children: [_jsxs("div", { className: "metric-card", style: { padding: '14px' }, children: [_jsx("div", { className: "metric-label", children: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F" }), _jsxs("div", { className: "metric-value", style: { fontSize: '22px' }, children: [Math.round((seller.conversion_rate || 0) * 100), "%"] }), seller.score_trend !== undefined && (_jsxs("div", { className: `metric-change ${seller.score_trend > 0 ? 'up' : 'down'}`, children: [seller.score_trend > 0 ? '↑' : '↓', " ", Math.abs(seller.score_trend), "%"] }))] }), _jsxs("div", { className: "metric-card", style: { padding: '14px' }, children: [_jsx("div", { className: "metric-label", children: "\u0421\u043A\u043E\u0440\u0438\u043D\u0433 \u0441\u043A\u0440\u0438\u043F\u0442\u0430" }), _jsxs("div", { className: "metric-value", style: { fontSize: '22px' }, children: [Math.round(seller.avg_score || 0), "%"] })] }), _jsxs("div", { className: "metric-card", style: { padding: '14px' }, children: [_jsx("div", { className: "metric-label", children: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439 \u0447\u0435\u043A" }), _jsxs("div", { className: "metric-value", style: { fontSize: '22px' }, children: [(seller.avg_check || 0).toLocaleString('ru-RU'), " \u20BD"] })] }), _jsxs("div", { className: "metric-card", style: { padding: '14px' }, children: [_jsx("div", { className: "metric-label", children: "\u0420\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432" }), _jsx("div", { className: "metric-value", style: { fontSize: '22px' }, children: seller.conversations_count || seller.total_conversations || 0 })] })] }), seller.step_scores && seller.step_scores.length > 0 && (_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: '12px' }, children: "\u042D\u0442\u0430\u043F\u044B \u0441\u043A\u0440\u0438\u043F\u0442\u0430 \u2014 \u0437\u043E\u043D\u044B \u0440\u0430\u0437\u0432\u0438\u0442\u0438\u044F" }), seller.step_scores.map((step, i) => {
+                                const score = Math.round(step.score || step.avg_score || 0);
+                                const barColor = score >= 80 ? 'green' : score >= 60 ? 'yellow' : 'red';
+                                return (_jsxs("div", { style: {
+                                        display: 'flex', alignItems: 'center', gap: '12px',
+                                        padding: '8px 0', borderBottom: '1px solid var(--border-light)',
+                                    }, children: [_jsx("div", { style: { flex: 1, fontSize: '13px', color: 'var(--text)' }, children: step.name || step.step_name }), _jsx("div", { style: { width: '120px' }, children: _jsx("div", { className: "progress-bar", style: { height: '6px' }, children: _jsx("div", { className: `progress-bar-fill ${barColor}`, style: { width: `${score}%` } }) }) }), _jsxs("div", { style: { width: '36px', fontSize: '13px', fontWeight: 600, textAlign: 'right',
+                                                color: score >= 80 ? 'var(--success)' : score >= 60 ? 'var(--warning)' : 'var(--danger)' }, children: [score, "%"] })] }, i));
+                            })] })), seller.recommendations && seller.recommendations.length > 0 && (_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: '12px' }, children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438 \u043F\u043E \u0440\u0430\u0437\u0432\u0438\u0442\u0438\u044E" }), _jsx("div", { className: "alert-list", children: seller.recommendations.map((rec, i) => (_jsxs("div", { className: `alert-item ${rec.severity || 'info'}`, children: [rec.severity === 'warning' ? (_jsx(AlertCircle, { className: "alert-icon", size: 16 })) : (_jsx(Info, { className: "alert-icon", size: 16 })), _jsx("div", { className: "alert-text", style: { fontSize: '12px' }, children: rec.text })] }, i))) })] })), seller.recent_conversations && seller.recent_conversations.length > 0 && (_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: '12px' }, children: "\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0435 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u044B" }), seller.recent_conversations.map((conv, i) => {
+                                const mins = Math.floor((conv.duration_seconds || 0) / 60);
+                                const secs = (conv.duration_seconds || 0) % 60;
+                                return (_jsxs("div", { style: {
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '10px 0', borderBottom: '1px solid var(--border-light)',
+                                    }, children: [_jsxs("div", { children: [_jsx("div", { style: { fontSize: '13px', fontWeight: 500, color: 'var(--text)' }, children: conv.topic || 'Разговор' }), _jsxs("div", { style: { fontSize: '11px', color: 'var(--text-muted)' }, children: [conv.date, " \u00B7 ", mins, ":", String(secs).padStart(2, '0')] })] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: '8px' }, children: [_jsx(ScoreBadge, { score: conv.score }), _jsx(OutcomeTag, { outcome: conv.outcome })] })] }, i));
+                            })] }))] }))] }));
+}

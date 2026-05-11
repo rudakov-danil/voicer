@@ -1,6 +1,11 @@
 import apiClient from './client'
 
 export const recorderApi = {
+  getRecordings: async (params?: { limit?: number; offset?: number; status?: string }) => {
+    const response = await apiClient.get('/api/v1/recorder/recordings', { params })
+    return response.data as { items: any[]; total: number }
+  },
+
   getAudioUrl: async (recordingId: string) => {
     const response = await apiClient.get<{ url: string }>(
       `/api/v1/recorder/recordings/${recordingId}/audio`
