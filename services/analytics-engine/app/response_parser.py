@@ -31,6 +31,21 @@ class GeneralAnalysisResponse(BaseModel):
     objections: list[ObjectionSchema] = []
 
 
+class RedactionResponse(BaseModel):
+    redacted: list[str]
+
+
+class UpsellCheckItem(BaseModel):
+    rule_id: str
+    triggered: bool
+    offered_items: list[str] = []
+    evidence: str = ""
+
+
+class UpsellCheckResponse(BaseModel):
+    checks: list[UpsellCheckItem] = []
+
+
 class LLMResponseParseError(Exception):
     pass
 
@@ -47,3 +62,22 @@ def parse_general_analysis_response(raw: str) -> GeneralAnalysisResponse:
         return GeneralAnalysisResponse(**json.loads(raw))
     except (json.JSONDecodeError, ValueError) as e:
         raise LLMResponseParseError(f"Failed to parse general analysis: {e}") from e
+
+
+def parse_upsell_response(raw: str) -> UpsellCheckResponse:
+    try:
+        return UpsellCheckResponse(**json.loads(raw))
+    except (json.JSONDecodeError, ValueError) as e:
+        raise LLMResponseParseError(f"Failed to parse upsell response: {e}") from e
+
+
+def parse_redaction_response(raw: str, expected_count: int) -> list[str]:
+    try:
+        parsed = RedactionResponse(**json.loads(raw))
+    except (json.JSONDecodeError, ValueError) as e:
+        raise LLMResponseParseError(f"Failed to parse redaction: {e}") from e
+    if len(parsed.redacted) != expected_count:
+        raise LLMResponseParseError(
+            f"Redaction count mismatch: expected {expected_count}, got {len(parsed.redacted)}"
+        )
+    return parsed.redacted

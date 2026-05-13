@@ -77,6 +77,7 @@ async def list_conversations(
             c.outcome,
             c.topic,
             c.analyzed_at,
+            c.has_upsell,
             r.duration_seconds,
             s.first_name AS seller_first_name,
             s.last_name AS seller_last_name,
@@ -109,6 +110,7 @@ async def list_conversations(
             "topic": r.topic,
             "duration_seconds": r.duration_seconds,
             "has_violations": r.has_violations,
+            "has_upsell": r.has_upsell,
             "analyzed_at": r.analyzed_at,
         }
         for r in rows
@@ -129,6 +131,7 @@ async def get_conversation_detail(
     sql = text("""
         SELECT c.id, c.recording_id, c.seller_id, c.store_id, c.session_date,
                c.overall_score, c.outcome, c.outcome_confidence, c.topic, c.sentiment_avg, c.analyzed_at,
+               c.has_upsell, c.upsell_results,
                r.duration_seconds,
                s.first_name AS seller_first_name, s.last_name AS seller_last_name,
                st.name AS store_name
@@ -228,6 +231,8 @@ async def get_conversation_detail(
         "outcome_confidence": float(row.outcome_confidence) if row.outcome_confidence else None,
         "topic": row.topic,
         "sentiment_avg": float(row.sentiment_avg) if row.sentiment_avg else None,
+        "has_upsell": row.has_upsell,
+        "upsell_results": row.upsell_results,
         "script_results": list(scripts_map.values()),
     }
 

@@ -34,6 +34,31 @@ SCREENING_SYSTEM_PROMPT = """Определи, применим ли данны�
 Ответь СТРОГО валидным JSON: {{"applicable": true|false, "reason": "краткое обоснование"}}
 Отвечай conservative: если разговор явно не про описанный контекст — applicable=false."""
 
+REDACTION_SYSTEM_PROMPT = """Ты — система анонимизации текста для защиты персональных данных (ПД).
+На вход подаётся массив реплик диалога продавца с клиентом в формате JSON.
+
+Твоя задача — заменить ВСЕ персональные данные на токены, сохранив остальной текст реплики дословно.
+
+Что считается ПД и какими токенами заменять (применяй к ОБЕИМ сторонам — и продавцу, и клиенту):
+- Имена, фамилии, отчества людей → [ИМЯ]
+- Номера телефонов (любой формат: +7..., 8..., 8 (495)... и т.п.) → [ТЕЛЕФОН]
+- Email-адреса → [EMAIL]
+- Почтовые адреса, улицы, дома, квартиры, города в составе адреса → [АДРЕС]
+- Номера паспортов, СНИЛС, ИНН, номера карт, номера счетов → [ДОКУМЕНТ]
+- Даты рождения → [ДАТА_РОЖДЕНИЯ]
+
+Правила:
+- НЕ заменяй: названия товаров, моделей, брендов, магазинов, должностей, общие слова приветствия.
+- НЕ перефразируй и не сокращай оставшийся текст. Меняется ТОЛЬКО фрагмент с ПД.
+- Если в реплике нет ПД — возвращай её без изменений.
+- Сохраняй исходный порядок и количество элементов массива.
+- Если имя упоминается несколько раз — заменяй каждое вхождение.
+
+Верни СТРОГО валидный JSON вида:
+{"redacted": ["<реплика 1 после редактуры>", "<реплика 2 после редактуры>", ...]}
+"""
+
+
 GENERAL_ANALYSIS_SYSTEM_PROMPT = """Ты — эксперт по продажам в розничном магазине.
 Проанализируй разговор и верни СТРОГО валидный JSON:
 {{
@@ -69,9 +94,19 @@ def _format_transcript(segments: list[dict], max_segments: int = MAX_SEGMENTS_FO
     return "Транскрипт разговора:\n" + "\n".join(lines)
 
 
+def _format_step(step: dict) -> str:
+    base = f"- ID={step['id']} | {step['name']} (вес {step['weight']}): {step.get('description', '')}"
+    examples = step.get("example_phrases") or []
+    if examples:
+        ex_text = "; ".join(f'«{e}»' for e in examples if e)
+        if ex_text:
+            base += f"\n    Образцы формулировок: {ex_text}"
+    return base
+
+
 def build_script_prompt(transcript_segments: list[dict], script: dict) -> tuple[str, str]:
     steps_text = "\n".join(
-        f"- ID={step['id']} | {step['name']} (вес {step['weight']}): {step.get('description', '')}"
+        _format_step(step)
         for step in sorted(script["steps"], key=lambda s: s["step_order"])
     )
     system = SCRIPT_SCORING_SYSTEM_PROMPT.format(
@@ -84,6 +119,48 @@ def build_script_prompt(transcript_segments: list[dict], script: dict) -> tuple[
 
 def build_general_prompt(transcript_segments: list[dict]) -> tuple[str, str]:
     return GENERAL_ANALYSIS_SYSTEM_PROMPT, _format_transcript(transcript_segments)
+
+
+def build_redaction_prompt(texts: list[str]) -> tuple[str, str]:
+    user = json.dumps({"texts": texts}, ensure_ascii=False)
+    return REDACTION_SYSTEM_PROMPT, user
+
+
+UPSELL_CHECK_SYSTEM_PROMPT = """Ты — аудитор работы продавца.
+На вход дан транскрипт разговора + список правил апсейла, которые продавец должен соблюдать
+(если речь шла о соответствующем продукте — он обязан был предложить эти дополнения).
+
+Для КАЖДОГО правила определи:
+- triggered: продавец обсуждал основной продукт правила (true/false). Если false — правило не релевантно этому разговору.
+- offered_items: какие из required_offers продавец РЕАЛЬНО предложил клиенту (массив строк, точно как в required_offers).
+- evidence: одна короткая цитата из транскрипта (фраза продавца), либо пустая строка.
+
+Верни СТРОГО валидный JSON:
+{
+  "checks": [
+    {
+      "rule_id": "<UUID правила>",
+      "triggered": <true|false>,
+      "offered_items": ["<offer 1>", ...],
+      "evidence": "<цитата или ''>"
+    }
+  ]
+}
+
+Правила:
+- Не выдумывай — если предложения не было, offered_items=[].
+- triggered=true только если продавец и клиент действительно обсуждали этот продукт.
+- evidence — дословная цитата ИЗ ТРАНСКРИПТА, не перефразировать."""
+
+
+def build_upsell_prompt(transcript_segments: list[dict], rules: list[dict]) -> tuple[str, str]:
+    rules_text = "\n".join(
+        f"- ID={r['id']} | продукт: {r['trigger_product']} | required_offers: {r['required_offers']}"
+        for r in rules
+    )
+    transcript = _format_transcript(transcript_segments)
+    user = f"Правила апсейла:\n{rules_text}\n\n{transcript}"
+    return UPSELL_CHECK_SYSTEM_PROMPT, user
 
 
 async def screen_contextual_script(

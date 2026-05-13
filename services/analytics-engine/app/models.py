@@ -5,6 +5,7 @@ from sqlalchemy import (
     UUID, String, Text, Boolean, Integer, Numeric, Date,
     ForeignKey, UniqueConstraint, Index, TIMESTAMP, ARRAY
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -35,6 +36,12 @@ class Conversation(Base):
     analyzed_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow)
     llm_model: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="analyzed")
+    # Агрегат: True если ХОТЯ БЫ ОДНО релевантное правило апсейла было закрыто (offered_items не пуст).
+    # NULL = апсейл не проверялся (нет правил или не работал).
+    has_upsell: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Детализация по каждому сработавшему правилу: [{rule_id, trigger_product, required_offers,
+    # offered_items, missed_items, evidence}, ...]
+    upsell_results: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     script_results: Mapped[list["ConversationScriptResult"]] = relationship(
         "ConversationScriptResult", back_populates="conversation", cascade="all, delete-orphan"
@@ -60,6 +67,9 @@ class ConversationScriptResult(Base):
         UUID(as_uuid=True), ForeignKey("analytics.conversations.id", ondelete="CASCADE"), nullable=False
     )
     script_template_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # Версия шаблона на момент скоринга — позволяет смотреть аналитику по конкретной версии
+    # и сравнивать v(N) vs v(N+1). NULL для разговоров, проанализированных до введения версионирования.
+    script_template_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     script_name: Mapped[str] = mapped_column(String(255), nullable=False)
     was_applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     script_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))

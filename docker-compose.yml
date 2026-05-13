@@ -136,9 +136,15 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://voiceiq:${POSTGRES_PASSWORD}@postgres:5432/voiceiq
       AUTH_SERVICE_URL: http://auth-service:8001
+      TRANSCRIPTION_SERVICE_URL: http://transcription-service:8003
       JWT_SECRET: ${JWT_SECRET}
       JWT_ALGORITHM: HS256
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      LLM_SERVER_URL: ${LLM_SERVER_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_EXTRA_HEADER_NAME: ${LLM_EXTRA_HEADER_NAME}
+      LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME}
       ENVIRONMENT: development
       LOG_LEVEL: INFO
     depends_on:

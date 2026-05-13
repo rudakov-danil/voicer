@@ -1,4 +1,4 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '@/api/dashboard';
 import { adminApi } from '@/api/admin';
@@ -9,7 +9,7 @@ import { Drawer } from '@/components/Drawer';
 import { AudioPlayer } from '@/components/AudioPlayer';
 import { AudioUploadModal } from '@/components/AudioUpload';
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, RefreshCw, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, Store, Target, Award, ArrowDownUp, ChevronDown, X } from 'lucide-react';
 // Подсвечивает в тексте сегмента вхождения raw_text возражений.
 // Цвет: зелёный если возражение закрыто, красный если нет.
 function renderTranscriptText(text, objections) {
@@ -123,9 +123,25 @@ function ConversationDetail({ conversationId }) {
     const [audioUrl, setAudioUrl] = useState();
     const recordingId = data?.conversation?.recording_id || data?.recording_id;
     useEffect(() => {
-        if (recordingId) {
-            recorderApi.getAudioUrl(recordingId).then(setAudioUrl).catch(() => { });
-        }
+        if (!recordingId)
+            return;
+        let revokedUrl;
+        let cancelled = false;
+        recorderApi.getAudioBlobUrl(recordingId)
+            .then(url => {
+            if (cancelled) {
+                URL.revokeObjectURL(url);
+                return;
+            }
+            revokedUrl = url;
+            setAudioUrl(url);
+        })
+            .catch(() => { });
+        return () => {
+            cancelled = true;
+            if (revokedUrl)
+                URL.revokeObjectURL(revokedUrl);
+        };
     }, [recordingId]);
     if (isLoading)
         return _jsx("div", { style: { padding: '20px', color: 'var(--text-muted)' }, children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." });
@@ -273,6 +289,36 @@ export function ConversationsPage() {
     const lastUpdatedStr = lastUpdated
         ? lastUpdated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         : null;
+    // ─── Filter pill metadata ──────────────────────────────────────────────────
+    const storeLabel = filters.store_id
+        ? (stores?.items || []).find((s) => s.id === filters.store_id)?.name || 'Магазин'
+        : 'Все магазины';
+    const outcomeLabel = filters.outcome ? OUTCOME_LABELS[filters.outcome] || filters.outcome : 'Любой исход';
+    const scoreValue = filters.score_min === 80 ? '80+' :
+        filters.score_min === 60 && filters.score_max === 79 ? '60-79' :
+            filters.score_max === 59 ? '<60' : '';
+    const scoreLabel = scoreValue === '80+' ? 'Скоринг 80%+' :
+        scoreValue === '60-79' ? 'Скоринг 60–79%' :
+            scoreValue === '<60' ? 'Скоринг <60%' : 'Любой скоринг';
+    const sortLabels = {
+        date_desc: 'Сначала новые',
+        date_asc: 'Сначала старые',
+        name_asc: 'Имя А→Я',
+        name_desc: 'Имя Я→А',
+        duration_desc: 'Длинные сначала',
+        duration_asc: 'Короткие сначала',
+        store_asc: 'Магазин А→Я',
+        store_desc: 'Магазин Я→А',
+    };
+    const sortKey = `${sort.by}_${sort.dir}`;
+    const sortLabel = sortLabels[sortKey] || 'Сортировка';
+    const sortActive = sortKey !== 'date_desc';
+    const hasActiveFilters = !!(filters.store_id || filters.outcome || scoreValue || sortActive);
+    const resetAll = () => {
+        setFilters({ store_id: '', seller_id: '', outcome: '', score_min: undefined, score_max: undefined });
+        setSort({ by: 'date', dir: 'desc' });
+        setPage(1);
+    };
     const drawerTitle = selectedConvId
         ? `Разговор #${selectedConvId.slice(0, 8)}`
         : selectedRec
@@ -281,10 +327,10 @@ export function ConversationsPage() {
     return (_jsxs("div", { children: [_jsx("style", { children: `
         @keyframes viq-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.8)} }
         @keyframes viq-spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-      ` }), _jsxs("div", { className: "filter-bar fade-in", children: [_jsxs("select", { value: filters.store_id, onChange: e => { setFilters(p => ({ ...p, store_id: e.target.value })); setPage(1); }, children: [_jsx("option", { value: "", children: "\u0412\u0441\u0435 \u043C\u0430\u0433\u0430\u0437\u0438\u043D\u044B" }), (stores?.items || []).map((s) => _jsx("option", { value: s.id, children: s.name }, s.id))] }), _jsxs("select", { value: filters.outcome, onChange: e => { setFilters(p => ({ ...p, outcome: e.target.value })); setPage(1); }, children: [_jsx("option", { value: "", children: "\u0412\u0441\u0435 \u0438\u0441\u0445\u043E\u0434\u044B" }), Object.entries(OUTCOME_LABELS).map(([k, l]) => _jsx("option", { value: k, children: l }, k))] }), _jsxs("select", { onChange: e => handleScoreFilter(e.target.value), children: [_jsx("option", { value: "", children: "\u041B\u044E\u0431\u043E\u0439 \u0441\u043A\u043E\u0440\u0438\u043D\u0433" }), _jsx("option", { value: "80+", children: "80%+" }), _jsx("option", { value: "60-79", children: "60\u201379%" }), _jsx("option", { value: "<60", children: "<60%" })] }), _jsxs("select", { value: `${sort.by}_${sort.dir}`, onChange: e => {
-                            const [by, dir] = e.target.value.split('_');
-                            setSort({ by, dir });
-                        }, children: [_jsx("option", { value: "date_desc", children: "\u0414\u0430\u0442\u0430 \u2193 (\u043D\u043E\u0432\u044B\u0435)" }), _jsx("option", { value: "date_asc", children: "\u0414\u0430\u0442\u0430 \u2191 (\u0441\u0442\u0430\u0440\u044B\u0435)" }), _jsx("option", { value: "name_asc", children: "\u0418\u043C\u044F \u0410\u2192\u042F" }), _jsx("option", { value: "name_desc", children: "\u0418\u043C\u044F \u042F\u2192\u0410" }), _jsx("option", { value: "duration_desc", children: "\u0414\u043B\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u2193" }), _jsx("option", { value: "duration_asc", children: "\u0414\u043B\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u2191" }), _jsx("option", { value: "store_asc", children: "\u041C\u0430\u0433\u0430\u0437\u0438\u043D \u0410\u2192\u042F" }), _jsx("option", { value: "store_desc", children: "\u041C\u0430\u0433\u0430\u0437\u0438\u043D \u042F\u2192\u0410" })] }), _jsx("div", { style: { flex: 1 } }), lastUpdatedStr && (_jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-muted)' }, children: [_jsx(RefreshCw, { size: 12, style: { opacity: .5 } }), " \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E ", lastUpdatedStr] })), _jsxs("span", { style: { fontSize: 13, color: 'var(--text-muted)' }, children: [(conversations?.total || 0) + pendingRows.length, " \u0437\u0430\u043F\u0438\u0441\u0435\u0439"] }), _jsxs("button", { className: "btn btn-primary btn-sm", onClick: () => setShowUpload(true), children: [_jsx(Upload, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0430\u0443\u0434\u0438\u043E"] })] }), _jsx(AudioUploadModal, { open: showUpload, onClose: () => setShowUpload(false), onUploadComplete: () => { } }), _jsxs("div", { className: "card fade-in", children: [_jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [['date', 'name', 'store', 'duration'].map(col => {
+      ` }), _jsxs("div", { className: "filter-toolbar fade-in", children: [_jsxs("label", { className: `filter-pill ${filters.store_id ? 'active' : ''}`, children: [_jsx(Store, { size: 14, className: "filter-pill-icon" }), _jsx("span", { className: "filter-pill-value", children: storeLabel }), _jsx(ChevronDown, { size: 13, className: "filter-pill-chevron" }), _jsxs("select", { value: filters.store_id, onChange: e => { setFilters(p => ({ ...p, store_id: e.target.value })); setPage(1); }, "aria-label": "\u041C\u0430\u0433\u0430\u0437\u0438\u043D", children: [_jsx("option", { value: "", children: "\u0412\u0441\u0435 \u043C\u0430\u0433\u0430\u0437\u0438\u043D\u044B" }), (stores?.items || []).map((s) => _jsx("option", { value: s.id, children: s.name }, s.id))] })] }), _jsxs("label", { className: `filter-pill ${filters.outcome ? 'active' : ''}`, children: [_jsx(Target, { size: 14, className: "filter-pill-icon" }), _jsx("span", { className: "filter-pill-value", children: outcomeLabel }), _jsx(ChevronDown, { size: 13, className: "filter-pill-chevron" }), _jsxs("select", { value: filters.outcome, onChange: e => { setFilters(p => ({ ...p, outcome: e.target.value })); setPage(1); }, "aria-label": "\u0418\u0441\u0445\u043E\u0434", children: [_jsx("option", { value: "", children: "\u0412\u0441\u0435 \u0438\u0441\u0445\u043E\u0434\u044B" }), Object.entries(OUTCOME_LABELS).map(([k, l]) => _jsx("option", { value: k, children: l }, k))] })] }), _jsxs("label", { className: `filter-pill ${scoreValue ? 'active' : ''}`, children: [_jsx(Award, { size: 14, className: "filter-pill-icon" }), _jsx("span", { className: "filter-pill-value", children: scoreLabel }), _jsx(ChevronDown, { size: 13, className: "filter-pill-chevron" }), _jsxs("select", { value: scoreValue, onChange: e => handleScoreFilter(e.target.value), "aria-label": "\u0421\u043A\u043E\u0440\u0438\u043D\u0433", children: [_jsx("option", { value: "", children: "\u041B\u044E\u0431\u043E\u0439 \u0441\u043A\u043E\u0440\u0438\u043D\u0433" }), _jsx("option", { value: "80+", children: "80%+ \u2014 \u043E\u0442\u043B\u0438\u0447\u043D\u044B\u0439" }), _jsx("option", { value: "60-79", children: "60\u201379% \u2014 \u0441\u0440\u0435\u0434\u043D\u0438\u0439" }), _jsx("option", { value: "<60", children: "<60% \u2014 \u0441\u043B\u0430\u0431\u044B\u0439" })] })] }), _jsxs("label", { className: `filter-pill ${sortActive ? 'active' : ''}`, children: [_jsx(ArrowDownUp, { size: 14, className: "filter-pill-icon" }), _jsx("span", { className: "filter-pill-value", children: sortLabel }), _jsx(ChevronDown, { size: 13, className: "filter-pill-chevron" }), _jsx("select", { value: sortKey, onChange: e => {
+                                    const [by, dir] = e.target.value.split('_');
+                                    setSort({ by, dir });
+                                }, "aria-label": "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430", children: Object.entries(sortLabels).map(([k, l]) => _jsx("option", { value: k, children: l }, k)) })] }), hasActiveFilters && (_jsxs("button", { className: "filter-clear", onClick: resetAll, title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B", children: [_jsx(X, { size: 12 }), " \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C"] })), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { className: "filter-meta", children: [_jsx("span", { className: "filter-meta-strong", children: (conversations?.total || 0) + pendingRows.length }), _jsx("span", { children: "\u0437\u0430\u043F\u0438\u0441\u0435\u0439" }), lastUpdatedStr && (_jsxs(_Fragment, { children: [_jsx("span", { className: "filter-meta-divider" }), _jsx("span", { className: "live-dot" }), _jsxs("span", { children: ["\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E ", lastUpdatedStr] })] }))] }), _jsxs("button", { className: "btn btn-sm btn-primary-gradient", onClick: () => setShowUpload(true), children: [_jsx(Upload, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0430\u0443\u0434\u0438\u043E"] })] }), _jsx(AudioUploadModal, { open: showUpload, onClose: () => setShowUpload(false), onUploadComplete: () => { } }), _jsxs("div", { className: "card fade-in", children: [_jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [['date', 'name', 'store', 'duration'].map(col => {
                                                 const labels = { date: 'Дата и время', name: 'Продавец', store: 'Магазин', duration: 'Длительность' };
                                                 const active = sort.by === col;
                                                 const Icon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;

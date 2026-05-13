@@ -12,6 +12,7 @@ class ScriptStepCreate(BaseModel):
     is_required: bool = True
     step_order: int
     recommendation_text: Optional[str] = None
+    example_phrases: list[str] = []
 
 
 class ScriptStepOut(BaseModel):
@@ -22,6 +23,7 @@ class ScriptStepOut(BaseModel):
     is_required: bool
     step_order: int
     recommendation_text: Optional[str]
+    example_phrases: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -58,6 +60,11 @@ class AssignedSeller(BaseModel):
     is_mandatory: bool
 
 
+class AssignedStore(BaseModel):
+    store_id: uuid.UUID
+    is_mandatory: bool
+
+
 class TemplateDetail(BaseModel):
     id: uuid.UUID
     name: str
@@ -67,6 +74,7 @@ class TemplateDetail(BaseModel):
     is_active: bool
     steps: list[ScriptStepOut]
     assigned_sellers: list[AssignedSeller]
+    assigned_stores: list[AssignedStore] = []
 
     model_config = {"from_attributes": True}
 
@@ -114,3 +122,69 @@ class ForSellerScriptOut(BaseModel):
 class ForSellerResponse(BaseModel):
     seller_id: uuid.UUID
     scripts: list[ForSellerScriptOut]
+
+
+# --- Store assignments ---
+
+class StoreAssignmentCreate(BaseModel):
+    store_id: uuid.UUID
+    template_id: uuid.UUID
+    is_mandatory: bool = False
+
+
+class StoreAssignmentOut(BaseModel):
+    id: uuid.UUID
+    store_id: uuid.UUID
+    template_id: uuid.UUID
+    template_name: str
+    scope: str
+    is_mandatory: bool
+    assigned_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Versions ---
+
+class VersionItem(BaseModel):
+    id: uuid.UUID
+    template_id: uuid.UUID
+    version_number: int
+    note: Optional[str]
+    created_by: uuid.UUID
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class VersionDetail(VersionItem):
+    snapshot: dict
+
+
+# --- Upsell rules ---
+
+class UpsellRuleCreate(BaseModel):
+    store_id: Optional[uuid.UUID] = None
+    trigger_product: str
+    required_offers: list[str]
+    is_active: bool = True
+
+
+class UpsellRulePatch(BaseModel):
+    store_id: Optional[uuid.UUID] = None
+    trigger_product: Optional[str] = None
+    required_offers: Optional[list[str]] = None
+    is_active: Optional[bool] = None
+
+
+class UpsellRuleOut(BaseModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    store_id: Optional[uuid.UUID]
+    trigger_product: str
+    required_offers: list[str]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

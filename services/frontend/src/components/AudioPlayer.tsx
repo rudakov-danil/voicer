@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Play, Pause } from 'lucide-react'
 
 interface AudioPlayerProps {
@@ -11,6 +12,9 @@ const SPEEDS = [0.5, 1, 1.5, 2]
 
 export function AudioPlayer({ src, duration: totalDuration, onTimeUpdate }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
+  const waveRef = useRef<HTMLDivElement>(null)
+  const isDraggingRef = useRef(false)
+  const wasPlayingBeforeDragRef = useRef(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(totalDuration || 0)
@@ -50,12 +54,40 @@ export function AudioPlayer({ src, duration: totalDuration, onTimeUpdate }: Audi
     onTimeUpdate?.(audio.currentTime)
   }
 
-  const handleBarClick = (index: number) => {
+  const seekToClientX = useCallback((clientX: number) => {
     const audio = audioRef.current
-    if (!audio || !duration) return
-    const newTime = (index / bars.length) * duration
+    const wave = waveRef.current
+    if (!audio || !wave || !duration) return
+    const rect = wave.getBoundingClientRect()
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+    const newTime = ratio * duration
     audio.currentTime = newTime
     setCurrentTime(newTime)
+    onTimeUpdate?.(newTime)
+  }, [duration, onTimeUpdate])
+
+  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!audioRef.current || !duration) return
+    isDraggingRef.current = true
+    wasPlayingBeforeDragRef.current = !audioRef.current.paused
+    audioRef.current.pause()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    seekToClientX(e.clientX)
+  }
+
+  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return
+    seekToClientX(e.clientX)
+  }
+
+  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return
+    isDraggingRef.current = false
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
+    if (wasPlayingBeforeDragRef.current && audioRef.current) {
+      audioRef.current.play().catch(() => {})
+      setIsPlaying(true)
+    }
   }
 
   const handleEnded = () => setIsPlaying(false)
@@ -86,13 +118,20 @@ export function AudioPlayer({ src, duration: totalDuration, onTimeUpdate }: Audi
           {isPlaying ? <Pause size={18} /> : <Play size={18} style={{ marginLeft: 2 }} />}
         </button>
         <div className="audio-timeline" style={{ flex: 1 }}>
-          <div className="audio-wave">
+          <div
+            ref={waveRef}
+            className="audio-wave"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            style={{ touchAction: 'none' }}
+          >
             {bars.map((h, i) => (
               <div
                 key={i}
                 className={`bar ${i <= activeBarIndex ? 'active' : ''}`}
-                style={{ height: `${h * 100}%` }}
-                onClick={() => handleBarClick(i)}
+                style={{ height: `${h * 100}%`, pointerEvents: 'none' }}
               />
             ))}
           </div>

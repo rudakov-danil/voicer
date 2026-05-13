@@ -8,6 +8,14 @@ export const recorderApi = {
         const response = await apiClient.get(`/api/v1/recorder/recordings/${recordingId}/audio`);
         return response.data.url;
     },
+    // Streams the audio file through the API gateway and returns a blob URL the
+    // <audio> element can use. The presigned MinIO URL targets an internal Docker
+    // hostname (`minio:9000`) the browser cannot reach, so we proxy through the
+    // recorder-service.
+    getAudioBlobUrl: async (recordingId) => {
+        const response = await apiClient.get(`/api/v1/recorder/recordings/${recordingId}/audio/stream`, { responseType: 'blob' });
+        return URL.createObjectURL(response.data);
+    },
     uploadAudio: async (file, params, onProgress) => {
         const formData = new FormData();
         formData.append('file', file);

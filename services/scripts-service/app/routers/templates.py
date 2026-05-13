@@ -6,11 +6,54 @@ from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import ScriptTemplate, ScriptStep, SellerScriptAssignment
+from app.models import ScriptTemplate, ScriptStep, SellerScriptAssignment, StoreScriptAssignment, ScriptTemplateVersion
 from app.schemas import TemplateCreate, TemplatePatch, TemplateListItem, TemplateDetail, AssignedSeller, ScriptStepOut
 from app.validators import validate_weights_sum
 
 router = APIRouter(prefix="/api/v1/scripts/templates", tags=["templates"])
+
+
+def _snapshot_payload(template: ScriptTemplate) -> dict:
+    """Готовит JSON-снимок шаблона со всеми этапами на момент сохранения."""
+    return {
+        "name": template.name,
+        "description": template.description,
+        "scope": template.scope,
+        "context_description": template.context_description,
+        "is_active": template.is_active,
+        "steps": [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "description": s.description,
+                "weight": float(s.weight),
+                "is_required": s.is_required,
+                "step_order": s.step_order,
+                "recommendation_text": s.recommendation_text,
+                "example_phrases": s.example_phrases or [],
+            }
+            for s in sorted(template.steps, key=lambda x: x.step_order)
+        ],
+    }
+
+
+async def _create_version(
+    db: AsyncSession, template: ScriptTemplate, user: dict, note: str | None = None,
+) -> ScriptTemplateVersion:
+    """Создаёт новую версию шаблона. Номер версии = max существующий + 1, либо 1."""
+    max_v = (await db.execute(
+        select(func.coalesce(func.max(ScriptTemplateVersion.version_number), 0))
+        .where(ScriptTemplateVersion.template_id == template.id)
+    )).scalar_one()
+    version = ScriptTemplateVersion(
+        template_id=template.id,
+        version_number=int(max_v) + 1,
+        snapshot=_snapshot_payload(template),
+        note=note,
+        created_by=uuid.UUID(user["sub"]),
+    )
+    db.add(version)
+    return version
 
 
 def _build_visibility_condition(user: dict):
@@ -42,7 +85,8 @@ async def list_templates(
     condition = _build_visibility_condition(user)
     q = select(ScriptTemplate).options(
         selectinload(ScriptTemplate.steps),
-        selectinload(ScriptTemplate.assignments)
+        selectinload(ScriptTemplate.assignments),
+        selectinload(ScriptTemplate.store_assignments),
     ).where(condition)
     if scope is not None:
         q = q.where(ScriptTemplate.scope == scope)
@@ -112,13 +156,22 @@ async def create_template(
             is_required=step_data.is_required,
             step_order=step_data.step_order,
             recommendation_text=step_data.recommendation_text,
+            example_phrases=step_data.example_phrases or [],
         )
         db.add(step)
 
+    await db.flush()
+    # Подтягиваем steps в кэш сессии для snapshot — selectinload через ре-fetch
+    seeded = (await db.execute(
+        select(ScriptTemplate)
+        .options(selectinload(ScriptTemplate.steps))
+        .where(ScriptTemplate.id == template.id)
+    )).scalar_one()
+    await _create_version(db, seeded, user, note="initial")
     await db.commit()
-    await db.refresh(template)
-
-    return _template_detail(template)
+    # Перетягиваем через visible_template — там selectinload подгрузит steps/assignments/store_assignments
+    fresh = await _get_visible_template(template.id, user, db)
+    return _template_detail(fresh)
 
 
 @router.get("/{template_id}")
@@ -173,12 +226,21 @@ async def replace_template(
             is_required=step_data.is_required,
             step_order=step_data.step_order,
             recommendation_text=step_data.recommendation_text,
+            example_phrases=step_data.example_phrases or [],
         )
         db.add(step)
 
+    await db.flush()
+    # Снимаем версию НОВОГО состояния — храним полную историю
+    refreshed = (await db.execute(
+        select(ScriptTemplate)
+        .options(selectinload(ScriptTemplate.steps))
+        .where(ScriptTemplate.id == template.id)
+    )).scalar_one()
+    await _create_version(db, refreshed, user, note="edit")
     await db.commit()
-    await db.refresh(template)
-    return _template_detail(template)
+    fresh = await _get_visible_template(template.id, user, db)
+    return _template_detail(fresh)
 
 
 @router.patch("/{template_id}")
@@ -202,12 +264,20 @@ async def patch_template(
     template.updated_at = datetime.utcnow()
 
     await db.commit()
-    await db.refresh(template)
-    return _template_detail(template)
+    fresh = await _get_visible_template(template.id, user, db)
+    return _template_detail(fresh)
 
 
 async def _get_visible_template(template_id: uuid.UUID, user: dict, db: AsyncSession) -> ScriptTemplate:
-    result = await db.execute(select(ScriptTemplate).where(ScriptTemplate.id == template_id))
+    result = await db.execute(
+        select(ScriptTemplate)
+        .options(
+            selectinload(ScriptTemplate.steps),
+            selectinload(ScriptTemplate.assignments),
+            selectinload(ScriptTemplate.store_assignments),
+        )
+        .where(ScriptTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if template is None:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -237,11 +307,16 @@ def _template_detail(template: ScriptTemplate) -> dict:
                 "is_required": s.is_required,
                 "step_order": s.step_order,
                 "recommendation_text": s.recommendation_text,
+                "example_phrases": s.example_phrases or [],
             }
             for s in template.steps
         ],
         "assigned_sellers": [
             {"seller_id": a.seller_id, "is_mandatory": a.is_mandatory}
             for a in template.assignments
+        ],
+        "assigned_stores": [
+            {"store_id": a.store_id, "is_mandatory": a.is_mandatory}
+            for a in (template.store_assignments or [])
         ],
     }

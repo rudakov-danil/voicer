@@ -87,18 +87,35 @@ export interface DashboardOverview {
 export interface ScriptTemplate {
   id: string
   name: string
+  description?: string | null
+  scope?: 'org_level' | 'manager_level'
+  context_description?: string | null
   is_active: boolean
   steps: ScriptStep[]
+  assigned_sellers?: { seller_id: string; is_mandatory: boolean }[]
+  assigned_stores?: { store_id: string; is_mandatory: boolean }[]
 }
 
 export interface ScriptStep {
-  id: string
+  id?: string
   name: string
-  description?: string
+  description?: string | null
   weight: number
   order: number
   is_required: boolean
-  recommendation_text?: string
+  recommendation_text?: string | null
+  example_phrases?: string[]
+}
+
+export interface UpsellRule {
+  id: string
+  organization_id: string
+  store_id?: string | null
+  trigger_product: string
+  required_offers: string[]
+  is_active: boolean
+  created_at?: string
+  updated_at?: string
 }
 
 // --- Analytics Types ---

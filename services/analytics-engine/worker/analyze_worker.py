@@ -7,17 +7,26 @@ from datetime import date, datetime
 import aio_pika
 import httpx
 from openai import APIStatusError
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.llm_client import get_llm_client
 from app.models import Conversation, ConversationScriptResult, ConversationScore, Objection
-from app.prompt_builder import build_script_prompt, build_general_prompt, screen_contextual_script
+from app.prompt_builder import (
+    build_script_prompt,
+    build_general_prompt,
+    build_redaction_prompt,
+    build_upsell_prompt,
+    screen_contextual_script,
+)
 from app.rabbitmq import publish
 from app.response_parser import (
     parse_script_scoring_response,
     parse_general_analysis_response,
+    parse_redaction_response,
+    parse_upsell_response,
     LLMResponseParseError,
 )
 from app.scorer import calculate_script_score, calculate_overall_score
@@ -36,15 +45,34 @@ async def _fetch_transcript(recording_id: str) -> list[dict]:
         return data.get("segments", [])
 
 
-async def _fetch_scripts(seller_id: str, organization_id: str) -> list[dict]:
+async def _fetch_scripts(seller_id: str, organization_id: str, store_id: str | None = None) -> list[dict]:
+    params = {"seller_id": seller_id, "organization_id": organization_id}
+    if store_id:
+        params["store_id"] = store_id
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(
             f"{settings.SCRIPTS_SERVICE_URL}/api/v1/scripts/for-seller",
-            params={"seller_id": seller_id, "organization_id": organization_id},
+            params=params,
             headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY},
         )
         resp.raise_for_status()
         return resp.json().get("scripts", [])
+
+
+async def _fetch_upsell_rules(organization_id: str, store_id: str) -> list[dict]:
+    """Активные правила апсейла, релевантные для магазина: его правила + дефолты организации."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.get(
+                f"{settings.SCRIPTS_SERVICE_URL}/api/v1/scripts/upsell-rules",
+                params={"store_id": store_id, "include_org_default": "true"},
+                headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY},
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            logger.warning("Failed to fetch upsell rules for org=%s store=%s: %s", organization_id, store_id, e)
+            return []
+    return [r for r in resp.json().get("items", []) if r.get("is_active")]
 
 
 async def _score_one_script(segments: list[dict], script: dict, llm_client) -> dict:
@@ -128,6 +156,157 @@ async def _general_analysis(segments: list[dict], llm_client) -> dict:
         }
 
 
+async def _check_upsell(
+    segments: list[dict], rules: list[dict], llm_client
+) -> tuple[bool | None, list[dict]]:
+    """Проверяет соблюдение правил апсейла. Возвращает (has_upsell, details).
+    has_upsell:
+        None — правил не было или LLM упал
+        False — правила сработали (triggered), но продавец не предложил ничего из required
+        True  — хотя бы одно правило закрыто (предложено всё из required)
+    details — список релевантных правил с разметкой offered/missed.
+    """
+    if not rules:
+        return None, []
+
+    system, user = build_upsell_prompt(segments, rules)
+    try:
+        response = await llm_client.chat.completions.create(
+            model=settings.LLM_MODEL_NAME,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.0,
+            max_tokens=settings.LLM_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            timeout=settings.LLM_GENERAL_TIMEOUT,
+        )
+        parsed = parse_upsell_response(response.choices[0].message.content)
+    except Exception as e:
+        logger.error("Upsell check failed: %s", e)
+        return None, []
+
+    rules_by_id = {str(r["id"]): r for r in rules}
+    details: list[dict] = []
+    has_any_offered = False
+    has_triggered = False
+    for chk in parsed.checks:
+        rule = rules_by_id.get(chk.rule_id)
+        if not rule:
+            continue
+        if not chk.triggered:
+            continue
+        has_triggered = True
+        required = set(rule.get("required_offers") or [])
+        offered = set(chk.offered_items or []) & required
+        missed = required - offered
+        if offered:
+            has_any_offered = True
+        details.append({
+            "rule_id": chk.rule_id,
+            "trigger_product": rule.get("trigger_product"),
+            "required_offers": list(required),
+            "offered_items": list(offered),
+            "missed_items": list(missed),
+            "evidence": chk.evidence,
+        })
+
+    if not has_triggered:
+        return None, []
+    return has_any_offered, details
+
+
+async def _is_anonymization_enabled(
+    db: AsyncSession, organization_id: str, store_id: str
+) -> bool:
+    """Читает admin_schema.privacy_settings: возвращает True, если нужно анонимизировать.
+    Сначала ищет настройку для конкретного магазина, потом fallback на org-level (store_id IS NULL).
+    """
+    sql = text("""
+        SELECT anonymize_transcripts
+        FROM admin_schema.privacy_settings
+        WHERE organization_id = :org_id
+          AND (store_id = :store_id OR store_id IS NULL)
+        ORDER BY (store_id = :store_id) DESC
+        LIMIT 1
+    """)
+    try:
+        row = (await db.execute(sql, {
+            "org_id": uuid.UUID(organization_id),
+            "store_id": uuid.UUID(store_id),
+        })).fetchone()
+    except Exception as e:
+        logger.warning("Failed to read privacy_settings: %s", e)
+        return False
+    return bool(row.anonymize_transcripts) if row else False
+
+
+async def _redact_texts(texts: list[str], llm_client) -> list[str]:
+    """Редактирует список строк через LLM, заменяя ПД токенами. Возвращает массив той же длины.
+    При ошибке LLM возвращает исходный массив без изменений.
+    """
+    non_empty_idx = [i for i, t in enumerate(texts) if t and t.strip()]
+    if not non_empty_idx:
+        return list(texts)
+    payload = [texts[i] for i in non_empty_idx]
+
+    system, user = build_redaction_prompt(payload)
+    try:
+        response = await llm_client.chat.completions.create(
+            model=settings.LLM_MODEL_NAME,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.0,
+            max_tokens=settings.LLM_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            timeout=settings.LLM_SCRIPT_TIMEOUT,
+        )
+        redacted = parse_redaction_response(
+            response.choices[0].message.content, expected_count=len(payload)
+        )
+    except (LLMResponseParseError, Exception) as e:
+        logger.error("Redaction failed, keeping originals: %s", e)
+        return list(texts)
+
+    result = list(texts)
+    for k, idx in enumerate(non_empty_idx):
+        result[idx] = redacted[k]
+    return result
+
+
+async def _apply_redaction_to_db(
+    db: AsyncSession, transcript_id: str, segments: list[dict], llm_client
+) -> list[dict]:
+    """Редактирует тексты сегментов и обновляет transcripts/transcript_segments в БД.
+    Возвращает копию `segments` с редактированными текстами (для использования внутри воркера —
+    e.g. чтобы evidence/raw_text после анализа были сопоставлены с тем, что осталось в БД).
+    """
+    original_texts = [seg.get("text", "") for seg in segments]
+    redacted_texts = await _redact_texts(original_texts, llm_client)
+
+    # Обновляем сегменты по segment_index (стабильный ключ при той же transcript_id)
+    update_seg_sql = text("""
+        UPDATE transcription.transcript_segments
+        SET text = :new_text
+        WHERE transcript_id = :t_id AND segment_index = :idx
+    """)
+    for seg, new_text in zip(segments, redacted_texts):
+        seg_idx = seg.get("segment_index")
+        if seg_idx is None:
+            continue
+        await db.execute(update_seg_sql, {
+            "new_text": new_text,
+            "t_id": uuid.UUID(transcript_id),
+            "idx": seg_idx,
+        })
+
+    # Перестраиваем full_text из редактированных сегментов
+    new_full_text = "\n".join(t for t in redacted_texts if t)
+    await db.execute(
+        text("UPDATE transcription.transcripts SET full_text = :ft WHERE id = :t_id"),
+        {"ft": new_full_text, "t_id": uuid.UUID(transcript_id)},
+    )
+
+    return [dict(seg, text=new_text) for seg, new_text in zip(segments, redacted_texts)]
+
+
 async def _run_parallel_with_limit(coros, limit: int):
     """Run coroutines with concurrency limit."""
     semaphore = asyncio.Semaphore(limit)
@@ -156,11 +335,12 @@ async def process_analyze_message(
             logger.error("Invalid message format: %s", e)
             return  # ACK bad message, don't retry
 
-        # Step 1: Fetch transcript and scripts in parallel
+        # Step 1: Fetch transcript, scripts, and upsell rules in parallel
         try:
-            segments, scripts = await asyncio.gather(
+            segments, scripts, upsell_rules = await asyncio.gather(
                 _fetch_transcript(recording_id),
-                _fetch_scripts(seller_id, organization_id),
+                _fetch_scripts(seller_id, organization_id, store_id),
+                _fetch_upsell_rules(organization_id, store_id),
             )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -218,6 +398,41 @@ async def process_analyze_message(
         applied_scores = [r["script_score"] for r in scored_results]
         overall_score = calculate_overall_score(applied_scores)
 
+        # Step 5.1: Upsell rule check (отдельный LLM-проход, если правила есть)
+        has_upsell, upsell_details = await _check_upsell(segments, upsell_rules, llm_client)
+
+        # Step 5.5: Anonymize transcripts if privacy setting is enabled.
+        # Анализ уже отработал на оригинале (имена и т.п. помогают LLM понять контекст),
+        # теперь сносим ПД из всего, что попадает в БД: сегменты, full_text, evidence, raw_text.
+        anonymize = await _is_anonymization_enabled(db, organization_id, store_id)
+        if anonymize:
+            # 1) Сегменты транскрипта + full_text → UPDATE существующих строк
+            try:
+                await _apply_redaction_to_db(db, transcript_id, segments, llm_client)
+            except Exception as e:
+                logger.error("Transcript redaction failed for %s: %s", recording_id, e)
+
+            # 2) Собираем все evidence + raw_text одним батчем, редактируем, раскладываем обратно
+            evidence_items: list[tuple[dict, str]] = []  # (step_score_obj, evidence)
+            objection_items: list[dict] = list(general.get("objections", []))
+
+            for result in scored_results:
+                for ss in result["step_scores"]:
+                    if ss.evidence:
+                        evidence_items.append((ss, ss.evidence))
+
+            quotes = [ev for _, ev in evidence_items] + [o.get("raw_text", "") for o in objection_items]
+            if quotes:
+                try:
+                    redacted_quotes = await _redact_texts(quotes, llm_client)
+                    for (ss, _), new_text in zip(evidence_items, redacted_quotes[:len(evidence_items)]):
+                        ss.evidence = new_text
+                    for obj, new_text in zip(objection_items, redacted_quotes[len(evidence_items):]):
+                        obj["raw_text"] = new_text
+                    general["objections"] = objection_items
+                except Exception as e:
+                    logger.error("Evidence/raw_text redaction failed for %s: %s", recording_id, e)
+
         # Step 6: Save to DB in one transaction
         # Determine session_date from transcript or use today
         session_date_val = date.today()
@@ -236,15 +451,22 @@ async def process_analyze_message(
             sentiment_avg=general["sentiment_avg"],
             analyzed_at=datetime.utcnow(),
             llm_model=settings.LLM_MODEL_NAME,
+            has_upsell=has_upsell,
+            upsell_results=upsell_details or None,
         )
         db.add(conv)
         await db.flush()
 
         # Applied script results
         for result in scored_results:
+            script_obj = next(
+                (s for s in scripts_to_score if s["id"] == result["script_id"]), None
+            )
+            version_id_raw = (script_obj or {}).get("current_version_id")
             sr = ConversationScriptResult(
                 conversation_id=conv.id,
                 script_template_id=uuid.UUID(result["script_id"]),
+                script_template_version_id=uuid.UUID(version_id_raw) if version_id_raw else None,
                 script_name=result["script_name"],
                 was_applied=True,
                 script_score=result["script_score"],
