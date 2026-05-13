@@ -8,7 +8,7 @@ import { Drawer } from '@/components/Drawer'
 import { AudioPlayer } from '@/components/AudioPlayer'
 import { AudioUploadModal } from '@/components/AudioUpload'
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Upload, RefreshCw, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, Store, Target, Award, ArrowDownUp, ChevronDown, X } from 'lucide-react'
 
 // Подсвечивает в тексте сегмента вхождения raw_text возражений.
 // Цвет: зелёный если возражение закрыто, красный если нет.
@@ -220,8 +220,22 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
 
   const recordingId = data?.conversation?.recording_id || data?.recording_id
   useEffect(() => {
-    if (recordingId) {
-      recorderApi.getAudioUrl(recordingId).then(setAudioUrl).catch(() => {})
+    if (!recordingId) return
+    let revokedUrl: string | undefined
+    let cancelled = false
+    recorderApi.getAudioBlobUrl(recordingId)
+      .then(url => {
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        revokedUrl = url
+        setAudioUrl(url)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      if (revokedUrl) URL.revokeObjectURL(revokedUrl)
     }
   }, [recordingId])
 
@@ -476,6 +490,40 @@ export function ConversationsPage() {
     ? lastUpdated.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', second:'2-digit' })
     : null
 
+  // ─── Filter pill metadata ──────────────────────────────────────────────────
+  const storeLabel = filters.store_id
+    ? (stores?.items || []).find((s: any) => s.id === filters.store_id)?.name || 'Магазин'
+    : 'Все магазины'
+  const outcomeLabel = filters.outcome ? OUTCOME_LABELS[filters.outcome] || filters.outcome : 'Любой исход'
+  const scoreValue =
+    filters.score_min === 80 ? '80+' :
+    filters.score_min === 60 && filters.score_max === 79 ? '60-79' :
+    filters.score_max === 59 ? '<60' : ''
+  const scoreLabel =
+    scoreValue === '80+'   ? 'Скоринг 80%+' :
+    scoreValue === '60-79' ? 'Скоринг 60–79%' :
+    scoreValue === '<60'   ? 'Скоринг <60%' : 'Любой скоринг'
+  const sortLabels: Record<string, string> = {
+    date_desc: 'Сначала новые',
+    date_asc:  'Сначала старые',
+    name_asc:  'Имя А→Я',
+    name_desc: 'Имя Я→А',
+    duration_desc: 'Длинные сначала',
+    duration_asc:  'Короткие сначала',
+    store_asc:  'Магазин А→Я',
+    store_desc: 'Магазин Я→А',
+  }
+  const sortKey = `${sort.by}_${sort.dir}`
+  const sortLabel = sortLabels[sortKey] || 'Сортировка'
+  const sortActive = sortKey !== 'date_desc'
+
+  const hasActiveFilters = !!(filters.store_id || filters.outcome || scoreValue || sortActive)
+  const resetAll = () => {
+    setFilters({ store_id:'', seller_id:'', outcome:'', score_min:undefined, score_max:undefined })
+    setSort({ by:'date', dir:'desc' })
+    setPage(1)
+  }
+
   const drawerTitle = selectedConvId
     ? `Разговор #${selectedConvId.slice(0,8)}`
     : selectedRec
@@ -489,45 +537,77 @@ export function ConversationsPage() {
         @keyframes viq-spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
       `}</style>
 
-      {/* Filter bar */}
-      <div className="filter-bar fade-in">
-        <select value={filters.store_id} onChange={e => { setFilters(p => ({ ...p, store_id:e.target.value })); setPage(1) }}>
-          <option value="">Все магазины</option>
-          {(stores?.items || []).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-        <select value={filters.outcome} onChange={e => { setFilters(p => ({ ...p, outcome:e.target.value })); setPage(1) }}>
-          <option value="">Все исходы</option>
-          {Object.entries(OUTCOME_LABELS).map(([k,l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
-        <select onChange={e => handleScoreFilter(e.target.value)}>
-          <option value="">Любой скоринг</option>
-          <option value="80+">80%+</option>
-          <option value="60-79">60–79%</option>
-          <option value="<60">&lt;60%</option>
-        </select>
-        <select value={`${sort.by}_${sort.dir}`} onChange={e => {
-          const [by, dir] = e.target.value.split('_') as [SortBy, SortDir]
-          setSort({ by, dir })
-        }}>
-          <option value="date_desc">Дата ↓ (новые)</option>
-          <option value="date_asc">Дата ↑ (старые)</option>
-          <option value="name_asc">Имя А→Я</option>
-          <option value="name_desc">Имя Я→А</option>
-          <option value="duration_desc">Длительность ↓</option>
-          <option value="duration_asc">Длительность ↑</option>
-          <option value="store_asc">Магазин А→Я</option>
-          <option value="store_desc">Магазин Я→А</option>
-        </select>
-        <div style={{ flex:1 }} />
-        {lastUpdatedStr && (
-          <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, color:'var(--text-muted)' }}>
-            <RefreshCw size={12} style={{ opacity:.5 }} /> обновлено {lastUpdatedStr}
-          </span>
+      {/* Filter toolbar */}
+      <div className="filter-toolbar fade-in">
+        {/* Store filter */}
+        <label className={`filter-pill ${filters.store_id ? 'active' : ''}`}>
+          <Store size={14} className="filter-pill-icon" />
+          <span className="filter-pill-value">{storeLabel}</span>
+          <ChevronDown size={13} className="filter-pill-chevron" />
+          <select value={filters.store_id} onChange={e => { setFilters(p => ({ ...p, store_id:e.target.value })); setPage(1) }} aria-label="Магазин">
+            <option value="">Все магазины</option>
+            {(stores?.items || []).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
+
+        {/* Outcome filter */}
+        <label className={`filter-pill ${filters.outcome ? 'active' : ''}`}>
+          <Target size={14} className="filter-pill-icon" />
+          <span className="filter-pill-value">{outcomeLabel}</span>
+          <ChevronDown size={13} className="filter-pill-chevron" />
+          <select value={filters.outcome} onChange={e => { setFilters(p => ({ ...p, outcome:e.target.value })); setPage(1) }} aria-label="Исход">
+            <option value="">Все исходы</option>
+            {Object.entries(OUTCOME_LABELS).map(([k,l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </label>
+
+        {/* Score filter */}
+        <label className={`filter-pill ${scoreValue ? 'active' : ''}`}>
+          <Award size={14} className="filter-pill-icon" />
+          <span className="filter-pill-value">{scoreLabel}</span>
+          <ChevronDown size={13} className="filter-pill-chevron" />
+          <select value={scoreValue} onChange={e => handleScoreFilter(e.target.value)} aria-label="Скоринг">
+            <option value="">Любой скоринг</option>
+            <option value="80+">80%+ — отличный</option>
+            <option value="60-79">60–79% — средний</option>
+            <option value="<60">&lt;60% — слабый</option>
+          </select>
+        </label>
+
+        {/* Sort */}
+        <label className={`filter-pill ${sortActive ? 'active' : ''}`}>
+          <ArrowDownUp size={14} className="filter-pill-icon" />
+          <span className="filter-pill-value">{sortLabel}</span>
+          <ChevronDown size={13} className="filter-pill-chevron" />
+          <select value={sortKey} onChange={e => {
+            const [by, dir] = e.target.value.split('_') as [SortBy, SortDir]
+            setSort({ by, dir })
+          }} aria-label="Сортировка">
+            {Object.entries(sortLabels).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </label>
+
+        {hasActiveFilters && (
+          <button className="filter-clear" onClick={resetAll} title="Сбросить все фильтры">
+            <X size={12} /> Сбросить
+          </button>
         )}
-        <span style={{ fontSize:13, color:'var(--text-muted)' }}>
-          {(conversations?.total || 0) + pendingRows.length} записей
-        </span>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowUpload(true)}>
+
+        <div style={{ flex:1 }} />
+
+        <div className="filter-meta">
+          <span className="filter-meta-strong">{(conversations?.total || 0) + pendingRows.length}</span>
+          <span>записей</span>
+          {lastUpdatedStr && (
+            <>
+              <span className="filter-meta-divider" />
+              <span className="live-dot" />
+              <span>обновлено {lastUpdatedStr}</span>
+            </>
+          )}
+        </div>
+
+        <button className="btn btn-sm btn-primary-gradient" onClick={() => setShowUpload(true)}>
           <Upload size={14} /> Загрузить аудио
         </button>
       </div>

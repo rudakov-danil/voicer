@@ -3,13 +3,14 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.minio_client import get_presigned_url
+from app.minio_client import get_minio, get_presigned_url
 from app.models import Recording
 from app.schemas import AudioUrlResponse, RecordingListResponse, RecordingResponse
 
@@ -82,6 +83,57 @@ async def get_audio_url(
 
     url = get_presigned_url(bucket, object_name, expires_seconds=3600)
     return AudioUrlResponse(url=url, expires_in=3600)
+
+
+@router.get("/recordings/{recording_id}/audio/stream")
+async def stream_audio(
+    recording_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream audio bytes through the API gateway.
+
+    Why: presigned MinIO URLs reference the internal hostname (`minio:9000`),
+    which the browser cannot resolve. Streaming through the recorder-service
+    keeps the audio reachable via the existing API gateway and preserves auth.
+    """
+    q = select(Recording).where(Recording.id == recording_id)
+    q = _apply_access(q, current_user)
+    recording = (await db.execute(q)).scalar_one_or_none()
+
+    if not recording:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    parts = recording.audio_path.split("/", 1)
+    bucket = parts[0]
+    object_name = parts[1]
+
+    client = get_minio()
+    try:
+        stat = client.stat_object(bucket, object_name)
+        content_type = stat.content_type or "audio/wav"
+        size = stat.size
+    except Exception:
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    response = client.get_object(bucket, object_name)
+
+    def iterator():
+        try:
+            for chunk in response.stream(64 * 1024):
+                yield chunk
+        finally:
+            response.close()
+            response.release_conn()
+
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=3600",
+    }
+    if size:
+        headers["Content-Length"] = str(size)
+
+    return StreamingResponse(iterator(), media_type=content_type, headers=headers)
 
 
 class InternalRecordingCreate(BaseModel):
