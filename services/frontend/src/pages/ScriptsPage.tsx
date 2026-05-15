@@ -3,7 +3,7 @@ import { scriptsApi } from '@/api/scripts'
 import { adminApi } from '@/api/admin'
 import { dashboardApi } from '@/api/dashboard'
 import type { ScriptTemplate, ScriptStep, UpsellRule } from '@/types'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   CheckSquare, Plus, Trash2, GripVertical, ChevronUp, ChevronDown,
   Save, X, Store as StoreIcon, User as UserIcon, Sparkles, BookOpen, PlayCircle, Loader,
@@ -161,14 +161,17 @@ function StepRow({
           style={{ flex: 1 }}
         />
 
-        <input
-          className="form-input"
-          type="number" step={0.01} min={0} max={1}
-          value={step.weight}
-          onChange={(e) => onChange({ ...step, weight: Number(e.target.value) })}
-          title="Вес (доля от 1.000)"
-          style={{ width: 80, padding: '6px 10px', fontSize: 13 }}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input
+            className="form-input"
+            type="number" step={1} min={0} max={100}
+            value={Math.round(step.weight * 100)}
+            onChange={(e) => onChange({ ...step, weight: Number(e.target.value) / 100 })}
+            title="Вес этапа в процентах"
+            style={{ width: 64, padding: '6px 8px', fontSize: 13 }}
+          />
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>%</span>
+        </div>
 
         <div
           className={`toggle-switch ${step.is_required ? 'on' : ''}`}
@@ -176,8 +179,8 @@ function StepRow({
           onClick={() => onChange({ ...step, is_required: !step.is_required })}
         />
 
-        <button className="btn btn-outline btn-sm" onClick={() => setExpanded((v) => !v)}>
-          {expanded ? 'Свернуть' : 'Подробно'}
+        <button className="btn btn-outline btn-sm" onClick={() => setExpanded((v) => !v)} title="Описание, фразы, рекомендации">
+          {expanded ? <><ChevronUp size={12} style={{ marginRight: 3 }} />Скрыть</> : <><ChevronDown size={12} style={{ marginRight: 3 }} />Детали</>}
         </button>
 
         <button className="btn-icon" onClick={onDelete} title="Удалить этап" style={{ color: 'var(--danger)' }}>
@@ -397,13 +400,15 @@ function TemplateEditor({
   return (
     <div>
       {isNew && (
-        <div className="assignments-card" style={{ opacity: 0.7, marginBottom: 14 }}>
-          <div className="assignments-title">
-            <StoreIcon size={14} /> Где применяется
-          </div>
-          <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-            Сначала сохраните скрипт — затем сможете выбрать магазины и продавцов на вкладке «Назначения».
-          </div>
+        <div style={{
+          fontSize: 12.5, color: 'var(--text-muted)',
+          padding: '8px 12px', marginBottom: 16,
+          background: 'var(--bg)', borderRadius: 'var(--radius)',
+          border: '1px solid var(--border-light)',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <StoreIcon size={13} style={{ flexShrink: 0, opacity: 0.5 }} />
+          После сохранения сможете назначить скрипт магазинам и продавцам на вкладке «Назначения».
         </div>
       )}
 
@@ -430,9 +435,9 @@ function TemplateEditor({
         <div style={{ fontWeight: 600, color: 'var(--text)' }}>Этапы</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 12, color: weightsOk ? 'var(--success)' : 'var(--danger)' }}>
-            Сумма весов: {weightsSum.toFixed(3)} {weightsOk ? '✓' : '(должно быть 1.000)'}
+            Сумма весов: {Math.round(weightsSum * 100)}% {weightsOk ? '✓' : '(должно быть 100%)'}
           </span>
-          <button className="btn btn-outline btn-sm" onClick={() => setSteps(normalizeWeights(steps))} disabled={steps.length === 0}>
+          <button className="btn btn-outline btn-sm" onClick={() => setSteps(normalizeWeights(steps))} disabled={steps.length === 0} title="Автоматически привести веса к 100%">
             Нормализовать
           </button>
           <button className="btn btn-outline btn-sm" onClick={addStep}>
@@ -457,7 +462,14 @@ function TemplateEditor({
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+      <div style={{
+        display: 'flex', gap: 10,
+        margin: '20px -20px -18px',
+        padding: '12px 20px',
+        borderTop: '1px solid var(--border-light)',
+        background: 'var(--bg)',
+        borderRadius: '0 0 var(--radius-lg) var(--radius-lg)',
+      }}>
         <button
           className="btn btn-primary" onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending || !name.trim() || steps.length === 0 || !weightsOk}
@@ -520,7 +532,8 @@ function UpsellRulesTable() {
         <div>
           <div className="card-title">Правила апсейла</div>
           <div className="card-subtitle">
-            LLM проверяет каждый разговор: если продавец обсуждал триггер-продукт, он должен был предложить указанные дополнения.
+            LLM проверяет каждый разговор: если продавец обсуждал триггер-продукт, он должен был предложить указанные дополнения.{' '}
+            <span style={{ opacity: 0.7 }}>Поля редактируются прямо в таблице — сохраняется автоматически.</span>
           </div>
         </div>
         <button className="btn btn-primary btn-sm" onClick={() => createMut.mutate()}>
@@ -567,19 +580,22 @@ function UpsellRuleRow({ rule, stores, onPatch, onDelete }: {
 }) {
   const [trigger, setTrigger] = useState(rule.trigger_product)
   const [offers, setOffers] = useState(rule.required_offers.join(', '))
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => setTrigger(rule.trigger_product), [rule.trigger_product])
   useEffect(() => setOffers(rule.required_offers.join(', ')), [rule.required_offers])
 
+  const flash = () => { setSaved(true); setTimeout(() => setSaved(false), 1500) }
+
   const commitTrigger = () => {
     const v = trigger.trim()
-    if (v && v !== rule.trigger_product) onPatch({ trigger_product: v })
+    if (v && v !== rule.trigger_product) { onPatch({ trigger_product: v }); flash() }
   }
   const commitOffers = () => {
     const arr = offers.split(',').map((s) => s.trim()).filter(Boolean)
     const same = arr.length === rule.required_offers.length &&
       arr.every((o, i) => o === rule.required_offers[i])
-    if (!same) onPatch({ required_offers: arr })
+    if (!same) { onPatch({ required_offers: arr }); flash() }
   }
 
   return (
@@ -612,12 +628,15 @@ function UpsellRuleRow({ rule, stores, onPatch, onDelete }: {
       </td>
       <td>
         <div className={`toggle-switch ${rule.is_active ? 'on' : ''}`}
-          onClick={() => onPatch({ is_active: !rule.is_active })} />
+          onClick={() => { onPatch({ is_active: !rule.is_active }); flash() }} />
       </td>
       <td>
-        <button className="btn-icon" onClick={onDelete} title="Удалить" style={{ color: 'var(--danger)' }}>
-          <Trash2 size={14} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+          {saved && <span style={{ fontSize: 11, color: 'var(--success)', whiteSpace: 'nowrap' }}>✓ Сохранено</span>}
+          <button className="btn-icon" onClick={onDelete} title="Удалить" style={{ color: 'var(--danger)' }}>
+            <Trash2 size={14} />
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -666,8 +685,8 @@ function LibraryDialog({
   })
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card modal-card--wide" onClick={(e) => e.stopPropagation()}>
+    <ModalOverlay onClose={onClose}>
+      <div className="modal-card modal-card--wide">
         <div className="modal-header">
           <div className="modal-title">Создание скрипта</div>
           <button className="btn-icon" onClick={onClose} title="Закрыть"><X size={16} /></button>
@@ -770,7 +789,7 @@ function LibraryDialog({
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }
 
@@ -800,8 +819,8 @@ function LiveTestDialog({
   const items = (convs?.items || []) as any[]
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card modal-card--wide" onClick={(e) => e.stopPropagation()}>
+    <ModalOverlay onClose={onClose}>
+      <div className="modal-card modal-card--wide">
         <div className="modal-header">
           <div className="modal-title">
             <PlayCircle size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
@@ -930,7 +949,7 @@ function LiveTestDialog({
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }
 
@@ -1157,8 +1176,8 @@ function CompareDialog({ templateId, versionA, versionB, onClose }: {
   )
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card modal-card--wide" onClick={(e) => e.stopPropagation()}>
+    <ModalOverlay onClose={onClose}>
+      <div className="modal-card modal-card--wide">
         <div className="modal-header">
           <div className="modal-title">
             <GitCompare size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
@@ -1196,6 +1215,23 @@ function CompareDialog({ templateId, versionA, versionB, onClose }: {
           <button className="btn btn-outline" onClick={onClose}>Закрыть</button>
         </div>
       </div>
+    </ModalOverlay>
+  )
+}
+
+// ─── Safe modal overlay (prevents close on drag-out) ────────────────────────────
+
+function ModalOverlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const downTarget = React.useRef<EventTarget | null>(null)
+  return (
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => { downTarget.current = e.target }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && downTarget.current === e.currentTarget) onClose()
+      }}
+    >
+      {children}
     </div>
   )
 }
@@ -1211,11 +1247,11 @@ function EditorDialog({
   onClose: () => void
   onSaved: (id: string) => void
 }) {
+  const [resetKey, setResetKey] = useState(0)
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div
         className="modal-card modal-card--wide"
-        onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 920, maxHeight: '92vh' }}
       >
         <div className="modal-header">
@@ -1224,11 +1260,22 @@ function EditorDialog({
               ? (draftInfo?.fromAi ? 'AI-черновик скрипта' : 'Новый скрипт')
               : (template?.name || 'Редактирование скрипта')}
           </div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {isNew && (
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => setResetKey((k) => k + 1)}
+                title="Сбросить все поля формы"
+              >
+                Очистить
+              </button>
+            )}
+            <button className="btn-icon" onClick={onClose} title="Закрыть"><X size={16} /></button>
+          </div>
         </div>
-        <div className="modal-body" style={{ paddingBottom: 0 }}>
+        <div className="modal-body">
           <TemplateEditor
-            key={isNew ? (draftInfo?.fromAi ? 'ai' : 'new') : (template?.id || 'none')}
+            key={isNew ? (draftInfo?.fromAi ? `ai-${resetKey}` : `new-${resetKey}`) : (template?.id || 'none')}
             template={template}
             onSaved={(id) => onSaved(id)}
           />
@@ -1361,7 +1408,7 @@ export function ScriptsPage() {
                 className="btn btn-primary btn-sm"
                 onClick={() => { setEditorMode('new'); setAiDraft(null); setSelectedId(null) }}
               >
-                <Plus size={14} /> Пустой
+                <Plus size={14} /> Новый
               </button>
             </div>
           </div>
@@ -1404,9 +1451,13 @@ export function ScriptsPage() {
         {selectedDetail
           ? <SelectedScriptPanel template={selectedDetail} onEdit={() => setEditorMode('edit')} />
           : (
-            <div className="card" style={{ maxHeight: '78vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
               <div className="empty-state" style={{ textAlign: 'center', padding: 24 }}>
-                <p>Выберите скрипт слева, чтобы увидеть аналитику, версии и назначения.</p>
+                <BookOpen size={36} style={{ color: 'var(--text-muted)', marginBottom: 12, opacity: 0.4 }} />
+                <p style={{ fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Выберите скрипт из списка</p>
+                <p style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                  Здесь появятся аналитика, история версий и настройки назначений.
+                </p>
               </div>
             </div>
           )
