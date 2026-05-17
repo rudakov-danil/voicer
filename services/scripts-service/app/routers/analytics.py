@@ -51,13 +51,15 @@ async def step_analytics(
 
     overall = (await db.execute(text(overall_sql), params)).fetchone()
 
-    # Per-step: ср.балл, pass rate (% где score >= 50), сколько раз обнаружен
+    # Per-step: группируем ТОЛЬКО по step_name, чтобы орфаны (с пересохранёнными
+    # script_step_id после редактирования шаблона) схлопывались в один ряд.
+    # Берём свежий step_id (MAX по дате через MAX(score_id) — для ссылок UI).
     per_step_sql = """
         SELECT
-            cs.script_step_id::text   AS step_id,
-            cs.step_name              AS step_name,
-            AVG(cs.score)             AS avg_score,
-            COUNT(*)                  AS total_count,
+            cs.step_name                                   AS step_name,
+            MAX(cs.script_step_id::text)                   AS step_id,
+            AVG(cs.score)                                  AS avg_score,
+            COUNT(*)                                       AS total_count,
             COUNT(*) FILTER (WHERE cs.score >= 50)         AS pass_count,
             COUNT(*) FILTER (WHERE cs.step_detected = TRUE) AS detected_count
         FROM analytics.conversation_scores cs
@@ -76,8 +78,8 @@ async def step_analytics(
     if version_id:
         per_step_sql += " AND csr.script_template_version_id = :version_id"
     per_step_sql += """
-        GROUP BY cs.script_step_id, cs.step_name
-        ORDER BY MIN(cs.script_step_id::text)
+        GROUP BY cs.step_name
+        ORDER BY cs.step_name
     """
     rows = (await db.execute(text(per_step_sql), params)).fetchall()
 

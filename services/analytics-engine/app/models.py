@@ -40,8 +40,11 @@ class Conversation(Base):
     # NULL = апсейл не проверялся (нет правил или не работал).
     has_upsell: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # Детализация по каждому сработавшему правилу: [{rule_id, trigger_product, required_offers,
-    # offered_items, missed_items, evidence}, ...]
+    # offered_items, missed_items, evidence, trigger_quotes, offer_quotes}, ...]
     upsell_results: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Аналог для кросс-сейла. Структура и семантика симметричны upsell.
+    has_crosssell: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    crosssell_results: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     script_results: Mapped[list["ConversationScriptResult"]] = relationship(
         "ConversationScriptResult", back_populates="conversation", cascade="all, delete-orphan"

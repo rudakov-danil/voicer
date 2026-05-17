@@ -1,5 +1,5 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
@@ -124,3 +124,56 @@ async def list_assignments(
         })
 
     return {"items": items, "total": total}
+
+
+@router.post("/bulk-set", status_code=200)
+async def bulk_set_template_sellers(
+    body: dict = Body(...),
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Полностью переопределить набор продавцов для шаблона.
+    body: { "template_id": "<uuid>", "seller_ids": ["<uuid>", ...] }
+    """
+    if user["role"] not in ("director", "admin", "manager"):
+        raise HTTPException(status_code=403, detail="Insufficient role")
+
+    try:
+        template_id = uuid.UUID(body["template_id"])
+        seller_ids = {uuid.UUID(x) for x in (body.get("seller_ids") or [])}
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid template_id/seller_ids")
+
+    org_id = uuid.UUID(user["organization_id"])
+    template = (await db.execute(
+        select(ScriptTemplate).where(ScriptTemplate.id == template_id)
+    )).scalar_one_or_none()
+    if template is None or str(template.organization_id) != user["organization_id"]:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if user["role"] == "manager" and template.scope == "manager_level" and str(template.created_by) != user["sub"]:
+        raise HTTPException(status_code=403, detail="Template not visible to you")
+
+    existing = (await db.execute(
+        select(SellerScriptAssignment).where(
+            SellerScriptAssignment.template_id == template_id,
+            SellerScriptAssignment.organization_id == org_id,
+        )
+    )).scalars().all()
+    existing_by_seller = {a.seller_id: a for a in existing}
+
+    for seller_id, a in existing_by_seller.items():
+        if seller_id not in seller_ids:
+            await db.delete(a)
+
+    for sid in seller_ids:
+        if sid not in existing_by_seller:
+            db.add(SellerScriptAssignment(
+                organization_id=org_id,
+                seller_id=sid,
+                template_id=template_id,
+                is_mandatory=True,
+                assigned_by=uuid.UUID(user["sub"]),
+            ))
+
+    await db.commit()
+    return {"template_id": str(template_id), "assigned_seller_count": len(seller_ids)}

@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { ScriptTemplate, ScriptStep, UpsellRule } from '@/types'
+import type { ScriptTemplate, ScriptStep, UpsellRule, CrossSellRule } from '@/types'
 
 function normalizeStep(s: any): ScriptStep {
   return {
@@ -18,10 +18,12 @@ function normalizeTemplate(d: any): ScriptTemplate {
   return {
     id: d.id,
     name: d.name,
+    short_name: d.short_name ?? null,
     description: d.description ?? null,
     scope: d.scope,
     context_description: d.context_description ?? null,
     is_active: !!d.is_active,
+    applies_to_all_stores: !!d.applies_to_all_stores,
     steps: (d.steps || []).map(normalizeStep).sort((a: ScriptStep, b: ScriptStep) => a.order - b.order),
     assigned_sellers: d.assigned_sellers || [],
     assigned_stores: d.assigned_stores || [],
@@ -54,6 +56,7 @@ export const scriptsApi = {
 
   createTemplate: async (data: {
     name: string
+    short_name?: string | null
     description?: string | null
     scope?: 'org_level' | 'manager_level'
     context_description?: string | null
@@ -61,6 +64,7 @@ export const scriptsApi = {
   }) => {
     const body = {
       name: data.name,
+      short_name: data.short_name ?? null,
       description: data.description ?? null,
       scope: data.scope || 'org_level',
       context_description: data.context_description ?? null,
@@ -73,6 +77,7 @@ export const scriptsApi = {
   // Полная замена шаблона (PUT) — для редактора, который шлёт весь объект
   replaceTemplate: async (id: string, data: {
     name: string
+    short_name?: string | null
     description?: string | null
     scope?: 'org_level' | 'manager_level'
     context_description?: string | null
@@ -80,6 +85,7 @@ export const scriptsApi = {
   }) => {
     const body = {
       name: data.name,
+      short_name: data.short_name ?? null,
       description: data.description ?? null,
       scope: data.scope || 'org_level',
       context_description: data.context_description ?? null,
@@ -89,9 +95,18 @@ export const scriptsApi = {
     return normalizeTemplate(response.data)
   },
 
-  patchTemplate: async (id: string, data: { name?: string; description?: string | null; is_active?: boolean }) => {
+  patchTemplate: async (id: string, data: {
+    name?: string
+    description?: string | null
+    is_active?: boolean
+    applies_to_all_stores?: boolean
+  }) => {
     const response = await apiClient.patch<any>(`/api/v1/scripts/templates/${id}`, data)
     return normalizeTemplate(response.data)
+  },
+
+  deleteTemplate: async (id: string) => {
+    await apiClient.delete(`/api/v1/scripts/templates/${id}`)
   },
 
   // --- Назначения на магазины ---
@@ -111,6 +126,20 @@ export const scriptsApi = {
 
   removeStoreAssignment: async (assignment_id: string) => {
     await apiClient.delete(`/api/v1/scripts/store-assignments/${assignment_id}`)
+  },
+
+  bulkSetStoreAssignments: async (template_id: string, store_ids: string[]) => {
+    const response = await apiClient.post<any>('/api/v1/scripts/store-assignments/bulk-set', {
+      template_id, store_ids,
+    })
+    return response.data
+  },
+
+  bulkSetSellerAssignments: async (template_id: string, seller_ids: string[]) => {
+    const response = await apiClient.post<any>('/api/v1/scripts/assignments/bulk-set', {
+      template_id, seller_ids,
+    })
+    return response.data
   },
 
   // --- Назначения на продавцов (оставляем существующую API) ---
@@ -165,6 +194,41 @@ export const scriptsApi = {
 
   deleteUpsellRule: async (id: string) => {
     await apiClient.delete(`/api/v1/scripts/upsell-rules/${id}`)
+  },
+
+  // --- Cross-sell rules ---
+  listCrossSellRules: async (params: { store_id?: string; include_org_default?: boolean } = {}) => {
+    const response = await apiClient.get<{ items: CrossSellRule[]; total: number }>('/api/v1/scripts/cross-sell-rules', { params })
+    return response.data.items
+  },
+
+  createCrossSellRule: async (data: {
+    store_id?: string | null
+    trigger_product: string
+    required_offers: string[]
+    is_active?: boolean
+  }) => {
+    const response = await apiClient.post<CrossSellRule>('/api/v1/scripts/cross-sell-rules', {
+      store_id: data.store_id ?? null,
+      trigger_product: data.trigger_product,
+      required_offers: data.required_offers,
+      is_active: data.is_active ?? true,
+    })
+    return response.data
+  },
+
+  patchCrossSellRule: async (id: string, data: Partial<{
+    store_id: string | null
+    trigger_product: string
+    required_offers: string[]
+    is_active: boolean
+  }>) => {
+    const response = await apiClient.patch<CrossSellRule>(`/api/v1/scripts/cross-sell-rules/${id}`, data)
+    return response.data
+  },
+
+  deleteCrossSellRule: async (id: string) => {
+    await apiClient.delete(`/api/v1/scripts/cross-sell-rules/${id}`)
   },
 
   // --- Library ---

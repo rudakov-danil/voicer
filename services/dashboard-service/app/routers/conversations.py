@@ -132,6 +132,7 @@ async def get_conversation_detail(
         SELECT c.id, c.recording_id, c.seller_id, c.store_id, c.session_date,
                c.overall_score, c.outcome, c.outcome_confidence, c.topic, c.sentiment_avg, c.analyzed_at,
                c.has_upsell, c.upsell_results,
+               c.has_crosssell, c.crosssell_results,
                r.duration_seconds,
                s.first_name AS seller_first_name, s.last_name AS seller_last_name,
                st.name AS store_name
@@ -183,13 +184,15 @@ async def get_conversation_detail(
             "segments": segments,
         }
 
-    # Get script results
+    # Get script results — JOIN scripts.script_templates чтобы достать short_name.
     scripts_sql = text("""
         SELECT csr.script_name, csr.script_score, csr.was_applied, csr.violations,
-               cs.step_name, cs.score AS step_score, cs.step_detected, cs.evidence_text
+               cs.step_name, cs.score AS step_score, cs.step_detected, cs.evidence_text,
+               st.short_name AS script_short_name
         FROM analytics.conversation_script_results csr
         LEFT JOIN analytics.conversation_scores cs ON cs.conversation_id = csr.conversation_id
             AND cs.script_template_id = csr.script_template_id
+        LEFT JOIN scripts.script_templates st ON st.id = csr.script_template_id
         WHERE csr.conversation_id = :conv_id
     """)
     script_rows = (await db.execute(scripts_sql, {"conv_id": conversation_id})).fetchall()
@@ -201,6 +204,7 @@ async def get_conversation_detail(
         if key not in scripts_map:
             scripts_map[key] = {
                 "script_name": sr.script_name,
+                "script_short_name": sr.script_short_name,
                 "script_score": float(sr.script_score) if sr.script_score else None,
                 "was_applied": sr.was_applied,
                 "violations": sr.violations or [],
@@ -214,6 +218,25 @@ async def get_conversation_detail(
                 "evidence": sr.evidence_text,
             })
 
+    # Objections — нужны для подсветки красным маркером в транскрипте.
+    objections_sql = text("""
+        SELECT type, is_resolved, resolution_technique, raw_text, sort_order
+        FROM analytics.objections
+        WHERE conversation_id = :conv_id
+        ORDER BY sort_order
+    """)
+    objection_rows = (await db.execute(objections_sql, {"conv_id": conversation_id})).fetchall()
+    objections_data = [
+        {
+            "type": o.type,
+            "is_resolved": o.is_resolved,
+            "resolution_technique": o.resolution_technique,
+            "raw_text": o.raw_text,
+            "sort_order": o.sort_order,
+        }
+        for o in objection_rows
+    ]
+
     seller_name = f"{row.seller_first_name or ''} {row.seller_last_name or ''}".strip() or None
     duration = transcript_data.get("duration_seconds") or (row.duration_seconds if hasattr(row, 'duration_seconds') else None)
 
@@ -221,6 +244,7 @@ async def get_conversation_detail(
         "id": row.id,
         "recording_id": row.recording_id,
         "seller_id": row.seller_id,
+        "store_id": row.store_id,
         "seller_name": seller_name,
         "store_name": row.store_name,
         "session_date": str(row.session_date),
@@ -233,7 +257,10 @@ async def get_conversation_detail(
         "sentiment_avg": float(row.sentiment_avg) if row.sentiment_avg else None,
         "has_upsell": row.has_upsell,
         "upsell_results": row.upsell_results,
+        "has_crosssell": row.has_crosssell,
+        "crosssell_results": row.crosssell_results,
         "script_results": list(scripts_map.values()),
+        "objections": objections_data,
     }
 
     return {

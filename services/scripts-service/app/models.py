@@ -22,10 +22,12 @@ class ScriptTemplate(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    short_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
     description: Mapped[str | None] = mapped_column(Text)
     scope: Mapped[str] = mapped_column(String(20), nullable=False, default="org_level")
     context_description: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    applies_to_all_stores: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -125,6 +127,28 @@ class ScriptTemplateVersion(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow)
 
     template: Mapped["ScriptTemplate"] = relationship("ScriptTemplate", back_populates="versions")
+
+
+class CrossSellRule(Base):
+    """Правило кросс-сейла: при обсуждении trigger_product продавец должен
+    предложить required_offers (продукт-сопутствующее, не дороже базового).
+    Полностью симметрично UpsellRule, но семантика — кросс, а не апсейл.
+    """
+    __tablename__ = "cross_sell_rules"
+    __table_args__ = (
+        Index("idx_cross_sell_rules_org_store", "organization_id", "store_id"),
+        {"schema": "scripts"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    trigger_product: Mapped[str] = mapped_column(String(255), nullable=False)
+    required_offers: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class UpsellRule(Base):

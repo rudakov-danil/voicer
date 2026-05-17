@@ -41,11 +41,19 @@ async def get_scripts_for_seller(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Возвращает все скрипты, которые должны быть применены к продавцу:
-    - назначенные лично на продавца (seller_script_assignments)
-    - назначенные на его магазин (store_script_assignments), если передан store_id
-    Если один и тот же шаблон назначен и на магазин, и на продавца — он отдаётся один раз,
-    is_mandatory = OR из обоих источников.
+    """Возвращает скрипты, применимые к (seller_id, store_id).
+
+    Правило: скрипт применяется тогда и только тогда, когда выполнены ОБА условия:
+      1. Скрипт «покрывает» магазин записи:
+         - applies_to_all_stores=True, ИЛИ
+         - есть store_script_assignment на этот store_id.
+      2. Скрипт применим к этому продавцу:
+         - в seller_script_assignments нет ни одной записи для этого template (=применяется ко всем
+           продавцам покрытых магазинов), ИЛИ
+         - в seller_script_assignments есть конкретно этот seller_id.
+
+    Это исключает случаи, когда менеджера случайно отметили в чужом скрипте — без покрытия
+    магазина скоринг не запускается.
     """
     if user["role"] != "service" and str(organization_id) != user["organization_id"]:
         return {"seller_id": seller_id, "scripts": []}
@@ -59,46 +67,74 @@ async def get_scripts_for_seller(
         )).scalar_one_or_none()
         return str(v.id) if v else None
 
-    # 1) seller-level
-    seller_q = (
-        select(SellerScriptAssignment)
+    # 1) Шаблоны, которые «покрывают» магазин записи.
+    #    Без store_id невозможно выбрать ни один скрипт — для скоринга это OK.
+    if store_id is None:
+        return {"seller_id": seller_id, "scripts": []}
+
+    # 1a) applies_to_all_stores=True — покрывают любой магазин организации.
+    all_stores_q = (
+        select(ScriptTemplate)
         .where(
-            SellerScriptAssignment.seller_id == seller_id,
-            SellerScriptAssignment.organization_id == organization_id,
+            ScriptTemplate.organization_id == organization_id,
+            ScriptTemplate.is_active == True,
+            ScriptTemplate.applies_to_all_stores == True,
+        )
+        .options(selectinload(ScriptTemplate.steps))
+    )
+    all_stores_templates = (await db.execute(all_stores_q)).scalars().all()
+
+    # 1b) Явно назначены на этот store.
+    store_q = (
+        select(StoreScriptAssignment)
+        .where(
+            StoreScriptAssignment.store_id == store_id,
+            StoreScriptAssignment.organization_id == organization_id,
         )
         .join(ScriptTemplate)
         .where(ScriptTemplate.is_active == True)
-        .options(selectinload(SellerScriptAssignment.template).selectinload(ScriptTemplate.steps))
+        .options(selectinload(StoreScriptAssignment.template).selectinload(ScriptTemplate.steps))
     )
-    seller_assignments = (await db.execute(seller_q)).scalars().all()
+    store_assignments = (await db.execute(store_q)).scalars().all()
 
-    # template_id -> (template, is_mandatory)
-    merged: dict[uuid.UUID, tuple[ScriptTemplate, bool]] = {}
-    for a in seller_assignments:
-        merged[a.template.id] = (a.template, a.is_mandatory)
+    # template_id -> (template, is_mandatory). Покрытые магазином — кандидаты.
+    candidates: dict[uuid.UUID, tuple[ScriptTemplate, bool]] = {}
+    for t in all_stores_templates:
+        candidates[t.id] = (t, True)
+    for a in store_assignments:
+        existing = candidates.get(a.template.id)
+        is_mand = a.is_mandatory or (existing[1] if existing else False)
+        candidates[a.template.id] = (a.template, is_mand)
 
-    # 2) store-level (если знаем store)
-    if store_id is not None:
-        store_q = (
-            select(StoreScriptAssignment)
-            .where(
-                StoreScriptAssignment.store_id == store_id,
-                StoreScriptAssignment.organization_id == organization_id,
-            )
-            .join(ScriptTemplate)
-            .where(ScriptTemplate.is_active == True)
-            .options(selectinload(StoreScriptAssignment.template).selectinload(ScriptTemplate.steps))
+    if not candidates:
+        return {"seller_id": seller_id, "scripts": []}
+
+    # 2) Фильтр по продавцам: если у шаблона есть seller-assignments — нужен этот seller_id.
+    template_ids = list(candidates.keys())
+    seller_lists_q = (
+        select(SellerScriptAssignment)
+        .where(
+            SellerScriptAssignment.template_id.in_(template_ids),
+            SellerScriptAssignment.organization_id == organization_id,
         )
-        store_assignments = (await db.execute(store_q)).scalars().all()
-        for a in store_assignments:
-            if a.template.id in merged:
-                _, existing_mand = merged[a.template.id]
-                merged[a.template.id] = (a.template, existing_mand or a.is_mandatory)
-            else:
-                merged[a.template.id] = (a.template, a.is_mandatory)
+    )
+    seller_rows = (await db.execute(seller_lists_q)).scalars().all()
+
+    sellers_by_template: dict[uuid.UUID, set[uuid.UUID]] = {}
+    seller_mandatory_by_template: dict[uuid.UUID, bool] = {}
+    for r in seller_rows:
+        sellers_by_template.setdefault(r.template_id, set()).add(r.seller_id)
+        if r.seller_id == seller_id and r.is_mandatory:
+            seller_mandatory_by_template[r.template_id] = True
 
     scripts = []
-    for (t, m) in merged.values():
-        ver_id = await _current_version_id(t.id)
-        scripts.append(_serialize_template(t, m, ver_id))
+    for tid, (t, store_mand) in candidates.items():
+        restricted_sellers = sellers_by_template.get(tid)
+        if restricted_sellers is not None and seller_id not in restricted_sellers:
+            # Шаблон ограничен списком продавцов, а этого продавца там нет.
+            continue
+        is_mand = store_mand or seller_mandatory_by_template.get(tid, False)
+        ver_id = await _current_version_id(tid)
+        scripts.append(_serialize_template(t, is_mand, ver_id))
+
     return {"seller_id": seller_id, "scripts": scripts}

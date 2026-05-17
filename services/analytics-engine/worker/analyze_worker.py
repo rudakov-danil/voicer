@@ -19,6 +19,7 @@ from app.prompt_builder import (
     build_general_prompt,
     build_redaction_prompt,
     build_upsell_prompt,
+    build_crosssell_prompt,
     screen_contextual_script,
 )
 from app.rabbitmq import publish
@@ -71,6 +72,22 @@ async def _fetch_upsell_rules(organization_id: str, store_id: str) -> list[dict]
             resp.raise_for_status()
         except Exception as e:
             logger.warning("Failed to fetch upsell rules for org=%s store=%s: %s", organization_id, store_id, e)
+            return []
+    return [r for r in resp.json().get("items", []) if r.get("is_active")]
+
+
+async def _fetch_crosssell_rules(organization_id: str, store_id: str) -> list[dict]:
+    """Активные правила кросс-сейла. Симметрично _fetch_upsell_rules."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.get(
+                f"{settings.SCRIPTS_SERVICE_URL}/api/v1/scripts/cross-sell-rules",
+                params={"store_id": store_id, "include_org_default": "true"},
+                headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY},
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            logger.warning("Failed to fetch cross-sell rules for org=%s store=%s: %s", organization_id, store_id, e)
             return []
     return [r for r in resp.json().get("items", []) if r.get("is_active")]
 
@@ -156,20 +173,32 @@ async def _general_analysis(segments: list[dict], llm_client) -> dict:
         }
 
 
-async def _check_upsell(
-    segments: list[dict], rules: list[dict], llm_client
+async def _check_sell(
+    segments: list[dict],
+    rules: list[dict],
+    llm_client,
+    kind: str,  # "upsell" | "crosssell"
 ) -> tuple[bool | None, list[dict]]:
-    """Проверяет соблюдение правил апсейла. Возвращает (has_upsell, details).
-    has_upsell:
-        None — правил не было или LLM упал
-        False — правила сработали (triggered), но продавец не предложил ничего из required
-        True  — хотя бы одно правило закрыто (предложено всё из required)
-    details — список релевантных правил с разметкой offered/missed.
+    """Проверяет соблюдение правил апсейла/кросс-сейла через LLM.
+
+    Возвращает (has_sell, details).
+        has_sell:
+            None — правил не было или LLM упал
+            False — правила сработали (triggered), но продавец не предложил ничего из required
+            True  — хотя бы одно правило закрыто (предложено что-то из required)
+        details — список релевантных правил с разметкой offered/missed + цитатами
+                  trigger_quotes / offer_quotes для подсветки в UI.
     """
     if not rules:
         return None, []
 
-    system, user = build_upsell_prompt(segments, rules)
+    if kind == "upsell":
+        system, user = build_upsell_prompt(segments, rules)
+    elif kind == "crosssell":
+        system, user = build_crosssell_prompt(segments, rules)
+    else:
+        raise ValueError(f"Unknown sell kind: {kind}")
+
     try:
         response = await llm_client.chat.completions.create(
             model=settings.LLM_MODEL_NAME,
@@ -181,7 +210,7 @@ async def _check_upsell(
         )
         parsed = parse_upsell_response(response.choices[0].message.content)
     except Exception as e:
-        logger.error("Upsell check failed: %s", e)
+        logger.error("%s check failed: %s", kind, e)
         return None, []
 
     rules_by_id = {str(r["id"]): r for r in rules}
@@ -200,6 +229,13 @@ async def _check_upsell(
         missed = required - offered
         if offered:
             has_any_offered = True
+        # Цитаты: оставляем только для офферов, которые реально были предложены, и
+        # фильтруем пустые строки.
+        clean_offer_quotes = {
+            offer: [q for q in (chk.offer_quotes.get(offer) or []) if isinstance(q, str) and q.strip()]
+            for offer in offered
+        }
+        clean_offer_quotes = {k: v for k, v in clean_offer_quotes.items() if v}
         details.append({
             "rule_id": chk.rule_id,
             "trigger_product": rule.get("trigger_product"),
@@ -207,11 +243,22 @@ async def _check_upsell(
             "offered_items": list(offered),
             "missed_items": list(missed),
             "evidence": chk.evidence,
+            "trigger_quotes": [q for q in chk.trigger_quotes if isinstance(q, str) and q.strip()],
+            "offer_quotes": clean_offer_quotes,
         })
 
     if not has_triggered:
         return None, []
     return has_any_offered, details
+
+
+# Совместимость: внешний код вызывает _check_upsell — оставляем как тонкую обёртку.
+async def _check_upsell(segments, rules, llm_client):
+    return await _check_sell(segments, rules, llm_client, kind="upsell")
+
+
+async def _check_crosssell(segments, rules, llm_client):
+    return await _check_sell(segments, rules, llm_client, kind="crosssell")
 
 
 async def _is_anonymization_enabled(
@@ -335,12 +382,13 @@ async def process_analyze_message(
             logger.error("Invalid message format: %s", e)
             return  # ACK bad message, don't retry
 
-        # Step 1: Fetch transcript, scripts, and upsell rules in parallel
+        # Step 1: Fetch transcript, scripts, upsell + crosssell rules in parallel
         try:
-            segments, scripts, upsell_rules = await asyncio.gather(
+            segments, scripts, upsell_rules, crosssell_rules = await asyncio.gather(
                 _fetch_transcript(recording_id),
                 _fetch_scripts(seller_id, organization_id, store_id),
                 _fetch_upsell_rules(organization_id, store_id),
+                _fetch_crosssell_rules(organization_id, store_id),
             )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -398,8 +446,13 @@ async def process_analyze_message(
         applied_scores = [r["script_score"] for r in scored_results]
         overall_score = calculate_overall_score(applied_scores)
 
-        # Step 5.1: Upsell rule check (отдельный LLM-проход, если правила есть)
-        has_upsell, upsell_details = await _check_upsell(segments, upsell_rules, llm_client)
+        # Step 5.1: Upsell + cross-sell rule checks (по отдельному LLM-проходу для каждого).
+        # Запускаем параллельно — независимые задачи.
+        has_upsell_task = _check_sell(segments, upsell_rules, llm_client, kind="upsell")
+        has_crosssell_task = _check_sell(segments, crosssell_rules, llm_client, kind="crosssell")
+        (has_upsell, upsell_details), (has_crosssell, crosssell_details) = await asyncio.gather(
+            has_upsell_task, has_crosssell_task
+        )
 
         # Step 5.5: Anonymize transcripts if privacy setting is enabled.
         # Анализ уже отработал на оригинале (имена и т.п. помогают LLM понять контекст),
@@ -453,6 +506,8 @@ async def process_analyze_message(
             llm_model=settings.LLM_MODEL_NAME,
             has_upsell=has_upsell,
             upsell_results=upsell_details or None,
+            has_crosssell=has_crosssell,
+            crosssell_results=crosssell_details or None,
         )
         db.add(conv)
         await db.flush()

@@ -40,6 +40,9 @@ class UpsellCheckItem(BaseModel):
     triggered: bool
     offered_items: list[str] = []
     evidence: str = ""
+    # Дословные цитаты из транскрипта — для подсветки в UI.
+    trigger_quotes: list[str] = []  # где продавец/клиент упомянули trigger_product
+    offer_quotes: dict[str, list[str]] = {}  # offer_name → список цитат где он реально предложен
 
 
 class UpsellCheckResponse(BaseModel):

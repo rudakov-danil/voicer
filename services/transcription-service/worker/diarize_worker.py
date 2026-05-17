@@ -73,13 +73,15 @@ async def process_diarize_message(
                 }
                 for s in segments
             ]
-            has_speaker_ids = any(s["speaker_id"] is not None for s in seg_dicts)
+            unique_speaker_ids = {s["speaker_id"] for s in seg_dicts if s["speaker_id"] is not None}
+            use_cluster = len(unique_speaker_ids) >= 2
             logger.info(
                 f"Starting diarization of {len(seg_dicts)} segments for transcript_id={transcript_id}, "
-                f"strategy={'cluster' if has_speaker_ids else 'text-fallback'}"
+                f"unique_speaker_ids={len(unique_speaker_ids)}, "
+                f"strategy={'cluster' if use_cluster else 'text-fallback'}"
             )
 
-            if has_speaker_ids:
+            if use_cluster:
                 # Кластерная: один LLM-запрос «кто из спикеров — работник»
                 speaker_roles = await identify_speaker_roles(seg_dicts, seller_name, llm_client)
                 roles = []
@@ -90,7 +92,9 @@ async def process_diarize_message(
                     else:
                         roles.append(speaker_roles[sid])
             else:
-                # Fallback на текстовую диаризацию
+                # Fallback на текстовую диаризацию.
+                # Срабатывает когда Deepgram вернул 0 или 1 уникальный спикер —
+                # типично для слабых моделей или сильно перекрытых голосов.
                 roles = await diarize_segments(seg_dicts, seller_name, llm_client)
 
             # 4. Update speaker_role in DB

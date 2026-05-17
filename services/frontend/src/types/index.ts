@@ -87,10 +87,12 @@ export interface DashboardOverview {
 export interface ScriptTemplate {
   id: string
   name: string
+  short_name?: string | null
   description?: string | null
   scope?: 'org_level' | 'manager_level'
   context_description?: string | null
   is_active: boolean
+  applies_to_all_stores?: boolean
   steps: ScriptStep[]
   assigned_sellers?: { seller_id: string; is_mandatory: boolean }[]
   assigned_stores?: { store_id: string; is_mandatory: boolean }[]
@@ -108,6 +110,17 @@ export interface ScriptStep {
 }
 
 export interface UpsellRule {
+  id: string
+  organization_id: string
+  store_id?: string | null
+  trigger_product: string
+  required_offers: string[]
+  is_active: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CrossSellRule {
   id: string
   organization_id: string
   store_id?: string | null

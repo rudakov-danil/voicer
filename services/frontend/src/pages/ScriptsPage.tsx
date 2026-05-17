@@ -2,13 +2,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { scriptsApi } from '@/api/scripts'
 import { adminApi } from '@/api/admin'
 import { dashboardApi } from '@/api/dashboard'
-import type { ScriptTemplate, ScriptStep, UpsellRule } from '@/types'
+import type { ScriptTemplate, ScriptStep, UpsellRule, CrossSellRule } from '@/types'
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   CheckSquare, Plus, Trash2, GripVertical, ChevronUp, ChevronDown,
-  Save, X, Store as StoreIcon, User as UserIcon, Sparkles, BookOpen, PlayCircle, Loader,
-  BarChart3, History, MapPin, Edit3, RotateCcw, GitCompare,
+  Save, X, PlayCircle, Loader, BarChart3, History, MapPin, Edit3, RotateCcw,
+  GitCompare, Sparkles, BookOpen, HelpCircle, Command, Check,
 } from 'lucide-react'
+
+import { MultiSelect } from '@/components/scripts/MultiSelect'
+import { HelpTooltip } from '@/components/scripts/HelpTooltip'
+import { HelpModal } from '@/components/scripts/HelpModal'
+import { HeatmapStrip } from '@/components/scripts/HeatmapStrip'
+import { StructuralDiff } from '@/components/scripts/StructuralDiff'
+import { CommandPalette } from '@/components/scripts/CommandPalette'
+import { SkeletonScriptCard, SkeletonAnalyticsRow } from '@/components/scripts/Skeleton'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -18,7 +26,6 @@ const emptyStep = (order: number): ScriptStep => ({
   weight: 0.1,
   order,
   is_required: true,
-  recommendation_text: '',
   example_phrases: [],
 })
 
@@ -36,76 +43,7 @@ function normalizeWeights(steps: ScriptStep[]): ScriptStep[] {
   return scaled
 }
 
-// ─── Chip multi-select ────────────────────────────────────────────────────────
-
-function ChipMultiSelect({
-  selected, options, getLabel, placeholder, onAdd, onRemove,
-}: {
-  selected: string[]
-  options: { id: string; label: string }[]
-  getLabel: (id: string) => string
-  placeholder: string
-  onAdd: (id: string) => void
-  onRemove: (id: string) => void
-}) {
-  const available = options.filter((o) => !selected.includes(o.id))
-  const disabled = available.length === 0
-  const selectRef = useRef<HTMLSelectElement>(null)
-
-  const openPicker = () => {
-    const el = selectRef.current
-    if (!el || disabled) return
-    // Современный API — открывает дроп без фокуса
-    if (typeof (el as any).showPicker === 'function') {
-      try { (el as any).showPicker(); return } catch {}
-    }
-    // Fallback: фокус (на части браузеров откроет автоматически)
-    el.focus()
-  }
-
-  return (
-    <div
-      className={`chip-field ${disabled ? 'chip-field--disabled' : ''}`}
-      onClick={openPicker}
-      role="combobox"
-      aria-haspopup="listbox"
-      tabIndex={disabled ? -1 : 0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
-          e.preventDefault()
-          openPicker()
-        }
-      }}
-    >
-      {selected.length === 0 && <span className="chip-placeholder">{placeholder}</span>}
-      {selected.map((id) => (
-        <span key={id} className="chip" onClick={(e) => e.stopPropagation()}>
-          {getLabel(id)}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onRemove(id) }}
-            aria-label="Убрать"
-          >
-            <X size={12} />
-          </button>
-        </span>
-      ))}
-      <select
-        ref={selectRef}
-        className="chip-field-select"
-        value=""
-        disabled={disabled}
-        onChange={(e) => { if (e.target.value) onAdd(e.target.value) }}
-        aria-label={placeholder}
-      >
-        <option value="" />
-        {available.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-      </select>
-    </div>
-  )
-}
-
-// ─── Step row ─────────────────────────────────────────────────────────────────
+// ─── Step row (без блока «Рекомендация продавцу») ────────────────────────────
 
 function StepRow({
   step, index, totalSteps, onChange, onDelete, onMoveUp, onMoveDown,
@@ -132,10 +70,7 @@ function StepRow({
   }
 
   return (
-    <div style={{
-      border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-      padding: '12px', marginBottom: 10, background: 'var(--bg-card)',
-    }}>
+    <div className="step-card">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ display: 'flex', flexDirection: 'column', color: 'var(--text-muted)' }}>
           <button className="btn-icon" onClick={onMoveUp} disabled={index === 0} title="Выше" style={{ padding: 2 }}>
@@ -147,11 +82,7 @@ function StepRow({
           </button>
         </div>
 
-        <div style={{
-          width: 28, height: 28, borderRadius: '50%', background: 'var(--primary)',
-          color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 12, fontWeight: 700, flexShrink: 0,
-        }}>{index + 1}</div>
+        <div className="step-number">{index + 1}</div>
 
         <input
           className="form-input"
@@ -179,7 +110,7 @@ function StepRow({
           onClick={() => onChange({ ...step, is_required: !step.is_required })}
         />
 
-        <button className="btn btn-outline btn-sm" onClick={() => setExpanded((v) => !v)} title="Описание, фразы, рекомендации">
+        <button className="btn btn-outline btn-sm" onClick={() => setExpanded((v) => !v)} title="Описание и фразы">
           {expanded ? <><ChevronUp size={12} style={{ marginRight: 3 }} />Скрыть</> : <><ChevronDown size={12} style={{ marginRight: 3 }} />Детали</>}
         </button>
 
@@ -205,11 +136,11 @@ function StepRow({
 
           <div>
             <label className="field-label">
-              Эталонные фразы (примеры идеального выполнения — LLM ориентируется на них)
+              Эталонные фразы (примеры идеального выполнения)
             </label>
             <div className="chip-field" style={{ marginBottom: 6 }}>
               {(step.example_phrases || []).length === 0 && (
-                <span className="chip-empty">Фраз пока нет</span>
+                <span className="chip-placeholder">Фраз пока нет</span>
               )}
               {(step.example_phrases || []).map((p, i) => (
                 <span key={i} className="chip">
@@ -232,29 +163,17 @@ function StepRow({
               <button className="btn btn-outline btn-sm" onClick={addPhrase}>Добавить</button>
             </div>
           </div>
-
-          <div>
-            <label className="field-label">
-              Рекомендация продавцу (что подсказать, если этап провален)
-            </label>
-            <textarea
-              className="form-input"
-              value={step.recommendation_text || ''}
-              onChange={(e) => onChange({ ...step, recommendation_text: e.target.value })}
-              placeholder="Подсказка для персонального отчёта"
-              rows={2}
-            />
-          </div>
         </div>
       )}
     </div>
   )
 }
 
-// ─── Assignments block (lifted to top) ───────────────────────────────────────
+// ─── AssignmentsBlock ────────────────────────────────────────────────────────
 
-function AssignmentsBlock({ templateId }: { templateId: string }) {
+function AssignmentsBlock({ template }: { template: ScriptTemplate }) {
   const queryClient = useQueryClient()
+  const templateId = template.id
 
   const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
   const { data: sellers } = useQuery({ queryKey: ['admin-sellers'], queryFn: () => adminApi.getSellers() })
@@ -271,73 +190,90 @@ function AssignmentsBlock({ templateId }: { templateId: string }) {
     queryClient.invalidateQueries({ queryKey: ['store-assignments', templateId] })
     queryClient.invalidateQueries({ queryKey: ['seller-assignments', templateId] })
     queryClient.invalidateQueries({ queryKey: ['script-template-detail', templateId] })
+    queryClient.invalidateQueries({ queryKey: ['script-templates'] })
   }
 
-  const addStore = useMutation({
-    mutationFn: (store_id: string) => scriptsApi.assignToStore({ store_id, template_id: templateId, is_mandatory: true }),
+  const bulkStoresMut = useMutation({
+    mutationFn: (ids: string[]) => scriptsApi.bulkSetStoreAssignments(templateId, ids),
     onSuccess: invalidate,
   })
-  const removeStoreByStoreId = useMutation({
-    mutationFn: async (store_id: string) => {
-      const a = (storeAssignments || []).find((x: any) => x.store_id === store_id)
-      if (!a) return
-      await scriptsApi.removeStoreAssignment(a.id)
-    },
+  const bulkSellersMut = useMutation({
+    mutationFn: (ids: string[]) => scriptsApi.bulkSetSellerAssignments(templateId, ids),
     onSuccess: invalidate,
   })
-  const addSeller = useMutation({
-    mutationFn: (seller_id: string) => scriptsApi.assignToSeller({ seller_id, template_id: templateId, is_mandatory: true }),
-    onSuccess: invalidate,
-  })
-  const removeSellerBySellerId = useMutation({
-    mutationFn: async (seller_id: string) => {
-      const a = (sellerAssignments || []).find((x: any) => x.seller_id === seller_id)
-      if (!a) return
-      await scriptsApi.removeSellerAssignment(a.id)
-    },
+  const patchAllStoresMut = useMutation({
+    mutationFn: (v: boolean) => scriptsApi.patchTemplate(templateId, { applies_to_all_stores: v }),
     onSuccess: invalidate,
   })
 
   const selectedStoreIds = (storeAssignments || []).map((a: any) => a.store_id)
   const selectedSellerIds = (sellerAssignments || []).map((a: any) => a.seller_id)
   const storeOptions = (stores?.items || []).map((s: any) => ({ id: s.id, label: s.name }))
-  const sellerOptions = (sellers?.items || []).map((s: any) => ({
-    id: s.id,
-    label: `${s.first_name} ${s.last_name}`.trim() || s.id.slice(0, 8),
-  }))
 
-  const storeName = (id: string) =>
-    storeOptions.find((o) => o.id === id)?.label || id.slice(0, 8)
-  const sellerName = (id: string) =>
-    sellerOptions.find((o) => o.id === id)?.label || id.slice(0, 8)
+  const allStores = !!template.applies_to_all_stores
+
+  // Список продавцов фильтруется по выбранным магазинам, чтобы нельзя было
+  // случайно назначить менеджера, не относящегося к скриптовому магазину.
+  // Если включено "все магазины" — фильтрация не применяется.
+  const selectedStoreIdSet = new Set(selectedStoreIds)
+  const sellerOptions = (sellers?.items || [])
+    .filter((s: any) => allStores || (s.store_id && selectedStoreIdSet.has(s.store_id)))
+    .map((s: any) => ({
+      id: s.id,
+      label: `${s.first_name} ${s.last_name}`.trim() || s.id.slice(0, 8),
+      sublabel: s.store_name,
+    }))
 
   return (
     <div className="assignments-card">
       <div className="assignments-title">
-        <StoreIcon size={14} /> Где применяется
+        <MapPin size={14} /> Где применяется
+        <HelpTooltip content={
+          <div style={{ maxWidth: 280 }}>
+            Назначьте скрипт <strong>магазину</strong> — он автоматически применится ко всем разговорам в этом магазине.
+            Можно дополнительно указать <strong>конкретных продавцов</strong>, если скрипт нужен только им.
+          </div>
+        } />
       </div>
 
-      <div style={{ marginBottom: 10 }}>
-        <label className="field-label">Магазины (скрипт будет применяться ко всем разговорам в этих магазинах)</label>
-        <ChipMultiSelect
-          selected={selectedStoreIds}
+      <div className="all-stores-toggle">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={allStores}
+            onChange={(e) => patchAllStoresMut.mutate(e.target.checked)}
+          />
+          <span>
+            <strong>Применить ко всем магазинам организации</strong>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 2 }}>
+              Если включено — индивидуальный список ниже игнорируется, скрипт работает везде.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div style={{ marginBottom: 12, opacity: allStores ? 0.5 : 1, pointerEvents: allStores ? 'none' : 'auto' }}>
+        <label className="field-label">Магазины</label>
+        <MultiSelect
           options={storeOptions}
-          getLabel={storeName}
-          placeholder="Кликните, чтобы выбрать магазин"
-          onAdd={(id) => addStore.mutate(id)}
-          onRemove={(id) => removeStoreByStoreId.mutate(id)}
+          selected={selectedStoreIds}
+          onChange={(ids) => bulkStoresMut.mutate(ids)}
+          placeholder="Выберите один или несколько магазинов"
+          selectAllLabel="Выбрать все магазины"
         />
       </div>
 
       <div>
-        <label className="field-label">Отдельные продавцы (опционально — если нужны конкретные люди, а не все из магазина)</label>
-        <ChipMultiSelect
-          selected={selectedSellerIds}
+        <label className="field-label">
+          Отдельные продавцы (опционально)
+          <HelpTooltip content="Нужно, если скрипт обязателен не для всего магазина, а только для конкретных людей." />
+        </label>
+        <MultiSelect
           options={sellerOptions}
-          getLabel={sellerName}
-          placeholder="Кликните, чтобы выбрать продавца (опционально)"
-          onAdd={(id) => addSeller.mutate(id)}
-          onRemove={(id) => removeSellerBySellerId.mutate(id)}
+          selected={selectedSellerIds}
+          onChange={(ids) => bulkSellersMut.mutate(ids)}
+          placeholder="Выберите продавцов (опционально)"
+          selectAllLabel="Выбрать всех"
         />
       </div>
     </div>
@@ -347,10 +283,11 @@ function AssignmentsBlock({ templateId }: { templateId: string }) {
 // ─── Template editor ─────────────────────────────────────────────────────────
 
 function TemplateEditor({
-  template, onSaved,
+  template, onSaved, onShowHelp,
 }: {
   template: ScriptTemplate | null
   onSaved?: (id: string) => void
+  onShowHelp: () => void
 }) {
   const queryClient = useQueryClient()
   const isNew = !template?.id
@@ -371,14 +308,22 @@ function TemplateEditor({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // Контекст и scope больше не настраиваются — всегда без фильтра, всегда org_level
-      const payload = { name, description, scope: 'org_level' as const, context_description: null, steps }
+      // short_name автогенерируется на бэке (LLM + heuristic), фронт его не задаёт
+      const payload = {
+        name,
+        description,
+        scope: 'org_level' as const,
+        context_description: null,
+        steps,
+      }
       if (isNew) return scriptsApi.createTemplate(payload)
       return scriptsApi.replaceTemplate(template!.id, payload)
     },
     onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ['script-templates'] })
       queryClient.invalidateQueries({ queryKey: ['script-template-detail', saved.id] })
+      queryClient.invalidateQueries({ queryKey: ['template-versions', saved.id] })
+      queryClient.invalidateQueries({ queryKey: ['template-analytics', saved.id] })
       onSaved?.(saved.id)
     },
   })
@@ -398,92 +343,98 @@ function TemplateEditor({
   }
 
   return (
-    <div>
-      {isNew && (
-        <div style={{
-          fontSize: 12.5, color: 'var(--text-muted)',
-          padding: '8px 12px', marginBottom: 16,
-          background: 'var(--bg)', borderRadius: 'var(--radius)',
-          border: '1px solid var(--border-light)',
-          display: 'flex', alignItems: 'center', gap: 6,
-        }}>
-          <StoreIcon size={13} style={{ flexShrink: 0, opacity: 0.5 }} />
-          После сохранения сможете назначить скрипт магазинам и продавцам на вкладке «Назначения».
-        </div>
-      )}
-
-      <div style={{ marginBottom: 14 }}>
-        <label className="field-label">Название скрипта</label>
-        <input
-          className="form-input"
-          value={name} onChange={(e) => setName(e.target.value)}
-          placeholder="Например: Стандартный скрипт продаж бытовой техники"
-        />
-      </div>
-
-      <div style={{ marginBottom: 18 }}>
-        <label className="field-label">Описание (для команды, не для LLM)</label>
-        <textarea
-          className="form-input"
-          value={description || ''} onChange={(e) => setDescription(e.target.value)}
-          rows={2} placeholder="Краткое описание — для чего этот скрипт"
-        />
-      </div>
-
-      {/* Steps */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ fontWeight: 600, color: 'var(--text)' }}>Этапы</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 12, color: weightsOk ? 'var(--success)' : 'var(--danger)' }}>
-            Сумма весов: {Math.round(weightsSum * 100)}% {weightsOk ? '✓' : '(должно быть 100%)'}
-          </span>
-          <button className="btn btn-outline btn-sm" onClick={() => setSteps(normalizeWeights(steps))} disabled={steps.length === 0} title="Автоматически привести веса к 100%">
-            Нормализовать
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={addStep}>
-            <Plus size={12} /> Этап
-          </button>
-        </div>
-      </div>
-
-      <div>
-        {steps.map((s, i) => (
-          <StepRow
-            key={s.id || `tmp-${i}`}
-            step={s} index={i} totalSteps={steps.length}
-            onChange={(next) => updateStep(i, next)}
-            onDelete={() => removeStep(i)}
-            onMoveUp={() => move(i, -1)}
-            onMoveDown={() => move(i, 1)}
-          />
-        ))}
-        {steps.length === 0 && (
-          <div className="empty-state" style={{ padding: 20 }}>Этапов пока нет. Нажмите «+ Этап»</div>
+    <div className="editor-flex">
+      <div className="editor-body">
+        {isNew && (
+          <div className="editor-hint">
+            <BookOpen size={13} />
+            <span>
+              Сначала задайте этапы и сохраните — потом сможете назначить скрипт магазинам и протестировать на реальной записи.
+            </span>
+            <button className="btn btn-outline btn-sm" onClick={onShowHelp} style={{ marginLeft: 'auto' }}>
+              <HelpCircle size={12} /> Помощь
+            </button>
+          </div>
         )}
+
+        <div style={{ marginBottom: 14 }}>
+          <label className="field-label">Название скрипта</label>
+          <input
+            className="form-input"
+            value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="Например: Стандартный скрипт продаж бытовой техники"
+          />
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <label className="field-label">Описание (для команды, не для LLM)</label>
+          <textarea
+            className="form-input"
+            value={description || ''} onChange={(e) => setDescription(e.target.value)}
+            rows={2} placeholder="Краткое описание — для чего этот скрипт"
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ fontWeight: 600, color: 'var(--text)' }}>Этапы</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: weightsOk ? 'var(--success)' : 'var(--danger)' }}>
+              Сумма весов: {Math.round(weightsSum * 100)}% {weightsOk ? '✓' : '(должно быть 100%)'}
+            </span>
+            <button className="btn btn-outline btn-sm" onClick={() => setSteps(normalizeWeights(steps))} disabled={steps.length === 0} title="Привести веса к 100%">
+              Нормализовать
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={addStep}>
+              <Plus size={12} /> Этап
+            </button>
+          </div>
+        </div>
+
+        <div>
+          {steps.map((s, i) => (
+            <StepRow
+              key={s.id || `tmp-${i}`}
+              step={s} index={i} totalSteps={steps.length}
+              onChange={(next) => updateStep(i, next)}
+              onDelete={() => removeStep(i)}
+              onMoveUp={() => move(i, -1)}
+              onMoveDown={() => move(i, 1)}
+            />
+          ))}
+          {steps.length === 0 && (
+            <div className="empty-state-card">
+              <BookOpen size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
+              <p style={{ marginBottom: 12 }}>Этапов пока нет</p>
+              <button className="btn btn-primary btn-sm" onClick={addStep}>
+                <Plus size={12} /> Добавить первый этап
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div style={{
-        display: 'flex', gap: 10,
-        margin: '20px -20px -18px',
-        padding: '12px 20px',
-        borderTop: '1px solid var(--border-light)',
-        background: 'var(--bg)',
-        borderRadius: '0 0 var(--radius-lg) var(--radius-lg)',
-      }}>
-        <button
-          className="btn btn-primary" onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending || !name.trim() || steps.length === 0 || !weightsOk}
-        >
-          <Save size={14} /> {saveMutation.isPending ? 'Сохранение...' : (isNew ? 'Создать скрипт' : 'Сохранить изменения')}
-        </button>
-        <button
-          className="btn btn-outline"
-          disabled={steps.length === 0}
-          onClick={() => setShowTestDialog(true)}
-          title="Прогнать черновик через LLM на реальной записи, ничего не сохраняя"
-        >
-          <PlayCircle size={14} /> Тест на записи
-        </button>
+      <div className="editor-footer-sticky">
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          {weightsOk
+            ? <>Готово к сохранению</>
+            : <>⚠ Веса должны давать в сумме 100%</>}
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            className="btn btn-outline"
+            disabled={steps.length === 0}
+            onClick={() => setShowTestDialog(true)}
+            title="Прогнать черновик через LLM на реальной записи"
+          >
+            <PlayCircle size={14} /> Тест на записи
+          </button>
+          <button
+            className="btn btn-primary" onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || !name.trim() || steps.length === 0 || !weightsOk}
+          >
+            <Save size={14} /> {saveMutation.isPending ? 'Сохранение…' : (isNew ? 'Создать скрипт' : 'Сохранить')}
+          </button>
+        </div>
       </div>
 
       {showTestDialog && (
@@ -496,20 +447,25 @@ function TemplateEditor({
   )
 }
 
-// ─── Upsell rules table ──────────────────────────────────────────────────────
+// ─── Upsell / Cross-sell rules ───────────────────────────────────────────────
 
-function UpsellRulesTable() {
+function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
   const queryClient = useQueryClient()
+  const isUpsell = kind === 'upsell'
   const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
-  const { data: rules } = useQuery({
-    queryKey: ['upsell-rules'],
-    queryFn: () => scriptsApi.listUpsellRules(),
+
+  const queryKey = isUpsell ? ['upsell-rules'] : ['cross-sell-rules']
+  const { data, isLoading } = useQuery({
+    queryKey,
+    queryFn: async () => isUpsell
+      ? await scriptsApi.listUpsellRules()
+      : await scriptsApi.listCrossSellRules(),
   })
+  const rules: Array<UpsellRule | CrossSellRule> = (data as Array<UpsellRule | CrossSellRule> | undefined) || []
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['upsell-rules'] })
-
+  const invalidate = () => queryClient.invalidateQueries({ queryKey })
   const createMut = useMutation({
-    mutationFn: () => scriptsApi.createUpsellRule({
+    mutationFn: () => (isUpsell ? scriptsApi.createUpsellRule : scriptsApi.createCrossSellRule)({
       store_id: null,
       trigger_product: 'Новый продукт',
       required_offers: [],
@@ -518,22 +474,43 @@ function UpsellRulesTable() {
     onSuccess: invalidate,
   })
   const patchMut = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => scriptsApi.patchUpsellRule(id, data),
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      isUpsell ? scriptsApi.patchUpsellRule(id, data) : scriptsApi.patchCrossSellRule(id, data),
     onSuccess: invalidate,
   })
   const delMut = useMutation({
-    mutationFn: (id: string) => scriptsApi.deleteUpsellRule(id),
+    mutationFn: (id: string) => isUpsell ? scriptsApi.deleteUpsellRule(id) : scriptsApi.deleteCrossSellRule(id),
     onSuccess: invalidate,
   })
 
   return (
-    <div className="card fade-in" style={{ marginTop: 24 }}>
+    <div className="card fade-in">
       <div className="card-header">
         <div>
-          <div className="card-title">Правила апсейла</div>
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {isUpsell ? 'Правила апсейла' : 'Правила кросс-сейла'}
+            <HelpTooltip
+              size={14}
+              content={
+                <div style={{ maxWidth: 280 }}>
+                  {isUpsell ? (
+                    <>
+                      <strong>Апсейл</strong> — продажа более дорогой версии того же продукта.<br />
+                      Пример: клиент пришёл за iPhone 15 — продавец предлагает 15 Pro.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Кросс-сейл</strong> — предложение сопутствующих товаров к основной покупке.<br />
+                      Пример: клиент берёт ноутбук — продавец обязан предложить сумку и мышь.
+                    </>
+                  )}
+                </div>
+              }
+            />
+          </div>
           <div className="card-subtitle">
-            LLM проверяет каждый разговор: если продавец обсуждал триггер-продукт, он должен был предложить указанные дополнения.{' '}
-            <span style={{ opacity: 0.7 }}>Поля редактируются прямо в таблице — сохраняется автоматически.</span>
+            LLM проверяет каждый разговор: если упомянут триггер-продукт — должны быть предложены указанные товары.
+            <span style={{ opacity: 0.7 }}> Сохраняется автоматически при потере фокуса поля.</span>
           </div>
         </div>
         <button className="btn btn-primary btn-sm" onClick={() => createMut.mutate()}>
@@ -545,24 +522,29 @@ function UpsellRulesTable() {
           <thead>
             <tr>
               <th>Триггер-продукт</th>
-              <th>Обязательные предложения</th>
-              <th style={{ minWidth: 200 }}>Магазин</th>
+              <th>{isUpsell ? 'Обязательные предложения' : 'Сопутствующие товары'}</th>
+              <th style={{ minWidth: 240 }}>Магазин</th>
               <th style={{ width: 90 }}>Активно</th>
               <th style={{ width: 50 }} />
             </tr>
           </thead>
           <tbody>
-            {(rules || []).map((r: UpsellRule) => (
-              <UpsellRuleRow
+            {rules.map((r: UpsellRule | CrossSellRule) => (
+              <RuleRow
                 key={r.id} rule={r}
                 stores={stores?.items || []}
                 onPatch={(data) => patchMut.mutate({ id: r.id, data })}
                 onDelete={() => { if (confirm('Удалить правило?')) delMut.mutate(r.id) }}
               />
             ))}
-            {(!rules || rules.length === 0) && (
+            {isLoading && rules.length === 0 && (
+              <tr><td colSpan={5} style={{ padding: 12 }}><SkeletonAnalyticsRow /></td></tr>
+            )}
+            {!isLoading && rules.length === 0 && (
               <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 20 }}>
-                Правил пока нет. Добавьте первое — LLM начнёт автоматически отмечать разговоры, где продавец забыл предложить апсейл.
+                {isUpsell
+                  ? 'Правил апсейла пока нет. Добавьте первое — LLM начнёт отмечать разговоры, где продавец забыл предложить апсейл.'
+                  : 'Правил кросс-сейла пока нет. Например: к ноутбуку — сумка и мышь.'}
               </td></tr>
             )}
           </tbody>
@@ -572,10 +554,10 @@ function UpsellRulesTable() {
   )
 }
 
-function UpsellRuleRow({ rule, stores, onPatch, onDelete }: {
-  rule: UpsellRule
+function RuleRow({ rule, stores, onPatch, onDelete }: {
+  rule: UpsellRule | CrossSellRule
   stores: any[]
-  onPatch: (data: Partial<UpsellRule>) => void
+  onPatch: (data: any) => void
   onDelete: () => void
 }) {
   const [trigger, setTrigger] = useState(rule.trigger_product)
@@ -598,6 +580,10 @@ function UpsellRuleRow({ rule, stores, onPatch, onDelete }: {
     if (!same) { onPatch({ required_offers: arr }); flash() }
   }
 
+  const storeOptions = stores.map((s) => ({ id: s.id, label: s.name }))
+  const selectedStoreIds = rule.store_id ? [rule.store_id] : []
+  const ALL_STORES_ID = '__all__'
+
   return (
     <tr>
       <td style={{ fontWeight: 500 }}>
@@ -616,15 +602,18 @@ function UpsellRuleRow({ rule, stores, onPatch, onDelete }: {
         />
       </td>
       <td>
-        <select
-          className="form-select"
-          value={rule.store_id || ''}
-          onChange={(e) => onPatch({ store_id: (e.target.value || null) as any })}
-          style={{ padding: '6px 30px 6px 10px', fontSize: 12.5 }}
-        >
-          <option value="">Все магазины (по умолчанию)</option>
-          {stores.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        <MultiSelect
+          single
+          options={storeOptions}
+          selected={selectedStoreIds.length ? selectedStoreIds : [ALL_STORES_ID]}
+          onChange={(ids) => {
+            const v = ids[0]
+            onPatch({ store_id: v && v !== ALL_STORES_ID ? v : null })
+            flash()
+          }}
+          prependOption={{ id: ALL_STORES_ID, label: 'Все магазины (по умолчанию)' }}
+          placeholder="Магазин"
+        />
       </td>
       <td>
         <div className={`toggle-switch ${rule.is_active ? 'on' : ''}`}
@@ -642,7 +631,7 @@ function UpsellRuleRow({ rule, stores, onPatch, onDelete }: {
   )
 }
 
-// ─── Library / AI generation dialog ──────────────────────────────────────────
+// ─── LibraryDialog ───────────────────────────────────────────────────────────
 
 function LibraryDialog({
   onClose, onCreated, onUseDraft,
@@ -669,7 +658,6 @@ function LibraryDialog({
     },
   })
 
-  // AI generation
   const [topic, setTopic] = useState('')
   const [industry, setIndustry] = useState('')
   const [extraNotes, setExtraNotes] = useState('')
@@ -731,7 +719,7 @@ function LibraryDialog({
           {tab === 'ai' && (
             <>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
-                Опишите задачу — LLM соберёт черновик скрипта (этапы, веса, эталонные фразы).
+                Опишите задачу — LLM соберёт черновик скрипта (этапы, веса, фразы).
                 Вы сможете подредактировать его перед сохранением.
               </div>
               <div style={{ marginBottom: 12 }}>
@@ -755,7 +743,7 @@ function LibraryDialog({
                 <textarea
                   className="form-input"
                   value={extraNotes} onChange={(e) => setExtraNotes(e.target.value)}
-                  placeholder="Например: акцент на работе с возражением 'дорого', обязательно предлагать рассрочку"
+                  placeholder="Например: акцент на возражении 'дорого', обязательно предлагать рассрочку"
                   rows={3}
                 />
               </div>
@@ -793,7 +781,7 @@ function LibraryDialog({
   )
 }
 
-// ─── Live-test dialog ────────────────────────────────────────────────────────
+// ─── LiveTestDialog ──────────────────────────────────────────────────────────
 
 function LiveTestDialog({
   draft, onClose,
@@ -879,7 +867,7 @@ function LiveTestDialog({
                   {result.overall_score}%
                 </div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                  Итоговый взвешенный скоринг · сегментов в транскрипте: {result.segment_count}
+                  Итоговый взвешенный скоринг · сегментов: {result.segment_count}
                 </div>
               </div>
 
@@ -953,7 +941,7 @@ function LiveTestDialog({
   )
 }
 
-// ─── Analytics panel ─────────────────────────────────────────────────────────
+// ─── Analytics ───────────────────────────────────────────────────────────────
 
 function AnalyticsPanel({ templateId }: { templateId: string }) {
   const [days, setDays] = useState(30)
@@ -982,58 +970,69 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
         </select>
       </div>
 
-      {isLoading && <div style={{ color: 'var(--text-muted)' }}>Загрузка...</div>}
+      {isLoading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <SkeletonAnalyticsRow />
+          <SkeletonAnalyticsRow />
+          <SkeletonAnalyticsRow />
+        </div>
+      )}
 
       {data && data.conversation_count === 0 && (
-        <div className="empty-state" style={{ padding: 24 }}>
-          Скрипт ещё не применялся к разговорам за выбранный период.
+        <div className="empty-state-card">
+          <BarChart3 size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
+          <p>Скрипт ещё не применялся к разговорам за выбранный период.</p>
         </div>
       )}
 
       {data && data.conversation_count > 0 && (
         <>
-          {/* Заголовочные метрики */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
-            <div style={{ padding: 12, background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Разговоров</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>{data.conversation_count}</div>
+            <div className="metric-tile">
+              <div className="metric-tile-label">Разговоров</div>
+              <div className="metric-tile-value">{data.conversation_count}</div>
             </div>
-            <div style={{ padding: 12, background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Средний скоринг</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary)' }}>
+            <div className="metric-tile">
+              <div className="metric-tile-label">
+                Средний скоринг
+                <HelpTooltip content="Средний взвешенный балл по всем этапам скрипта, агрегированный по разговорам за период." />
+              </div>
+              <div className="metric-tile-value" style={{ color: 'var(--primary)' }}>
                 {data.avg_script_score != null ? `${data.avg_script_score}%` : '—'}
               </div>
             </div>
-            <div style={{ padding: 12, background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Сильных (≥70%)</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--success)' }}>
+            <div className="metric-tile">
+              <div className="metric-tile-label">Сильных (≥70%)</div>
+              <div className="metric-tile-value" style={{ color: 'var(--success)' }}>
                 {data.strong_conversation_count}
               </div>
             </div>
           </div>
 
-          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>По этапам:</div>
+          <HeatmapStrip rows={data.per_step} />
+
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+            Детально по этапам
+            <HelpTooltip content={
+              <div style={{ maxWidth: 280 }}>
+                <strong>%</strong> — доля разговоров, где этап выполнен (LLM-оценка ≥ 50 из 100).<br />
+                <strong>Обнаружен</strong> — этап идентифицирован в разговоре, даже если выполнен слабо.
+              </div>
+            } />
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {data.per_step.map((s) => {
               const color = s.pass_rate >= 70 ? 'var(--success)' : s.pass_rate >= 40 ? '#F59E0B' : 'var(--danger)'
               return (
-                <div key={s.step_id} style={{
-                  padding: 10, border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-                  background: 'var(--bg-card)',
-                }}>
+                <div key={s.step_id} className="step-analytics" style={{ borderLeft: `3px solid ${color}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{s.step_name}</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color }}>
-                      {s.pass_rate}% pass · {s.avg_score} ср.балл
+                    <div style={{ fontSize: 14, fontWeight: 700, color }}>
+                      {s.pass_rate}%
                     </div>
                   </div>
-                  <div style={{
-                    height: 6, background: 'var(--bg)', borderRadius: 3, overflow: 'hidden',
-                  }}>
-                    <div style={{
-                      width: `${Math.max(2, s.pass_rate)}%`, height: '100%',
-                      background: color, transition: 'width 0.3s',
-                    }} />
+                  <div className="progress-track">
+                    <div className="progress-fill" style={{ width: `${Math.max(2, s.pass_rate)}%`, background: color }} />
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                     Обнаружен {s.detected_count} из {s.total_count} раз ({s.detection_rate}%)
@@ -1048,14 +1047,14 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
   )
 }
 
-// ─── Versions panel ──────────────────────────────────────────────────────────
+// ─── Versions ────────────────────────────────────────────────────────────────
 
 function VersionsPanel({ templateId, onRestored }: { templateId: string; onRestored: () => void }) {
   const queryClient = useQueryClient()
   const [showCompare, setShowCompare] = useState(false)
   const [selectedForCompare, setSelectedForCompare] = useState<number[]>([])
 
-  const { data: versions } = useQuery({
+  const { data: versions, isLoading } = useQuery({
     queryKey: ['template-versions', templateId],
     queryFn: () => scriptsApi.listVersions(templateId),
     enabled: !!templateId,
@@ -1079,14 +1078,26 @@ function VersionsPanel({ templateId, onRestored }: { templateId: string; onResto
     })
   }
 
+  const compareHint = selectedForCompare.length === 0
+    ? 'Отметьте 2 версии — кликом по плитке или по чекбоксу — чтобы сравнить.'
+    : selectedForCompare.length === 1
+      ? 'Выбрана 1 версия. Отметьте ещё одну, чтобы открыть сравнение.'
+      : 'Можно сравнить выбранные версии.'
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          Каждое сохранение создаёт версию. Можно восстановить любую или сравнить две.
+      <div className="versions-toolbar">
+        <div style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {compareHint}
+          <HelpTooltip content={
+            <div style={{ maxWidth: 280 }}>
+              Каждое сохранение создаёт новую версию. Чтобы открыть структурный diff и сравнение метрик —
+              отметьте <strong>ровно две</strong> версии (кликом по строке или по чекбоксу).
+            </div>
+          } />
         </div>
         <button
-          className="btn btn-outline btn-sm"
+          className="btn btn-primary btn-sm"
           disabled={selectedForCompare.length !== 2}
           onClick={() => setShowCompare(true)}
         >
@@ -1094,35 +1105,51 @@ function VersionsPanel({ templateId, onRestored }: { templateId: string; onResto
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {isLoading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SkeletonAnalyticsRow />
+          <SkeletonAnalyticsRow />
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {(versions || []).map((v, i) => {
           const isCurrent = i === 0
           const checked = selectedForCompare.includes(v.version_number)
           return (
-            <div key={v.id} style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: 10, border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-              background: checked ? 'rgba(37,99,235,0.04)' : 'var(--bg-card)',
-              borderColor: checked ? 'var(--primary)' : 'var(--border)',
-            }}>
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => toggleCompare(v.version_number)}
-              />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 500, fontSize: 13 }}>
-                  v{v.version_number} {isCurrent && <span style={{ color: 'var(--success)', fontSize: 11, marginLeft: 6 }}>· текущая</span>}
+            <div
+              key={v.id}
+              className={`version-row ${checked ? 'version-row--checked' : ''}`}
+              onClick={() => toggleCompare(v.version_number)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleCompare(v.version_number) } }}
+            >
+              <span
+                className={`big-check ${checked ? 'big-check--on' : ''}`}
+                onClick={(e) => { e.stopPropagation(); toggleCompare(v.version_number) }}
+                aria-label="Отметить версию для сравнения"
+                role="checkbox"
+                aria-checked={checked}
+              >
+                {checked && <Check size={14} strokeWidth={3} />}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 13.5 }}>
+                  v{v.version_number}
+                  {isCurrent && <span className="badge badge-success" style={{ marginLeft: 8 }}>текущая</span>}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
                   {new Date(v.created_at).toLocaleString('ru-RU')} · {v.note || 'без примечания'}
                 </div>
               </div>
               {!isCurrent && (
                 <button
                   className="btn btn-outline btn-sm"
-                  onClick={() => { if (confirm(`Восстановить v${v.version_number}? Текущее состояние сохранится как новая версия.`)) restoreMut.mutate(v.version_number) }}
-                  title="Восстановить"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (confirm(`Восстановить v${v.version_number}? Текущее состояние сохранится как новая версия.`)) restoreMut.mutate(v.version_number)
+                  }}
                 >
                   <RotateCcw size={13} /> Восстановить
                 </button>
@@ -1130,8 +1157,11 @@ function VersionsPanel({ templateId, onRestored }: { templateId: string; onResto
             </div>
           )
         })}
-        {(!versions || versions.length === 0) && (
-          <div className="empty-state" style={{ padding: 16 }}>История версий пуста.</div>
+        {!isLoading && (!versions || versions.length === 0) && (
+          <div className="empty-state-card">
+            <History size={24} style={{ opacity: 0.4, marginBottom: 8 }} />
+            <p>История версий пуста. Сохраните изменения — появится первая запись.</p>
+          </div>
         )}
       </div>
 
@@ -1147,8 +1177,6 @@ function VersionsPanel({ templateId, onRestored }: { templateId: string; onResto
   )
 }
 
-// ─── Compare dialog ──────────────────────────────────────────────────────────
-
 function CompareDialog({ templateId, versionA, versionB, onClose }: {
   templateId: string; versionA: number; versionB: number; onClose: () => void
 }) {
@@ -1159,10 +1187,7 @@ function CompareDialog({ templateId, versionA, versionB, onClose }: {
   })
 
   const renderColumn = (v: any, label: string) => (
-    <div style={{
-      flex: 1, padding: 14, border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-      background: 'var(--bg-card)',
-    }}>
+    <div className="compare-col">
       <div style={{ fontWeight: 600, marginBottom: 12 }}>{label} (v{v.version_number})</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Разговоров</div>
       <div style={{ fontSize: 26, fontWeight: 700 }}>{v.conversation_count}</div>
@@ -1188,7 +1213,7 @@ function CompareDialog({ templateId, versionA, versionB, onClose }: {
         <div className="modal-body">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Метрики посчитаны только по разговорам, заскоренным конкретной версией.
+              Метрики посчитаны по разговорам, заскоренным конкретной версией.
             </div>
             <select
               className="form-select"
@@ -1205,11 +1230,17 @@ function CompareDialog({ templateId, versionA, versionB, onClose }: {
 
           {isLoading && <div style={{ color: 'var(--text-muted)' }}>Загрузка...</div>}
           {data && (
-            <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
               {renderColumn(data.version_a, 'Версия A')}
               {renderColumn(data.version_b, 'Версия B')}
             </div>
           )}
+
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            Структурный diff
+            <HelpTooltip content="Сравнение этапов двух версий: что добавлено, удалено и изменено (вес, обязательность, описание, фразы)." />
+          </div>
+          <StructuralDiff templateId={templateId} versionA={versionA} versionB={versionB} />
         </div>
         <div className="modal-footer">
           <button className="btn btn-outline" onClick={onClose}>Закрыть</button>
@@ -1219,7 +1250,7 @@ function CompareDialog({ templateId, versionA, versionB, onClose }: {
   )
 }
 
-// ─── Safe modal overlay (prevents close on drag-out) ────────────────────────────
+// ─── ModalOverlay ────────────────────────────────────────────────────────────
 
 function ModalOverlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   const downTarget = React.useRef<EventTarget | null>(null)
@@ -1236,7 +1267,7 @@ function ModalOverlay({ onClose, children }: { onClose: () => void; children: Re
   )
 }
 
-// ─── Editor dialog (модалка вокруг TemplateEditor) ───────────────────────────
+// ─── EditorDialog ────────────────────────────────────────────────────────────
 
 function EditorDialog({
   template, isNew, draftInfo, onClose, onSaved,
@@ -1248,11 +1279,12 @@ function EditorDialog({
   onSaved: (id: string) => void
 }) {
   const [resetKey, setResetKey] = useState(0)
+  const [showHelp, setShowHelp] = useState(false)
+
   return (
     <div className="modal-overlay">
       <div
-        className="modal-card modal-card--wide"
-        style={{ maxWidth: 920, maxHeight: '92vh' }}
+        className="modal-card editor-modal-card"
       >
         <div className="modal-header">
           <div className="modal-title">
@@ -1261,6 +1293,13 @@ function EditorDialog({
               : (template?.name || 'Редактирование скрипта')}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => setShowHelp(true)}
+              title="Подсказка по полям и составлению скриптов"
+            >
+              <HelpCircle size={13} /> Помощь
+            </button>
             {isNew && (
               <button
                 className="btn btn-outline btn-sm"
@@ -1273,38 +1312,52 @@ function EditorDialog({
             <button className="btn-icon" onClick={onClose} title="Закрыть"><X size={16} /></button>
           </div>
         </div>
-        <div className="modal-body">
+        <div className="modal-body" style={{ padding: 0, display: 'flex', flexDirection: 'column' }}>
           <TemplateEditor
             key={isNew ? (draftInfo?.fromAi ? `ai-${resetKey}` : `new-${resetKey}`) : (template?.id || 'none')}
             template={template}
             onSaved={(id) => onSaved(id)}
+            onShowHelp={() => setShowHelp(true)}
           />
         </div>
       </div>
+      {showHelp && <HelpModal mode="editor" onClose={() => setShowHelp(false)} />}
     </div>
   )
 }
 
-// ─── Right panel with tabs ───────────────────────────────────────────────────
+// ─── Selected script main panel (tabs) ───────────────────────────────────────
 
 type RightTab = 'analytics' | 'versions' | 'assignments'
 
-function SelectedScriptPanel({ template, onEdit }: { template: ScriptTemplate; onEdit: () => void }) {
-  const [tab, setTab] = useState<RightTab>('analytics')
+function SelectedScriptPanel({
+  template, onEdit, initialTab,
+}: {
+  template: ScriptTemplate
+  onEdit: () => void
+  initialTab?: RightTab
+}) {
+  const [tab, setTab] = useState<RightTab>(initialTab || 'analytics')
+  useEffect(() => { if (initialTab) setTab(initialTab) }, [initialTab])
 
   return (
-    <div className="card" style={{ maxHeight: '78vh', overflowY: 'auto' }}>
-      <div className="card-header" style={{ alignItems: 'flex-start' }}>
+    <div className="main-card">
+      <div className="main-card-header">
         <div>
-          <div className="card-title">{template.name}</div>
-          <div className="card-subtitle">{template.description || '—'}</div>
+          <div className="main-title">
+            {template.name}
+            {template.is_active
+              ? <span className="badge badge-success">Активен</span>
+              : <span className="badge badge-muted">Черновик</span>}
+          </div>
+          <div className="main-subtitle">{template.description || 'Без описания'}</div>
         </div>
         <button className="btn btn-primary btn-sm" onClick={onEdit}>
           <Edit3 size={14} /> Редактировать
         </button>
       </div>
 
-      <div className="modal-tabs" style={{ margin: '0 -20px 16px', padding: '0 20px' }}>
+      <div className="modal-tabs main-tabs">
         <div className={`modal-tab ${tab === 'analytics' ? 'active' : ''}`} onClick={() => setTab('analytics')}>
           <BarChart3 size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} /> Аналитика
         </div>
@@ -1316,9 +1369,194 @@ function SelectedScriptPanel({ template, onEdit }: { template: ScriptTemplate; o
         </div>
       </div>
 
-      {tab === 'analytics' && <AnalyticsPanel templateId={template.id} />}
-      {tab === 'versions' && <VersionsPanel templateId={template.id} onRestored={() => setTab('analytics')} />}
-      {tab === 'assignments' && <AssignmentsBlock templateId={template.id} />}
+      <div className="main-card-body">
+        {tab === 'analytics' && <AnalyticsPanel templateId={template.id} />}
+        {tab === 'versions' && <VersionsPanel templateId={template.id} onRestored={() => setTab('analytics')} />}
+        {tab === 'assignments' && <AssignmentsBlock template={template} />}
+      </div>
+    </div>
+  )
+}
+
+// ─── Sidebar: scripts list with pill filters + inline rename ─────────────────
+
+type ListFilter = 'all' | 'active' | 'drafts'
+
+function ScriptsSidebar({
+  templates, selectedId, onSelect, onCreate, onOpenLibrary, onDeleted, isLoading,
+}: {
+  templates: ScriptTemplate[]
+  selectedId: string | null
+  onSelect: (id: string) => void
+  onCreate: () => void
+  onOpenLibrary: () => void
+  onDeleted: (id: string) => void
+  isLoading: boolean
+}) {
+  const queryClient = useQueryClient()
+  const [filter, setFilter] = useState<ListFilter>('all')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+
+  const patchMut = useMutation({
+    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
+      scriptsApi.patchTemplate(id, { is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
+    },
+  })
+
+  const renameMut = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      scriptsApi.patchTemplate(id, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
+      if (selectedId) queryClient.invalidateQueries({ queryKey: ['script-template-detail', selectedId] })
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => scriptsApi.deleteTemplate(id),
+    onSuccess: (_data, deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
+      onDeleted(deletedId)
+    },
+  })
+
+  const filtered = useMemo(() => {
+    if (filter === 'active') return templates.filter((t) => t.is_active)
+    if (filter === 'drafts') return templates.filter((t) => !t.is_active)
+    return templates
+  }, [templates, filter])
+
+  const counts = {
+    all: templates.length,
+    active: templates.filter((t) => t.is_active).length,
+    drafts: templates.filter((t) => !t.is_active).length,
+  }
+
+  const commitRename = (id: string) => {
+    const v = editName.trim()
+    if (v) renameMut.mutate({ id, name: v })
+    setEditId(null)
+  }
+
+  return (
+    <div className="sidebar-card">
+      <div className="sidebar-card-header">
+        <div className="sidebar-card-title">Скрипты</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={onOpenLibrary}
+            title="Готовые отраслевые шаблоны или генерация скрипта через AI"
+          >
+            <Sparkles size={13} /> AI / Шаблон
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={onCreate}
+            title="Создать новый скрипт с нуля"
+          >
+            <Plus size={13} /> Новый
+          </button>
+        </div>
+      </div>
+
+      <div className="pill-filters">
+        <button className={`pill ${filter === 'all' ? 'pill--active' : ''}`} onClick={() => setFilter('all')}>
+          Все <span className="pill-count">{counts.all}</span>
+        </button>
+        <button className={`pill ${filter === 'active' ? 'pill--active' : ''}`} onClick={() => setFilter('active')}>
+          Активные <span className="pill-count">{counts.active}</span>
+        </button>
+        <button className={`pill ${filter === 'drafts' ? 'pill--active' : ''}`} onClick={() => setFilter('drafts')}>
+          Черновики <span className="pill-count">{counts.drafts}</span>
+        </button>
+      </div>
+
+      <div className="scripts-list">
+        {isLoading && (
+          <>
+            <SkeletonScriptCard /><SkeletonScriptCard /><SkeletonScriptCard />
+          </>
+        )}
+        {!isLoading && filtered.map((t) => (
+          <div
+            key={t.id}
+            className={`script-item ${selectedId === t.id ? 'script-item--selected' : ''}`}
+            onClick={() => editId !== t.id && onSelect(t.id)}
+            onDoubleClick={() => { setEditId(t.id); setEditName(t.name) }}
+          >
+            <div className={`script-item-icon ${t.is_active ? 'is-active' : 'is-draft'}`}>
+              <CheckSquare size={16} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {editId === t.id ? (
+                <input
+                  className="form-input form-input--inline"
+                  autoFocus
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onBlur={() => commitRename(t.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitRename(t.id) }
+                    if (e.key === 'Escape') setEditId(null)
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <div className="script-item-title">{t.name}</div>
+              )}
+              <div className="script-item-meta">
+                {t.steps?.length || 0} этапов · {t.is_active ? 'Активен' : 'Черновик'}
+                {t.applies_to_all_stores && ' · все магазины'}
+              </div>
+            </div>
+            <div className="script-item-actions">
+              <div
+                className={`toggle-switch ${t.is_active ? 'on' : ''}`}
+                onClick={(e) => { e.stopPropagation(); patchMut.mutate({ id: t.id, is_active: !t.is_active }) }}
+                title={t.is_active ? 'Активен' : 'Черновик'}
+              />
+              <button
+                className="btn-icon script-item-delete"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (confirm(`Удалить скрипт «${t.name}»? Все его этапы, версии и назначения будут удалены безвозвратно.`)) {
+                    deleteMut.mutate(t.id)
+                  }
+                }}
+                title="Удалить скрипт"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {!isLoading && filtered.length === 0 && (
+          <div className="empty-state-card" style={{ margin: 12 }}>
+            <BookOpen size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
+            <p style={{ marginBottom: 12, fontSize: 13 }}>
+              {filter === 'all' ? 'Скриптов пока нет' : filter === 'active' ? 'Нет активных скриптов' : 'Нет черновиков'}
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <button className="btn btn-primary btn-sm" onClick={onCreate}>
+                <Plus size={12} /> С нуля
+              </button>
+              <button className="btn btn-outline btn-sm" onClick={onOpenLibrary}>
+                <Sparkles size={12} /> Из библиотеки / AI
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="sidebar-card-footer">
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          <Command size={11} style={{ verticalAlign: 'middle' }} /> + K — быстрая навигация
+        </span>
+      </div>
     </div>
   )
 }
@@ -1328,13 +1566,15 @@ function SelectedScriptPanel({ template, onEdit }: { template: ScriptTemplate; o
 export function ScriptsPage() {
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [forcedTab, setForcedTab] = useState<RightTab | undefined>(undefined)
   const [showLibrary, setShowLibrary] = useState(false)
+  const [showRulesHelp, setShowRulesHelp] = useState(false)
+  const [rulesTab, setRulesTab] = useState<'upsell' | 'crosssell'>('upsell')
 
-  // Editor modal state
   const [editorMode, setEditorMode] = useState<null | 'new' | 'edit' | 'ai'>(null)
   const [aiDraft, setAiDraft] = useState<{ name: string; description: string | null; steps: ScriptStep[] } | null>(null)
 
-  const { data: templates } = useQuery({
+  const { data: templates, isLoading: templatesLoading } = useQuery({
     queryKey: ['script-templates'],
     queryFn: () => scriptsApi.getTemplates(),
   })
@@ -1345,16 +1585,6 @@ export function ScriptsPage() {
     enabled: !!selectedId,
   })
 
-  const patchMut = useMutation({
-    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
-      scriptsApi.patchTemplate(id, { is_active }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
-      if (selectedId) queryClient.invalidateQueries({ queryKey: ['script-template-detail', selectedId] })
-    },
-  })
-
-  // Какой template подаём в редактор: edit → текущий выбранный, ai → черновик, new → пустой
   const editorTemplate: ScriptTemplate | null =
     editorMode === 'ai' && aiDraft
       ? { id: '', name: aiDraft.name, is_active: true, steps: aiDraft.steps, description: aiDraft.description || '' }
@@ -1374,6 +1604,7 @@ export function ScriptsPage() {
     if (newId) {
       setSelectedId(newId)
       queryClient.invalidateQueries({ queryKey: ['script-template-detail', newId] })
+      queryClient.invalidateQueries({ queryKey: ['template-versions', newId] })
     }
     closeEditor()
   }
@@ -1390,83 +1621,78 @@ export function ScriptsPage() {
   }
 
   return (
-    <div>
-      <div className="grid-2 fade-in" style={{ alignItems: 'start' }}>
-        {/* Левая колонка: список */}
-        <div className="card" style={{ maxHeight: '78vh', overflowY: 'auto' }}>
-          <div className="card-header">
-            <div className="card-title">Шаблоны скриптов</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => setShowLibrary(true)}
-                title="Готовые шаблоны или генерация через AI"
-              >
-                <Sparkles size={14} /> Шаблон / AI
-              </button>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => { setEditorMode('new'); setAiDraft(null); setSelectedId(null) }}
-              >
-                <Plus size={14} /> Новый
-              </button>
-            </div>
-          </div>
-          <div>
-            {(templates || []).map((t) => (
-              <div
-                key={t.id}
-                className="list-item"
-                onClick={() => setSelectedId(t.id)}
-                style={{ background: selectedId === t.id ? 'var(--bg-active)' : undefined }}
-              >
-                <div className="list-item-icon" style={{
-                  background: t.is_active ? 'var(--success-light)' : 'var(--bg)',
-                  color: t.is_active ? 'var(--success)' : 'var(--text-muted)',
-                }}>
-                  <CheckSquare size={18} />
-                </div>
-                <div className="list-item-content">
-                  <div className="list-item-title">{t.name}</div>
-                  <div className="list-item-desc">
-                    {t.steps?.length || 0} этапов · {t.is_active ? 'Активен' : 'Черновик'}
-                  </div>
-                </div>
-                <div className="list-item-meta" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div
-                    className={`toggle-switch ${t.is_active ? 'on' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); patchMut.mutate({ id: t.id, is_active: !t.is_active }) }}
-                    title={t.is_active ? 'Активен' : 'Черновик'}
-                  />
-                </div>
-              </div>
-            ))}
-            {(!templates || templates.length === 0) && (
-              <div className="empty-state"><p>Нет шаблонов скриптов</p></div>
-            )}
-          </div>
-        </div>
+    <div className="scripts-page">
+      <div className="scripts-layout">
+        <ScriptsSidebar
+          templates={templates || []}
+          selectedId={selectedId}
+          onSelect={(id) => { setSelectedId(id); setForcedTab(undefined) }}
+          onCreate={() => { setEditorMode('new'); setAiDraft(null); setSelectedId(null) }}
+          onOpenLibrary={() => setShowLibrary(true)}
+          onDeleted={(id) => { if (id === selectedId) setSelectedId(null) }}
+          isLoading={templatesLoading}
+        />
 
-        {/* Правая колонка: панель выбранного скрипта с табами */}
-        {selectedDetail
-          ? <SelectedScriptPanel template={selectedDetail} onEdit={() => setEditorMode('edit')} />
-          : (
-            <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
-              <div className="empty-state" style={{ textAlign: 'center', padding: 24 }}>
-                <BookOpen size={36} style={{ color: 'var(--text-muted)', marginBottom: 12, opacity: 0.4 }} />
-                <p style={{ fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Выберите скрипт из списка</p>
-                <p style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-                  Здесь появятся аналитика, история версий и настройки назначений.
-                </p>
+        {selectedDetail ? (
+          <SelectedScriptPanel
+            template={selectedDetail}
+            onEdit={() => setEditorMode('edit')}
+            initialTab={forcedTab}
+          />
+        ) : (
+          <div className="main-card main-card--empty">
+            <div className="empty-state-card">
+              <BookOpen size={36} style={{ color: 'var(--text-muted)', marginBottom: 12, opacity: 0.4 }} />
+              <p style={{ fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Выберите скрипт из списка</p>
+              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 16 }}>
+                Здесь появятся аналитика, история версий и настройки назначений.
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button className="btn btn-primary btn-sm" onClick={() => { setEditorMode('new'); setAiDraft(null) }}>
+                  <Plus size={12} /> Создать скрипт
+                </button>
+                <button className="btn btn-outline btn-sm" onClick={() => setShowLibrary(true)}>
+                  <Sparkles size={12} /> Шаблоны / AI
+                </button>
               </div>
             </div>
-          )
-        }
+          </div>
+        )}
       </div>
 
-      <UpsellRulesTable />
+      <div className="rules-section">
+        <div className="rules-tabs">
+          <div
+            className={`rules-tab ${rulesTab === 'upsell' ? 'rules-tab--active' : ''}`}
+            onClick={() => setRulesTab('upsell')}
+          >
+            Апсейл
+            <HelpTooltip content="Продажа более дорогой версии того же продукта (iPhone 15 → 15 Pro)." />
+          </div>
+          <div
+            className={`rules-tab ${rulesTab === 'crosssell' ? 'rules-tab--active' : ''}`}
+            onClick={() => setRulesTab('crosssell')}
+          >
+            Кросс-сейл
+            <HelpTooltip content="Предложение сопутствующих товаров к основной покупке (ноутбук → сумка, мышь)." />
+          </div>
+          <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setShowRulesHelp(true)}>
+            <HelpCircle size={12} /> Подробнее
+          </button>
+        </div>
 
-      {/* Модалки */}
+        {rulesTab === 'upsell' && <RulesTable kind="upsell" />}
+        {rulesTab === 'crosssell' && <RulesTable kind="crosssell" />}
+      </div>
+
+      <CommandPalette
+        scripts={(templates || []).map((t) => ({ id: t.id, name: t.name, is_active: t.is_active }))}
+        onCreate={() => { setEditorMode('new'); setAiDraft(null); setSelectedId(null) }}
+        onOpenLibrary={() => setShowLibrary(true)}
+        onSelectScript={(id) => { setSelectedId(id); setForcedTab('analytics') }}
+        onJumpAssignments={(id) => { setSelectedId(id); setForcedTab('assignments') }}
+      />
+
       {editorMode && (
         <EditorDialog
           template={editorTemplate}
@@ -1484,6 +1710,8 @@ export function ScriptsPage() {
           onUseDraft={handleAiDraft}
         />
       )}
+
+      {showRulesHelp && <HelpModal mode="rules" onClose={() => setShowRulesHelp(false)} />}
     </div>
   )
 }

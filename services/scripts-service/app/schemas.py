@@ -30,6 +30,7 @@ class ScriptStepOut(BaseModel):
 
 class TemplateCreate(BaseModel):
     name: str
+    short_name: Optional[str] = None
     description: Optional[str] = None
     scope: str = "org_level"
     context_description: Optional[str] = None
@@ -38,13 +39,16 @@ class TemplateCreate(BaseModel):
 
 class TemplatePatch(BaseModel):
     name: Optional[str] = None
+    short_name: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    applies_to_all_stores: Optional[bool] = None
 
 
 class TemplateListItem(BaseModel):
     id: uuid.UUID
     name: str
+    short_name: Optional[str] = None
     description: Optional[str]
     scope: str
     is_active: bool
@@ -68,10 +72,12 @@ class AssignedStore(BaseModel):
 class TemplateDetail(BaseModel):
     id: uuid.UUID
     name: str
+    short_name: Optional[str] = None
     description: Optional[str]
     scope: str
     context_description: Optional[str]
     is_active: bool
+    applies_to_all_stores: bool = False
     steps: list[ScriptStepOut]
     assigned_sellers: list[AssignedSeller]
     assigned_stores: list[AssignedStore] = []
@@ -178,6 +184,35 @@ class UpsellRulePatch(BaseModel):
 
 
 class UpsellRuleOut(BaseModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    store_id: Optional[uuid.UUID]
+    trigger_product: str
+    required_offers: list[str]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Cross-sell rules (симметрично Upsell) ---
+
+class CrossSellRuleCreate(BaseModel):
+    store_id: Optional[uuid.UUID] = None
+    trigger_product: str
+    required_offers: list[str]
+    is_active: bool = True
+
+
+class CrossSellRulePatch(BaseModel):
+    store_id: Optional[uuid.UUID] = None
+    trigger_product: Optional[str] = None
+    required_offers: Optional[list[str]] = None
+    is_active: Optional[bool] = None
+
+
+class CrossSellRuleOut(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     store_id: Optional[uuid.UUID]

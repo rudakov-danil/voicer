@@ -15,10 +15,12 @@ function normalizeTemplate(d) {
     return {
         id: d.id,
         name: d.name,
+        short_name: d.short_name ?? null,
         description: d.description ?? null,
         scope: d.scope,
         context_description: d.context_description ?? null,
         is_active: !!d.is_active,
+        applies_to_all_stores: !!d.applies_to_all_stores,
         steps: (d.steps || []).map(normalizeStep).sort((a, b) => a.order - b.order),
         assigned_sellers: d.assigned_sellers || [],
         assigned_stores: d.assigned_stores || [],
@@ -48,6 +50,7 @@ export const scriptsApi = {
     createTemplate: async (data) => {
         const body = {
             name: data.name,
+            short_name: data.short_name ?? null,
             description: data.description ?? null,
             scope: data.scope || 'org_level',
             context_description: data.context_description ?? null,
@@ -60,6 +63,7 @@ export const scriptsApi = {
     replaceTemplate: async (id, data) => {
         const body = {
             name: data.name,
+            short_name: data.short_name ?? null,
             description: data.description ?? null,
             scope: data.scope || 'org_level',
             context_description: data.context_description ?? null,
@@ -71,6 +75,9 @@ export const scriptsApi = {
     patchTemplate: async (id, data) => {
         const response = await apiClient.patch(`/api/v1/scripts/templates/${id}`, data);
         return normalizeTemplate(response.data);
+    },
+    deleteTemplate: async (id) => {
+        await apiClient.delete(`/api/v1/scripts/templates/${id}`);
     },
     // --- Назначения на магазины ---
     listStoreAssignments: async (params = {}) => {
@@ -87,6 +94,18 @@ export const scriptsApi = {
     },
     removeStoreAssignment: async (assignment_id) => {
         await apiClient.delete(`/api/v1/scripts/store-assignments/${assignment_id}`);
+    },
+    bulkSetStoreAssignments: async (template_id, store_ids) => {
+        const response = await apiClient.post('/api/v1/scripts/store-assignments/bulk-set', {
+            template_id, store_ids,
+        });
+        return response.data;
+    },
+    bulkSetSellerAssignments: async (template_id, seller_ids) => {
+        const response = await apiClient.post('/api/v1/scripts/assignments/bulk-set', {
+            template_id, seller_ids,
+        });
+        return response.data;
     },
     // --- Назначения на продавцов (оставляем существующую API) ---
     assignToSeller: async (data) => {
@@ -124,6 +143,27 @@ export const scriptsApi = {
     },
     deleteUpsellRule: async (id) => {
         await apiClient.delete(`/api/v1/scripts/upsell-rules/${id}`);
+    },
+    // --- Cross-sell rules ---
+    listCrossSellRules: async (params = {}) => {
+        const response = await apiClient.get('/api/v1/scripts/cross-sell-rules', { params });
+        return response.data.items;
+    },
+    createCrossSellRule: async (data) => {
+        const response = await apiClient.post('/api/v1/scripts/cross-sell-rules', {
+            store_id: data.store_id ?? null,
+            trigger_product: data.trigger_product,
+            required_offers: data.required_offers,
+            is_active: data.is_active ?? true,
+        });
+        return response.data;
+    },
+    patchCrossSellRule: async (id, data) => {
+        const response = await apiClient.patch(`/api/v1/scripts/cross-sell-rules/${id}`, data);
+        return response.data;
+    },
+    deleteCrossSellRule: async (id) => {
+        await apiClient.delete(`/api/v1/scripts/cross-sell-rules/${id}`);
     },
     // --- Library ---
     listLibrary: async () => {

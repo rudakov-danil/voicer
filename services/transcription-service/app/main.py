@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.routers import transcripts
+from app.routers import transcripts, upload_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ app.add_middleware(
 
 Instrumentator().instrument(app).expose(app)
 app.include_router(transcripts.router)
+app.include_router(upload_transcript.router)
 
 
 @app.get("/health")

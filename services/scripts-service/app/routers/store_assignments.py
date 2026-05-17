@@ -1,7 +1,7 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from app.database import get_db
@@ -114,3 +114,59 @@ async def list_store_assignments(
         "assigned_at": a.assigned_at,
     } for a in assignments]
     return {"items": items, "total": total}
+
+
+@router.post("/bulk-set", status_code=200)
+async def bulk_set_template_stores(
+    body: dict = Body(...),
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Полностью переопределить набор магазинов для шаблона.
+    body: { "template_id": "<uuid>", "store_ids": ["<uuid>", ...] }
+    Удаляет лишние назначения и создаёт недостающие. Идемпотентно.
+    """
+    if user["role"] not in ("director", "admin", "manager"):
+        raise HTTPException(status_code=403, detail="Insufficient role")
+
+    try:
+        template_id = uuid.UUID(body["template_id"])
+        store_ids = {uuid.UUID(x) for x in (body.get("store_ids") or [])}
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid template_id/store_ids")
+
+    org_id = uuid.UUID(user["organization_id"])
+    template = (await db.execute(
+        select(ScriptTemplate).where(ScriptTemplate.id == template_id)
+    )).scalar_one_or_none()
+    if template is None or str(template.organization_id) != user["organization_id"]:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if user["role"] == "manager" and template.scope == "manager_level" and str(template.created_by) != user["sub"]:
+        raise HTTPException(status_code=403, detail="Template not visible to you")
+
+    existing = (await db.execute(
+        select(StoreScriptAssignment).where(
+            StoreScriptAssignment.template_id == template_id,
+            StoreScriptAssignment.organization_id == org_id,
+        )
+    )).scalars().all()
+    existing_by_store = {a.store_id: a for a in existing}
+
+    # Удаляем те, что больше не в наборе
+    for store_id, a in existing_by_store.items():
+        if store_id not in store_ids:
+            await db.delete(a)
+
+    # Добавляем недостающие
+    for sid in store_ids:
+        if sid not in existing_by_store:
+            db.add(StoreScriptAssignment(
+                organization_id=org_id,
+                store_id=sid,
+                template_id=template_id,
+                is_mandatory=True,
+                assigned_by=uuid.UUID(user["sub"]),
+            ))
+
+    await db.commit()
+    return {"template_id": str(template_id), "assigned_store_count": len(store_ids)}

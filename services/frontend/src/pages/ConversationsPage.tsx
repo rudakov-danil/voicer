@@ -2,58 +2,23 @@ import { useQuery } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
 import { adminApi } from '@/api/admin'
 import { recorderApi } from '@/api/recorder'
+import { scriptsApi } from '@/api/scripts'
 import { ScoreBadge } from '@/components/ScoreBadge'
 import { OutcomeTag } from '@/components/OutcomeTag'
 import { Drawer } from '@/components/Drawer'
 import { AudioPlayer } from '@/components/AudioPlayer'
 import { AudioUploadModal } from '@/components/AudioUpload'
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, Store, Target, Award, ArrowDownUp, ChevronDown, X } from 'lucide-react'
-
-// Подсвечивает в тексте сегмента вхождения raw_text возражений.
-// Цвет: зелёный если возражение закрыто, красный если нет.
-function renderTranscriptText(text: string, objections: any[]): ReactNode {
-  if (!text || !objections || !objections.length) return text
-
-  type Range = { start: number; end: number; resolved: boolean; type: string }
-  const ranges: Range[] = []
-  const lower = text.toLowerCase()
-
-  for (const obj of objections) {
-    const raw = ((obj?.raw_text || '') as string).trim()
-    if (raw.length < 3) continue
-    const needle = raw.toLowerCase()
-    let pos = 0
-    while ((pos = lower.indexOf(needle, pos)) !== -1) {
-      ranges.push({ start: pos, end: pos + raw.length, resolved: !!obj.is_resolved, type: obj.type || '' })
-      pos += raw.length
-    }
-  }
-  if (!ranges.length) return text
-
-  ranges.sort((a, b) => a.start - b.start)
-  const merged: Range[] = []
-  for (const r of ranges) {
-    if (merged.length && r.start < merged[merged.length - 1].end) continue
-    merged.push(r)
-  }
-
-  const parts: ReactNode[] = []
-  let cursor = 0
-  merged.forEach((r, i) => {
-    if (cursor < r.start) parts.push(text.slice(cursor, r.start))
-    const cls = r.resolved ? 'objection-mark resolved' : 'objection-mark unresolved'
-    const tip = `Возражение${r.type ? `: ${r.type}` : ''} — ${r.resolved ? 'закрыто' : 'не закрыто'}`
-    parts.push(
-      <mark key={`m-${i}`} className={cls} title={tip}>
-        {text.slice(r.start, r.end)}
-      </mark>
-    )
-    cursor = r.end
-  })
-  if (cursor < text.length) parts.push(text.slice(cursor))
-  return parts
-}
+import { TranscriptUploadModal } from '@/components/TranscriptUpload'
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, X, FileText } from 'lucide-react'
+import { MultiSelect } from '@/components/scripts/MultiSelect'
+import {
+  avatarColorFor,
+  highlightSegmentText,
+  highlightRulesForSell,
+  analyzeSell,
+  type HighlightRule,
+} from '@/components/scripts/conversationHelpers'
 
 type SortBy  = 'date' | 'name' | 'duration' | 'store'
 type SortDir = 'asc' | 'desc'
@@ -66,7 +31,49 @@ const OUTCOME_LABELS: Record<string, string> = {
   unknown: 'Не определён',
 }
 
-const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1']
+const OBJECTION_TYPE_LABELS: Record<string, string> = {
+  price: 'Цена',
+  quality: 'Качество',
+  competitors: 'Конкуренты',
+  timing: 'Время',
+  trust: 'Доверие',
+  not_ready: 'Не готов',
+  functionality: 'Функциональность',
+}
+
+function objectionTypeLabel(type: string | undefined | null): string {
+  if (!type) return 'Возражение'
+  return OBJECTION_TYPE_LABELS[type] || type
+}
+
+// ─── Sell badges ──────────────────────────────────────────────────────────────
+function SellBadge({ has }: { has?: boolean | null }) {
+  if (has === true) return <span className="tag tag-success">Был предложен</span>
+  return <span className="tag tag-neutral">Нет</span>
+}
+
+function CrossSellBadge({ analysis }: { analysis: { status: string; matched: number; total: number; missed: string[] } }) {
+  if (analysis.status === 'complete') return (
+    <span className="tag tag-success">Был предложен ({analysis.matched}/{Math.max(analysis.total, analysis.matched)})</span>
+  )
+  if (analysis.status === 'partial') return (
+    <span className="tag tag-warning" title={`Не предложено: ${analysis.missed.join(', ')}`}>
+      Частично ({analysis.matched}/{analysis.total})
+    </span>
+  )
+  return <span className="tag tag-neutral">Нет</span>
+}
+
+function HighlightLegend() {
+  return (
+    <div className="hl-legend">
+      <span className="hl-pill hl-pill--script">Этап скрипта</span>
+      <span className="hl-pill hl-pill--upsell">Апсейл</span>
+      <span className="hl-pill hl-pill--crosssell">Кросс-сейл</span>
+      <span className="hl-pill hl-pill--objection">Возражение</span>
+    </div>
+  )
+}
 
 // ─── Pipeline status badge ────────────────────────────────────────────────────
 function PipelineStatus({ status }: { status: string }) {
@@ -92,6 +99,7 @@ function PipelineStatus({ status }: { status: string }) {
 function RecordingDetail({ recording }: { recording: any }) {
   const status = recording.status as string
   const sellerName = recording.seller_name || '—'
+  const sellerColorKey = recording.seller_id || recording.seller_name || ''
   const storeName = recording.store_name || '—'
   const dateObj = recording.started_at ? new Date(recording.started_at) : null
   const dateStr = dateObj ? dateObj.toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' }) : '—'
@@ -121,7 +129,7 @@ function RecordingDetail({ recording }: { recording: any }) {
 
       {/* Seller + Store card */}
       <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', background:'var(--bg)', borderRadius:'var(--radius)' }}>
-        <div style={{ width:44, height:44, borderRadius:'50%', background:AVATAR_COLORS[0], display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:700, fontSize:16, flexShrink:0 }}>
+        <div style={{ width:44, height:44, borderRadius:'50%', background:avatarColorFor(sellerColorKey), display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:700, fontSize:16, flexShrink:0 }}>
           {sellerName[0]?.toUpperCase() || '?'}
         </div>
         <div style={{ flex:1 }}>
@@ -215,8 +223,117 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
     queryFn: () => dashboardApi.getConversationDetail(conversationId),
   })
 
+  const { data: upsellRules } = useQuery({
+    queryKey: ['upsell-rules-all'],
+    queryFn: () => scriptsApi.listUpsellRules(),
+  })
+  const { data: crossSellRules } = useQuery({
+    queryKey: ['cross-sell-rules-all'],
+    queryFn: () => scriptsApi.listCrossSellRules(),
+  })
+
   const [audioTime, setAudioTime] = useState(0)
   const [audioUrl, setAudioUrl] = useState<string | undefined>()
+
+  // ─── Безопасные derived-значения для хуков ниже (работают и при !data) ──────
+  const c: any = data?.conversation || data || {}
+  const transcript: any = data?.transcript || {}
+  const segments: any[] = transcript.segments || c.segments || data?.segments || []
+  const scriptResults: any[] = c.script_results || data?.script_results || []
+  const objections: any[] = c.objections || data?.objections || []
+  const storeId: string | undefined = c.store_id
+
+  // LLM-результаты по апсейл/кросс-сейл из бэкенда: список объектов с цитатами для подсветки.
+  const upsellResults: any[] = Array.isArray(c.upsell_results) ? c.upsell_results : []
+  const crosssellResults: any[] = Array.isArray(c.crosssell_results) ? c.crosssell_results : []
+
+  // Анализ кросс-сейла предпочитает LLM-результат с бэка; для старых разговоров (где
+  // crosssell_results=NULL) фолбэк на клиентский подстрочный матч по правилам.
+  const crossSellAnalysis = useMemo(() => {
+    if (c.has_crosssell !== null && c.has_crosssell !== undefined && crosssellResults.length > 0) {
+      // Собираем агрегаты из LLM-результата.
+      let total = 0, matched = 0
+      const missed: string[] = []
+      for (const r of crosssellResults) {
+        const required: string[] = r.required_offers || []
+        const offered: string[] = r.offered_items || []
+        total += required.length
+        matched += offered.length
+        for (const m of (r.missed_items || [])) missed.push(m)
+      }
+      let status: 'no-trigger' | 'complete' | 'partial' | 'missed' = 'no-trigger'
+      if (crosssellResults.length > 0) {
+        if (total === 0) status = 'complete'
+        else if (matched === total) status = 'complete'
+        else if (matched === 0) status = 'missed'
+        else status = 'partial'
+      }
+      return { triggered: true, matched, total, missed, status }
+    }
+    return analyzeSell(crossSellRules as any, segments, storeId)
+  }, [c.has_crosssell, crosssellResults, crossSellRules, segments, storeId])
+
+  const highlightRules: HighlightRule[] = useMemo(() => {
+    const rules: HighlightRule[] = []
+    for (const sr of scriptResults) {
+      for (const step of (sr.step_scores || sr.steps || [])) {
+        const evidence = (step.evidence || '').trim()
+        if (!evidence) continue
+        const detected = step.detected !== false && (step.score > 0 || step.detected)
+        if (!detected) continue
+        rules.push({
+          text: evidence,
+          kind: 'script-done',
+          tooltip: `Этап «${step.step_name || step.name}» — выполнен (${Math.round(step.score || 0)}%)`,
+        })
+      }
+    }
+    for (const obj of objections) {
+      const raw = (obj?.raw_text || '').trim()
+      if (raw.length < 3) continue
+      rules.push({
+        text: raw,
+        kind: obj.is_resolved ? 'objection-resolved' : 'objection-unresolved',
+        tooltip: `Возражение${obj.type ? `: ${obj.type}` : ''} — ${obj.is_resolved ? 'закрыто' : 'не закрыто'}`,
+      })
+    }
+
+    // Цитаты из LLM-результатов апсейла/кросс-сейла — LLM уже сам устойчив к опечаткам
+    // транскрибации и возвращает ДОСЛОВНЫЕ цитаты из текста. Подсвечиваем их.
+    const pushSellQuotes = (results: any[], kind: 'upsell' | 'crosssell') => {
+      const triggerKind = kind === 'upsell' ? 'upsell-trigger' : 'crosssell-trigger'
+      const offerKind = kind === 'upsell' ? 'upsell-offer' : 'crosssell-offer'
+      const label = kind === 'upsell' ? 'Апсейл' : 'Кросс-сейл'
+      for (const r of results) {
+        const product = r.trigger_product || ''
+        for (const q of (r.trigger_quotes || [])) {
+          if (typeof q === 'string' && q.trim().length >= 3) {
+            rules.push({ text: q, kind: triggerKind as any, tooltip: `${label}: триггер «${product}»` })
+          }
+        }
+        const offerQuotes: Record<string, string[]> = r.offer_quotes || {}
+        for (const offer in offerQuotes) {
+          for (const q of (offerQuotes[offer] || [])) {
+            if (typeof q === 'string' && q.trim().length >= 3) {
+              rules.push({ text: q, kind: offerKind as any, tooltip: `${label}: предложение «${offer}»` })
+            }
+          }
+        }
+      }
+    }
+    if (upsellResults.length > 0) {
+      pushSellQuotes(upsellResults, 'upsell')
+    } else {
+      // Фолбэк для старых разговоров без LLM-цитат — берём правила и ищем подстроку.
+      rules.push(...highlightRulesForSell(upsellRules as any, storeId, 'upsell'))
+    }
+    if (crosssellResults.length > 0) {
+      pushSellQuotes(crosssellResults, 'crosssell')
+    } else {
+      rules.push(...highlightRulesForSell(crossSellRules as any, storeId, 'crosssell'))
+    }
+    return rules
+  }, [scriptResults, objections, upsellResults, crosssellResults, upsellRules, crossSellRules, storeId])
 
   const recordingId = data?.conversation?.recording_id || data?.recording_id
   useEffect(() => {
@@ -242,11 +359,6 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
   if (isLoading) return <div style={{ padding:'20px', color:'var(--text-muted)' }}>Загрузка...</div>
   if (!data) return null
 
-  const c = data.conversation || data
-  const transcript = data.transcript || {}
-  const segments = transcript.segments || c.segments || data.segments || []
-  const scriptResults = c.script_results || data.script_results || []
-  const objections = c.objections || data.objections || []
   const sellerName = c.seller_name || c.seller_id || '?'
   const storeName = c.store_name || c.store_id || ''
 
@@ -256,13 +368,14 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
   const dateStr = dateSource ? new Date(dateSource).toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' }) : '—'
   const timeStr = dateSource ? new Date(dateSource).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' }) : ''
   const overallScore = Math.round(c.overall_score || 0)
+  const sellerColorKey = c.seller_id || sellerName
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
 
       {/* Seller card */}
       <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'var(--bg)', borderRadius:'var(--radius)' }}>
-        <div className="avatar" style={{ background:AVATAR_COLORS[0], width:44, height:44, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:700, fontSize:16 }}>
+        <div className="avatar" style={{ background:avatarColorFor(sellerColorKey), width:44, height:44, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:700, fontSize:16 }}>
           {sellerName[0].toUpperCase()}
         </div>
         <div style={{ flex:1 }}>
@@ -290,9 +403,15 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
       {scriptResults.map((sr: any, i: number) => {
         const score = Math.round(sr.script_score || sr.total_score || 0)
         const sColor = score >= 80 ? 'green' : score >= 60 ? 'yellow' : 'red'
+        const shortName = (sr.script_short_name || '').trim()
         return (
           <div key={i}>
-            <div style={{ fontWeight:600, color:'var(--text)', marginBottom:8 }}>Скоринг скрипта — {score}%</div>
+            <div
+              style={{ fontWeight:600, color:'var(--text)', marginBottom:8 }}
+              title={sr.script_name || ''}
+            >
+              Скоринг скрипта{shortName ? ` («${shortName}»)` : ''} — {score}%
+            </div>
             <div className="progress-bar" style={{ marginBottom:12 }}>
               <div className={`progress-bar-fill ${sColor}`} style={{ width:`${score}%` }} />
             </div>
@@ -311,17 +430,42 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
         )
       })}
 
-      {/* Objections */}
-      {objections.length > 0 && (
-        <div>
-          <div style={{ fontWeight:600, color:'var(--text)', marginBottom:8 }}>Возражения клиента</div>
-          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-            {objections.map((o: any, i: number) => (
-              <span key={i} className="tag tag-warning">{o.type || o.text}</span>
-            ))}
+      {/* Objections — дедуплицируем по типу: одно и то же возражение, повторённое
+          несколько раз, отображается одним тегом. Русские названия типов. */}
+      {objections.length > 0 && (() => {
+        const seen = new Set<string>()
+        const uniqueTypes: string[] = []
+        for (const o of objections) {
+          const t = (o.type || '').toString()
+          if (t && !seen.has(t)) {
+            seen.add(t)
+            uniqueTypes.push(t)
+          }
+        }
+        if (!uniqueTypes.length) return null
+        return (
+          <div>
+            <div style={{ fontWeight:600, color:'var(--text)', marginBottom:8 }}>Обнаруженные возражения</div>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {uniqueTypes.map((t) => (
+                <span key={t} className="tag tag-danger">{objectionTypeLabel(t)}</span>
+              ))}
+            </div>
           </div>
+        )
+      })()}
+
+      {/* Up-sell / Cross-sell summary */}
+      <div className="sell-summary">
+        <div className="sell-summary-item">
+          <div className="sell-summary-label">Апсейл</div>
+          <SellBadge has={c.has_upsell} />
         </div>
-      )}
+        <div className="sell-summary-item">
+          <div className="sell-summary-label">Кросс-сейл</div>
+          <CrossSellBadge analysis={crossSellAnalysis} />
+        </div>
+      </div>
 
       {/* Audio */}
       <div>
@@ -332,56 +476,33 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
       {/* Transcript */}
       {segments.length > 0 && (
         <div>
-          <div style={{ fontWeight:600, color:'var(--text)', marginBottom:12 }}>Транскрипт</div>
-          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-            {(() => {
-              // Группируем подряд идущие реплики одного спикера
-              const groups: { role: string; segs: any[] }[] = []
-              for (const seg of segments) {
-                const role = seg.speaker_role || 'unknown'
-                if (groups.length > 0 && groups[groups.length - 1].role === role) {
-                  groups[groups.length - 1].segs.push(seg)
-                } else {
-                  groups.push({ role, segs: [seg] })
-                }
-              }
-              return groups.map((group, gi) => {
-                const isSeller = group.role === 'seller'
-                const firstSeg = group.segs[0]
-                const startSec = firstSeg.start_time || (firstSeg.start_ms ?? 0) / 1000
-                const m = Math.floor(startSec / 60)
-                const s = Math.floor(startSec % 60)
-                const timeStr = `${m}:${String(s).padStart(2,'0')}`
-                return (
-                  <div key={gi} style={{ display:'flex', flexDirection:'column', alignItems: isSeller ? 'flex-start' : 'flex-end', gap:4 }}>
-                    {/* Метка спикера + время */}
-                    <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--text-muted)', paddingLeft: isSeller ? 4 : 0, paddingRight: isSeller ? 0 : 4 }}>
-                      {isSeller && <span style={{ fontWeight:600, color:'#6366F1' }}>Продавец</span>}
-                      {!isSeller && <span style={{ fontWeight:600, color:'#10B981' }}>Клиент</span>}
-                      <span>{timeStr}</span>
-                    </div>
-                    {/* Пузыри реплик */}
-                    <div style={{ display:'flex', flexDirection:'column', gap:3, alignItems: isSeller ? 'flex-start' : 'flex-end', maxWidth:'75%' }}>
-                      {group.segs.map((seg, si) => (
-                        <div key={si} style={{
-                          padding:'8px 12px',
-                          borderRadius: isSeller
-                            ? (si === 0 ? '4px 16px 16px 16px' : '4px 16px 16px 4px')
-                            : (si === 0 ? '16px 4px 16px 16px' : '16px 4px 4px 16px'),
-                          background: isSeller ? 'rgba(99,102,241,0.1)' : 'rgba(16,185,129,0.1)',
-                          border: `1px solid ${isSeller ? 'rgba(99,102,241,0.2)' : 'rgba(16,185,129,0.2)'}`,
-                          color:'var(--text)',
-                          fontSize:13,
-                          lineHeight:1.5,
-                        }}>
-                          {renderTranscriptText(seg.text, objections)}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })
-            })()}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
+            <div style={{ fontWeight:600, color:'var(--text)' }}>Транскрипт</div>
+            <HighlightLegend />
+          </div>
+          <div className="transcript">
+            {segments.map((seg: any, i: number) => {
+              const role = (seg.speaker_role || '').toLowerCase()
+              const isSeller = role === 'seller'
+              const isClient = role === 'client' || role === 'customer'
+              const startSec = seg.start_time || (seg.start_ms ?? 0) / 1000
+              const m = Math.floor(startSec / 60)
+              const s = Math.floor(startSec % 60)
+              const timeStr = `${m}:${String(s).padStart(2, '0')}`
+              const speakerLabel = isSeller ? 'Продавец' : isClient ? 'Клиент' : '—'
+              const speakerClass = isSeller ? 'seller' : isClient ? 'client' : 'unknown'
+              return (
+                <div key={i} className="transcript-line">
+                  <span className="transcript-time">{timeStr}</span>
+                  <span className={`transcript-speaker ${speakerClass}`}>
+                    {speakerLabel}
+                  </span>
+                  <span className="transcript-text">
+                    {highlightSegmentText(seg.text, highlightRules)}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -401,6 +522,7 @@ export function ConversationsPage() {
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
   const [selectedRec, setSelectedRec] = useState<any | null>(null)
   const [showUpload, setShowUpload] = useState(false)
+  const [showTranscriptUpload, setShowTranscriptUpload] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [sort, setSort] = useState<{ by: SortBy; dir: SortDir }>({ by: 'date', dir: 'desc' })
   const [filters, setFilters] = useState({
@@ -490,19 +612,11 @@ export function ConversationsPage() {
     ? lastUpdated.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', second:'2-digit' })
     : null
 
-  // ─── Filter pill metadata ──────────────────────────────────────────────────
-  const storeLabel = filters.store_id
-    ? (stores?.items || []).find((s: any) => s.id === filters.store_id)?.name || 'Магазин'
-    : 'Все магазины'
-  const outcomeLabel = filters.outcome ? OUTCOME_LABELS[filters.outcome] || filters.outcome : 'Любой исход'
+  // ─── Filter metadata ───────────────────────────────────────────────────────
   const scoreValue =
     filters.score_min === 80 ? '80+' :
     filters.score_min === 60 && filters.score_max === 79 ? '60-79' :
     filters.score_max === 59 ? '<60' : ''
-  const scoreLabel =
-    scoreValue === '80+'   ? 'Скоринг 80%+' :
-    scoreValue === '60-79' ? 'Скоринг 60–79%' :
-    scoreValue === '<60'   ? 'Скоринг <60%' : 'Любой скоринг'
   const sortLabels: Record<string, string> = {
     date_desc: 'Сначала новые',
     date_asc:  'Сначала старые',
@@ -514,7 +628,6 @@ export function ConversationsPage() {
     store_desc: 'Магазин Я→А',
   }
   const sortKey = `${sort.by}_${sort.dir}`
-  const sortLabel = sortLabels[sortKey] || 'Сортировка'
   const sortActive = sortKey !== 'date_desc'
 
   const hasActiveFilters = !!(filters.store_id || filters.outcome || scoreValue || sortActive)
@@ -539,53 +652,55 @@ export function ConversationsPage() {
 
       {/* Filter toolbar */}
       <div className="filter-toolbar fade-in">
-        {/* Store filter */}
-        <label className={`filter-pill ${filters.store_id ? 'active' : ''}`}>
-          <Store size={14} className="filter-pill-icon" />
-          <span className="filter-pill-value">{storeLabel}</span>
-          <ChevronDown size={13} className="filter-pill-chevron" />
-          <select value={filters.store_id} onChange={e => { setFilters(p => ({ ...p, store_id:e.target.value })); setPage(1) }} aria-label="Магазин">
-            <option value="">Все магазины</option>
-            {(stores?.items || []).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
+        <div className="filter-cell">
+          <MultiSelect
+            single
+            options={(stores?.items || []).map((s: any) => ({ id: s.id, label: s.name }))}
+            selected={filters.store_id ? [filters.store_id] : ['']}
+            onChange={(ids) => { setFilters(p => ({ ...p, store_id: ids[0] === '' ? '' : ids[0] })); setPage(1) }}
+            prependOption={{ id: '', label: 'Все магазины' }}
+            placeholder="Все магазины"
+          />
+        </div>
 
-        {/* Outcome filter */}
-        <label className={`filter-pill ${filters.outcome ? 'active' : ''}`}>
-          <Target size={14} className="filter-pill-icon" />
-          <span className="filter-pill-value">{outcomeLabel}</span>
-          <ChevronDown size={13} className="filter-pill-chevron" />
-          <select value={filters.outcome} onChange={e => { setFilters(p => ({ ...p, outcome:e.target.value })); setPage(1) }} aria-label="Исход">
-            <option value="">Все исходы</option>
-            {Object.entries(OUTCOME_LABELS).map(([k,l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-        </label>
+        <div className="filter-cell">
+          <MultiSelect
+            single
+            options={Object.entries(OUTCOME_LABELS).map(([k, l]) => ({ id: k, label: l }))}
+            selected={filters.outcome ? [filters.outcome] : ['']}
+            onChange={(ids) => { setFilters(p => ({ ...p, outcome: ids[0] === '' ? '' : ids[0] })); setPage(1) }}
+            prependOption={{ id: '', label: 'Все исходы' }}
+            placeholder="Все исходы"
+          />
+        </div>
 
-        {/* Score filter */}
-        <label className={`filter-pill ${scoreValue ? 'active' : ''}`}>
-          <Award size={14} className="filter-pill-icon" />
-          <span className="filter-pill-value">{scoreLabel}</span>
-          <ChevronDown size={13} className="filter-pill-chevron" />
-          <select value={scoreValue} onChange={e => handleScoreFilter(e.target.value)} aria-label="Скоринг">
-            <option value="">Любой скоринг</option>
-            <option value="80+">80%+ — отличный</option>
-            <option value="60-79">60–79% — средний</option>
-            <option value="<60">&lt;60% — слабый</option>
-          </select>
-        </label>
+        <div className="filter-cell">
+          <MultiSelect
+            single
+            options={[
+              { id: '80+', label: 'Скоринг 80%+' },
+              { id: '60-79', label: 'Скоринг 60–79%' },
+              { id: '<60', label: 'Скоринг < 60%' },
+            ]}
+            selected={scoreValue ? [scoreValue] : ['']}
+            onChange={(ids) => handleScoreFilter(ids[0] === '' ? '' : ids[0])}
+            prependOption={{ id: '', label: 'Любой скоринг' }}
+            placeholder="Любой скоринг"
+          />
+        </div>
 
-        {/* Sort */}
-        <label className={`filter-pill ${sortActive ? 'active' : ''}`}>
-          <ArrowDownUp size={14} className="filter-pill-icon" />
-          <span className="filter-pill-value">{sortLabel}</span>
-          <ChevronDown size={13} className="filter-pill-chevron" />
-          <select value={sortKey} onChange={e => {
-            const [by, dir] = e.target.value.split('_') as [SortBy, SortDir]
-            setSort({ by, dir })
-          }} aria-label="Сортировка">
-            {Object.entries(sortLabels).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-        </label>
+        <div className="filter-cell">
+          <MultiSelect
+            single
+            options={Object.entries(sortLabels).map(([k, l]) => ({ id: k, label: l }))}
+            selected={[sortKey]}
+            onChange={(ids) => {
+              const [by, dir] = (ids[0] || 'date_desc').split('_') as [SortBy, SortDir]
+              setSort({ by, dir })
+            }}
+            placeholder="Сортировка"
+          />
+        </div>
 
         {hasActiveFilters && (
           <button className="filter-clear" onClick={resetAll} title="Сбросить все фильтры">
@@ -607,12 +722,21 @@ export function ConversationsPage() {
           )}
         </div>
 
+        <button
+          className="btn btn-sm"
+          onClick={() => setShowTranscriptUpload(true)}
+          title="Загрузить готовый размеченный диалог — для тестов скоринга и апсейла без аудио"
+          style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+        >
+          <FileText size={14} /> Загрузка транскрибации
+        </button>
         <button className="btn btn-sm btn-primary-gradient" onClick={() => setShowUpload(true)}>
           <Upload size={14} /> Загрузить аудио
         </button>
       </div>
 
       <AudioUploadModal open={showUpload} onClose={() => setShowUpload(false)} onUploadComplete={() => {}} />
+      <TranscriptUploadModal open={showTranscriptUpload} onClose={() => setShowTranscriptUpload(false)} onUploadComplete={() => {}} />
 
       {/* Table */}
       <div className="card fade-in">
@@ -634,9 +758,10 @@ export function ConversationsPage() {
                   )
                 })}
                 <th>Тема</th>
-                <th>Скоринг</th>
-                <th>Апсейл</th>
-                <th>Исход / Статус</th>
+                <th style={{ textAlign: 'center' }}>Скоринг</th>
+                <th style={{ textAlign: 'center' }}>Апсейл</th>
+                <th style={{ textAlign: 'center' }}>Кросс-сейл</th>
+                <th style={{ textAlign: 'center' }}>Исход / Статус</th>
               </tr>
             </thead>
             <tbody>
@@ -665,13 +790,16 @@ export function ConversationsPage() {
                       </td>
                       <td style={{ color:'var(--text-muted)' }}>{row.store_name || '—'}</td>
                       <td style={{ color:'var(--text-muted)' }}>{durStr}</td>
-                      <td>—</td><td>—</td><td />
-                      <td><PipelineStatus status={row.status} /></td>
+                      <td>—</td>
+                      <td style={{ textAlign:'center' }}>—</td>
+                      <td style={{ textAlign:'center' }}>—</td>
+                      <td style={{ textAlign:'center' }}>—</td>
+                      <td style={{ textAlign:'center' }}><PipelineStatus status={row.status} /></td>
                     </tr>
                   )
                 }
 
-                const color = AVATAR_COLORS[idx % AVATAR_COLORS.length]
+                const color = avatarColorFor(row.seller_id || row.seller_name)
                 return (
                   <tr key={row.id}
                     onClick={() => { setSelectedConvId(row.id); setSelectedRec(null) }}
@@ -687,15 +815,20 @@ export function ConversationsPage() {
                     <td style={{ color:'var(--text-muted)' }}>{row.store_name || row.store_id}</td>
                     <td>{durStr}</td>
                     <td style={{ color:'var(--text-secondary)' }}>{row.topic || '—'}</td>
-                    <td><ScoreBadge score={row.overall_score} /></td>
-                    <td>
+                    <td style={{ textAlign:'center' }}><ScoreBadge score={row.overall_score} /></td>
+                    <td style={{ textAlign:'center' }}>
                       {row.has_upsell !== undefined && (
                         <span className={`tag ${row.has_upsell ? 'tag-success' : 'tag-neutral'}`}>
                           {row.has_upsell ? 'Да' : 'Нет'}
                         </span>
                       )}
                     </td>
-                    <td><OutcomeTag outcome={row.outcome} /></td>
+                    <td style={{ textAlign:'center' }}>
+                      <span className="tag tag-neutral" title="Откройте разговор — точный анализ кросс-сейла появится в карточке">
+                        Нет
+                      </span>
+                    </td>
+                    <td style={{ textAlign:'center' }}><OutcomeTag outcome={row.outcome} /></td>
                   </tr>
                 )
               })}

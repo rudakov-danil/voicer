@@ -3,54 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '@/api/dashboard';
 import { adminApi } from '@/api/admin';
 import { recorderApi } from '@/api/recorder';
+import { scriptsApi } from '@/api/scripts';
 import { ScoreBadge } from '@/components/ScoreBadge';
 import { OutcomeTag } from '@/components/OutcomeTag';
 import { Drawer } from '@/components/Drawer';
 import { AudioPlayer } from '@/components/AudioPlayer';
 import { AudioUploadModal } from '@/components/AudioUpload';
-import { useState, useEffect, useCallback } from 'react';
-import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, Store, Target, Award, ArrowDownUp, ChevronDown, X } from 'lucide-react';
-// Подсвечивает в тексте сегмента вхождения raw_text возражений.
-// Цвет: зелёный если возражение закрыто, красный если нет.
-function renderTranscriptText(text, objections) {
-    if (!text || !objections || !objections.length)
-        return text;
-    const ranges = [];
-    const lower = text.toLowerCase();
-    for (const obj of objections) {
-        const raw = (obj?.raw_text || '').trim();
-        if (raw.length < 3)
-            continue;
-        const needle = raw.toLowerCase();
-        let pos = 0;
-        while ((pos = lower.indexOf(needle, pos)) !== -1) {
-            ranges.push({ start: pos, end: pos + raw.length, resolved: !!obj.is_resolved, type: obj.type || '' });
-            pos += raw.length;
-        }
-    }
-    if (!ranges.length)
-        return text;
-    ranges.sort((a, b) => a.start - b.start);
-    const merged = [];
-    for (const r of ranges) {
-        if (merged.length && r.start < merged[merged.length - 1].end)
-            continue;
-        merged.push(r);
-    }
-    const parts = [];
-    let cursor = 0;
-    merged.forEach((r, i) => {
-        if (cursor < r.start)
-            parts.push(text.slice(cursor, r.start));
-        const cls = r.resolved ? 'objection-mark resolved' : 'objection-mark unresolved';
-        const tip = `Возражение${r.type ? `: ${r.type}` : ''} — ${r.resolved ? 'закрыто' : 'не закрыто'}`;
-        parts.push(_jsx("mark", { className: cls, title: tip, children: text.slice(r.start, r.end) }, `m-${i}`));
-        cursor = r.end;
-    });
-    if (cursor < text.length)
-        parts.push(text.slice(cursor));
-    return parts;
-}
+import { TranscriptUploadModal } from '@/components/TranscriptUpload';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, X, FileText } from 'lucide-react';
+import { MultiSelect } from '@/components/scripts/MultiSelect';
+import { avatarColorFor, highlightSegmentText, highlightRulesForSell, analyzeSell, } from '@/components/scripts/conversationHelpers';
 const OUTCOME_LABELS = {
     purchase: 'Покупка',
     deferred: 'Отложил',
@@ -58,7 +21,36 @@ const OUTCOME_LABELS = {
     competitor: 'Ушёл к конкурентам',
     unknown: 'Не определён',
 };
-const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1'];
+const OBJECTION_TYPE_LABELS = {
+    price: 'Цена',
+    quality: 'Качество',
+    competitors: 'Конкуренты',
+    timing: 'Время',
+    trust: 'Доверие',
+    not_ready: 'Не готов',
+    functionality: 'Функциональность',
+};
+function objectionTypeLabel(type) {
+    if (!type)
+        return 'Возражение';
+    return OBJECTION_TYPE_LABELS[type] || type;
+}
+// ─── Sell badges ──────────────────────────────────────────────────────────────
+function SellBadge({ has }) {
+    if (has === true)
+        return _jsx("span", { className: "tag tag-success", children: "\u0411\u044B\u043B \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D" });
+    return _jsx("span", { className: "tag tag-neutral", children: "\u041D\u0435\u0442" });
+}
+function CrossSellBadge({ analysis }) {
+    if (analysis.status === 'complete')
+        return (_jsxs("span", { className: "tag tag-success", children: ["\u0411\u044B\u043B \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D (", analysis.matched, "/", Math.max(analysis.total, analysis.matched), ")"] }));
+    if (analysis.status === 'partial')
+        return (_jsxs("span", { className: "tag tag-warning", title: `Не предложено: ${analysis.missed.join(', ')}`, children: ["\u0427\u0430\u0441\u0442\u0438\u0447\u043D\u043E (", analysis.matched, "/", analysis.total, ")"] }));
+    return _jsx("span", { className: "tag tag-neutral", children: "\u041D\u0435\u0442" });
+}
+function HighlightLegend() {
+    return (_jsxs("div", { className: "hl-legend", children: [_jsx("span", { className: "hl-pill hl-pill--script", children: "\u042D\u0442\u0430\u043F \u0441\u043A\u0440\u0438\u043F\u0442\u0430" }), _jsx("span", { className: "hl-pill hl-pill--upsell", children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), _jsx("span", { className: "hl-pill hl-pill--crosssell", children: "\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B" }), _jsx("span", { className: "hl-pill hl-pill--objection", children: "\u0412\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u0435" })] }));
+}
 // ─── Pipeline status badge ────────────────────────────────────────────────────
 function PipelineStatus({ status }) {
     if (status === 'processing')
@@ -73,6 +65,7 @@ function PipelineStatus({ status }) {
 function RecordingDetail({ recording }) {
     const status = recording.status;
     const sellerName = recording.seller_name || '—';
+    const sellerColorKey = recording.seller_id || recording.seller_name || '';
     const storeName = recording.store_name || '—';
     const dateObj = recording.started_at ? new Date(recording.started_at) : null;
     const dateStr = dateObj ? dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
@@ -94,7 +87,7 @@ function RecordingDetail({ recording }) {
         : status === 'transcribed' ? 'diarize'
             : status === 'diarized' ? 'analyze'
                 : null;
-    return (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 20 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: 'var(--bg)', borderRadius: 'var(--radius)' }, children: [_jsx("div", { style: { width: 44, height: 44, borderRadius: '50%', background: AVATAR_COLORS[0], display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 16, flexShrink: 0 }, children: sellerName[0]?.toUpperCase() || '?' }), _jsxs("div", { style: { flex: 1 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', fontSize: 15 }, children: sellerName }), _jsx("div", { style: { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }, children: storeName })] })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsxs("span", { className: "tag tag-neutral", children: ["\uD83D\uDCC5 ", dateStr, ", ", timeStr] }), recording.duration_seconds
+    return (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 20 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: 'var(--bg)', borderRadius: 'var(--radius)' }, children: [_jsx("div", { style: { width: 44, height: 44, borderRadius: '50%', background: avatarColorFor(sellerColorKey), display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 16, flexShrink: 0 }, children: sellerName[0]?.toUpperCase() || '?' }), _jsxs("div", { style: { flex: 1 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', fontSize: 15 }, children: sellerName }), _jsx("div", { style: { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }, children: storeName })] })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsxs("span", { className: "tag tag-neutral", children: ["\uD83D\uDCC5 ", dateStr, ", ", timeStr] }), recording.duration_seconds
                         ? _jsxs("span", { className: "tag tag-neutral", children: ["\u23F1 ", mins, ":", String(secs).padStart(2, '0')] })
                         : _jsx("span", { className: "tag tag-neutral", style: { color: 'var(--text-muted)' }, children: "\u0414\u043B\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u044F\u0435\u0442\u0441\u044F..." }), recording.file_size_bytes && (_jsxs("span", { className: "tag tag-neutral", children: ["\uD83D\uDCBE ", (recording.file_size_bytes / 1024 / 1024).toFixed(1), " \u041C\u0411"] }))] }), _jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 12, fontSize: 14 }, children: "\u0421\u0442\u0430\u0442\u0443\u0441 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0438" }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 0 }, children: steps.map((step, i) => {
                             const isActive = step.key === currentStep && !isFailed;
@@ -119,8 +112,121 @@ function ConversationDetail({ conversationId }) {
         queryKey: ['conversation-detail', conversationId],
         queryFn: () => dashboardApi.getConversationDetail(conversationId),
     });
+    const { data: upsellRules } = useQuery({
+        queryKey: ['upsell-rules-all'],
+        queryFn: () => scriptsApi.listUpsellRules(),
+    });
+    const { data: crossSellRules } = useQuery({
+        queryKey: ['cross-sell-rules-all'],
+        queryFn: () => scriptsApi.listCrossSellRules(),
+    });
     const [audioTime, setAudioTime] = useState(0);
     const [audioUrl, setAudioUrl] = useState();
+    // ─── Безопасные derived-значения для хуков ниже (работают и при !data) ──────
+    const c = data?.conversation || data || {};
+    const transcript = data?.transcript || {};
+    const segments = transcript.segments || c.segments || data?.segments || [];
+    const scriptResults = c.script_results || data?.script_results || [];
+    const objections = c.objections || data?.objections || [];
+    const storeId = c.store_id;
+    // LLM-результаты по апсейл/кросс-сейл из бэкенда: список объектов с цитатами для подсветки.
+    const upsellResults = Array.isArray(c.upsell_results) ? c.upsell_results : [];
+    const crosssellResults = Array.isArray(c.crosssell_results) ? c.crosssell_results : [];
+    // Анализ кросс-сейла предпочитает LLM-результат с бэка; для старых разговоров (где
+    // crosssell_results=NULL) фолбэк на клиентский подстрочный матч по правилам.
+    const crossSellAnalysis = useMemo(() => {
+        if (c.has_crosssell !== null && c.has_crosssell !== undefined && crosssellResults.length > 0) {
+            // Собираем агрегаты из LLM-результата.
+            let total = 0, matched = 0;
+            const missed = [];
+            for (const r of crosssellResults) {
+                const required = r.required_offers || [];
+                const offered = r.offered_items || [];
+                total += required.length;
+                matched += offered.length;
+                for (const m of (r.missed_items || []))
+                    missed.push(m);
+            }
+            let status = 'no-trigger';
+            if (crosssellResults.length > 0) {
+                if (total === 0)
+                    status = 'complete';
+                else if (matched === total)
+                    status = 'complete';
+                else if (matched === 0)
+                    status = 'missed';
+                else
+                    status = 'partial';
+            }
+            return { triggered: true, matched, total, missed, status };
+        }
+        return analyzeSell(crossSellRules, segments, storeId);
+    }, [c.has_crosssell, crosssellResults, crossSellRules, segments, storeId]);
+    const highlightRules = useMemo(() => {
+        const rules = [];
+        for (const sr of scriptResults) {
+            for (const step of (sr.step_scores || sr.steps || [])) {
+                const evidence = (step.evidence || '').trim();
+                if (!evidence)
+                    continue;
+                const detected = step.detected !== false && (step.score > 0 || step.detected);
+                if (!detected)
+                    continue;
+                rules.push({
+                    text: evidence,
+                    kind: 'script-done',
+                    tooltip: `Этап «${step.step_name || step.name}» — выполнен (${Math.round(step.score || 0)}%)`,
+                });
+            }
+        }
+        for (const obj of objections) {
+            const raw = (obj?.raw_text || '').trim();
+            if (raw.length < 3)
+                continue;
+            rules.push({
+                text: raw,
+                kind: obj.is_resolved ? 'objection-resolved' : 'objection-unresolved',
+                tooltip: `Возражение${obj.type ? `: ${obj.type}` : ''} — ${obj.is_resolved ? 'закрыто' : 'не закрыто'}`,
+            });
+        }
+        // Цитаты из LLM-результатов апсейла/кросс-сейла — LLM уже сам устойчив к опечаткам
+        // транскрибации и возвращает ДОСЛОВНЫЕ цитаты из текста. Подсвечиваем их.
+        const pushSellQuotes = (results, kind) => {
+            const triggerKind = kind === 'upsell' ? 'upsell-trigger' : 'crosssell-trigger';
+            const offerKind = kind === 'upsell' ? 'upsell-offer' : 'crosssell-offer';
+            const label = kind === 'upsell' ? 'Апсейл' : 'Кросс-сейл';
+            for (const r of results) {
+                const product = r.trigger_product || '';
+                for (const q of (r.trigger_quotes || [])) {
+                    if (typeof q === 'string' && q.trim().length >= 3) {
+                        rules.push({ text: q, kind: triggerKind, tooltip: `${label}: триггер «${product}»` });
+                    }
+                }
+                const offerQuotes = r.offer_quotes || {};
+                for (const offer in offerQuotes) {
+                    for (const q of (offerQuotes[offer] || [])) {
+                        if (typeof q === 'string' && q.trim().length >= 3) {
+                            rules.push({ text: q, kind: offerKind, tooltip: `${label}: предложение «${offer}»` });
+                        }
+                    }
+                }
+            }
+        };
+        if (upsellResults.length > 0) {
+            pushSellQuotes(upsellResults, 'upsell');
+        }
+        else {
+            // Фолбэк для старых разговоров без LLM-цитат — берём правила и ищем подстроку.
+            rules.push(...highlightRulesForSell(upsellRules, storeId, 'upsell'));
+        }
+        if (crosssellResults.length > 0) {
+            pushSellQuotes(crosssellResults, 'crosssell');
+        }
+        else {
+            rules.push(...highlightRulesForSell(crossSellRules, storeId, 'crosssell'));
+        }
+        return rules;
+    }, [scriptResults, objections, upsellResults, crosssellResults, upsellRules, crossSellRules, storeId]);
     const recordingId = data?.conversation?.recording_id || data?.recording_id;
     useEffect(() => {
         if (!recordingId)
@@ -147,11 +253,6 @@ function ConversationDetail({ conversationId }) {
         return _jsx("div", { style: { padding: '20px', color: 'var(--text-muted)' }, children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." });
     if (!data)
         return null;
-    const c = data.conversation || data;
-    const transcript = data.transcript || {};
-    const segments = transcript.segments || c.segments || data.segments || [];
-    const scriptResults = c.script_results || data.script_results || [];
-    const objections = c.objections || data.objections || [];
     const sellerName = c.seller_name || c.seller_id || '?';
     const storeName = c.store_name || c.store_id || '';
     const mins = Math.floor((c.duration_seconds || 0) / 60);
@@ -160,45 +261,40 @@ function ConversationDetail({ conversationId }) {
     const dateStr = dateSource ? new Date(dateSource).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
     const timeStr = dateSource ? new Date(dateSource).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
     const overallScore = Math.round(c.overall_score || 0);
-    return (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 16 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'var(--bg)', borderRadius: 'var(--radius)' }, children: [_jsx("div", { className: "avatar", style: { background: AVATAR_COLORS[0], width: 44, height: 44, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 16 }, children: sellerName[0].toUpperCase() }), _jsxs("div", { style: { flex: 1 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', fontSize: 15 }, children: sellerName }), _jsx("div", { style: { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }, children: storeName })] }), _jsxs("div", { style: { textAlign: 'right' }, children: [_jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)' }, children: dateStr }), _jsxs("div", { style: { fontSize: 12, color: 'var(--text-muted)' }, children: [timeStr, " \u00B7 ", mins, ":", String(secs).padStart(2, '0')] })] })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsx(OutcomeTag, { outcome: c.outcome }), c.topic && _jsx("span", { className: "tag tag-neutral", children: c.topic }), c.compliance_ok !== undefined && (_jsxs("span", { className: `tag ${c.compliance_ok ? 'tag-success' : 'tag-danger'}`, children: ["\u041A\u043E\u043C\u043F\u043B\u0430\u0435\u043D\u0441: ", c.compliance_ok ? 'OK' : 'Нарушение'] }))] }), scriptResults.map((sr, i) => {
+    const sellerColorKey = c.seller_id || sellerName;
+    return (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 16 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'var(--bg)', borderRadius: 'var(--radius)' }, children: [_jsx("div", { className: "avatar", style: { background: avatarColorFor(sellerColorKey), width: 44, height: 44, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 16 }, children: sellerName[0].toUpperCase() }), _jsxs("div", { style: { flex: 1 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', fontSize: 15 }, children: sellerName }), _jsx("div", { style: { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }, children: storeName })] }), _jsxs("div", { style: { textAlign: 'right' }, children: [_jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)' }, children: dateStr }), _jsxs("div", { style: { fontSize: 12, color: 'var(--text-muted)' }, children: [timeStr, " \u00B7 ", mins, ":", String(secs).padStart(2, '0')] })] })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsx(OutcomeTag, { outcome: c.outcome }), c.topic && _jsx("span", { className: "tag tag-neutral", children: c.topic }), c.compliance_ok !== undefined && (_jsxs("span", { className: `tag ${c.compliance_ok ? 'tag-success' : 'tag-danger'}`, children: ["\u041A\u043E\u043C\u043F\u043B\u0430\u0435\u043D\u0441: ", c.compliance_ok ? 'OK' : 'Нарушение'] }))] }), scriptResults.map((sr, i) => {
                 const score = Math.round(sr.script_score || sr.total_score || 0);
                 const sColor = score >= 80 ? 'green' : score >= 60 ? 'yellow' : 'red';
-                return (_jsxs("div", { children: [_jsxs("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, children: ["\u0421\u043A\u043E\u0440\u0438\u043D\u0433 \u0441\u043A\u0440\u0438\u043F\u0442\u0430 \u2014 ", score, "%"] }), _jsx("div", { className: "progress-bar", style: { marginBottom: 12 }, children: _jsx("div", { className: `progress-bar-fill ${sColor}`, style: { width: `${score}%` } }) }), _jsx("ul", { className: "checklist", children: (sr.step_scores || sr.steps || []).map((step, j) => {
+                const shortName = (sr.script_short_name || '').trim();
+                return (_jsxs("div", { children: [_jsxs("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, title: sr.script_name || '', children: ["\u0421\u043A\u043E\u0440\u0438\u043D\u0433 \u0441\u043A\u0440\u0438\u043F\u0442\u0430", shortName ? ` («${shortName}»)` : '', " \u2014 ", score, "%"] }), _jsx("div", { className: "progress-bar", style: { marginBottom: 12 }, children: _jsx("div", { className: `progress-bar-fill ${sColor}`, style: { width: `${score}%` } }) }), _jsx("ul", { className: "checklist", children: (sr.step_scores || sr.steps || []).map((step, j) => {
                                 const detected = step.detected !== false && (step.score > 0 || step.detected);
                                 return (_jsxs("li", { className: "checklist-item", children: [_jsx("div", { className: `check-icon ${detected ? 'done' : 'missed'}`, children: detected ? '✓' : '✕' }), _jsx("span", { className: `checklist-text ${detected ? 'done' : 'missed'}`, children: step.step_name || step.name })] }, j));
                             }) })] }, i));
-            }), objections.length > 0 && (_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, children: "\u0412\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F \u043A\u043B\u0438\u0435\u043D\u0442\u0430" }), _jsx("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: objections.map((o, i) => (_jsx("span", { className: "tag tag-warning", children: o.type || o.text }, i))) })] })), _jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, children: "\u0410\u0443\u0434\u0438\u043E\u0437\u0430\u043F\u0438\u0441\u044C" }), _jsx(AudioPlayer, { src: audioUrl, duration: c.duration_seconds, onTimeUpdate: setAudioTime })] }), segments.length > 0 && (_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 12 }, children: "\u0422\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u043F\u0442" }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 12 }, children: (() => {
-                            // Группируем подряд идущие реплики одного спикера
-                            const groups = [];
-                            for (const seg of segments) {
-                                const role = seg.speaker_role || 'unknown';
-                                if (groups.length > 0 && groups[groups.length - 1].role === role) {
-                                    groups[groups.length - 1].segs.push(seg);
-                                }
-                                else {
-                                    groups.push({ role, segs: [seg] });
-                                }
-                            }
-                            return groups.map((group, gi) => {
-                                const isSeller = group.role === 'seller';
-                                const firstSeg = group.segs[0];
-                                const startSec = firstSeg.start_time || (firstSeg.start_ms ?? 0) / 1000;
-                                const m = Math.floor(startSec / 60);
-                                const s = Math.floor(startSec % 60);
-                                const timeStr = `${m}:${String(s).padStart(2, '0')}`;
-                                return (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', alignItems: isSeller ? 'flex-start' : 'flex-end', gap: 4 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)', paddingLeft: isSeller ? 4 : 0, paddingRight: isSeller ? 0 : 4 }, children: [isSeller && _jsx("span", { style: { fontWeight: 600, color: '#6366F1' }, children: "\u041F\u0440\u043E\u0434\u0430\u0432\u0435\u0446" }), !isSeller && _jsx("span", { style: { fontWeight: 600, color: '#10B981' }, children: "\u041A\u043B\u0438\u0435\u043D\u0442" }), _jsx("span", { children: timeStr })] }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 3, alignItems: isSeller ? 'flex-start' : 'flex-end', maxWidth: '75%' }, children: group.segs.map((seg, si) => (_jsx("div", { style: {
-                                                    padding: '8px 12px',
-                                                    borderRadius: isSeller
-                                                        ? (si === 0 ? '4px 16px 16px 16px' : '4px 16px 16px 4px')
-                                                        : (si === 0 ? '16px 4px 16px 16px' : '16px 4px 4px 16px'),
-                                                    background: isSeller ? 'rgba(99,102,241,0.1)' : 'rgba(16,185,129,0.1)',
-                                                    border: `1px solid ${isSeller ? 'rgba(99,102,241,0.2)' : 'rgba(16,185,129,0.2)'}`,
-                                                    color: 'var(--text)',
-                                                    fontSize: 13,
-                                                    lineHeight: 1.5,
-                                                }, children: renderTranscriptText(seg.text, objections) }, si))) })] }, gi));
-                            });
-                        })() })] })), _jsxs("div", { style: { display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }, children: [_jsx("button", { className: "btn btn-outline btn-sm", children: "\u0412 \u043E\u0431\u0443\u0447\u0435\u043D\u0438\u0435" }), _jsx("button", { className: "btn btn-outline btn-sm", children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442" }), _jsx("button", { className: "btn btn-outline btn-sm", style: { color: 'var(--danger)' }, children: "\u041E\u0442\u043C\u0435\u0442\u0438\u0442\u044C \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0435" })] })] }));
+            }), objections.length > 0 && (() => {
+                const seen = new Set();
+                const uniqueTypes = [];
+                for (const o of objections) {
+                    const t = (o.type || '').toString();
+                    if (t && !seen.has(t)) {
+                        seen.add(t);
+                        uniqueTypes.push(t);
+                    }
+                }
+                if (!uniqueTypes.length)
+                    return null;
+                return (_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, children: "\u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043D\u044B\u0435 \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }), _jsx("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: uniqueTypes.map((t) => (_jsx("span", { className: "tag tag-danger", children: objectionTypeLabel(t) }, t))) })] }));
+            })(), _jsxs("div", { className: "sell-summary", children: [_jsxs("div", { className: "sell-summary-item", children: [_jsx("div", { className: "sell-summary-label", children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), _jsx(SellBadge, { has: c.has_upsell })] }), _jsxs("div", { className: "sell-summary-item", children: [_jsx("div", { className: "sell-summary-label", children: "\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B" }), _jsx(CrossSellBadge, { analysis: crossSellAnalysis })] })] }), _jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, children: "\u0410\u0443\u0434\u0438\u043E\u0437\u0430\u043F\u0438\u0441\u044C" }), _jsx(AudioPlayer, { src: audioUrl, duration: c.duration_seconds, onTimeUpdate: setAudioTime })] }), segments.length > 0 && (_jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)' }, children: "\u0422\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u043F\u0442" }), _jsx(HighlightLegend, {})] }), _jsx("div", { className: "transcript", children: segments.map((seg, i) => {
+                            const role = (seg.speaker_role || '').toLowerCase();
+                            const isSeller = role === 'seller';
+                            const isClient = role === 'client' || role === 'customer';
+                            const startSec = seg.start_time || (seg.start_ms ?? 0) / 1000;
+                            const m = Math.floor(startSec / 60);
+                            const s = Math.floor(startSec % 60);
+                            const timeStr = `${m}:${String(s).padStart(2, '0')}`;
+                            const speakerLabel = isSeller ? 'Продавец' : isClient ? 'Клиент' : '—';
+                            const speakerClass = isSeller ? 'seller' : isClient ? 'client' : 'unknown';
+                            return (_jsxs("div", { className: "transcript-line", children: [_jsx("span", { className: "transcript-time", children: timeStr }), _jsx("span", { className: `transcript-speaker ${speakerClass}`, children: speakerLabel }), _jsx("span", { className: "transcript-text", children: highlightSegmentText(seg.text, highlightRules) })] }, i));
+                        }) })] })), _jsxs("div", { style: { display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }, children: [_jsx("button", { className: "btn btn-outline btn-sm", children: "\u0412 \u043E\u0431\u0443\u0447\u0435\u043D\u0438\u0435" }), _jsx("button", { className: "btn btn-outline btn-sm", children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442" }), _jsx("button", { className: "btn btn-outline btn-sm", style: { color: 'var(--danger)' }, children: "\u041E\u0442\u043C\u0435\u0442\u0438\u0442\u044C \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0435" })] })] }));
 }
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function ConversationsPage() {
@@ -206,6 +302,7 @@ export function ConversationsPage() {
     const [selectedConvId, setSelectedConvId] = useState(null);
     const [selectedRec, setSelectedRec] = useState(null);
     const [showUpload, setShowUpload] = useState(false);
+    const [showTranscriptUpload, setShowTranscriptUpload] = useState(false);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [sort, setSort] = useState({ by: 'date', dir: 'desc' });
     const [filters, setFilters] = useState({
@@ -289,17 +386,10 @@ export function ConversationsPage() {
     const lastUpdatedStr = lastUpdated
         ? lastUpdated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         : null;
-    // ─── Filter pill metadata ──────────────────────────────────────────────────
-    const storeLabel = filters.store_id
-        ? (stores?.items || []).find((s) => s.id === filters.store_id)?.name || 'Магазин'
-        : 'Все магазины';
-    const outcomeLabel = filters.outcome ? OUTCOME_LABELS[filters.outcome] || filters.outcome : 'Любой исход';
+    // ─── Filter metadata ───────────────────────────────────────────────────────
     const scoreValue = filters.score_min === 80 ? '80+' :
         filters.score_min === 60 && filters.score_max === 79 ? '60-79' :
             filters.score_max === 59 ? '<60' : '';
-    const scoreLabel = scoreValue === '80+' ? 'Скоринг 80%+' :
-        scoreValue === '60-79' ? 'Скоринг 60–79%' :
-            scoreValue === '<60' ? 'Скоринг <60%' : 'Любой скоринг';
     const sortLabels = {
         date_desc: 'Сначала новые',
         date_asc: 'Сначала старые',
@@ -311,7 +401,6 @@ export function ConversationsPage() {
         store_desc: 'Магазин Я→А',
     };
     const sortKey = `${sort.by}_${sort.dir}`;
-    const sortLabel = sortLabels[sortKey] || 'Сортировка';
     const sortActive = sortKey !== 'date_desc';
     const hasActiveFilters = !!(filters.store_id || filters.outcome || scoreValue || sortActive);
     const resetAll = () => {
@@ -327,15 +416,19 @@ export function ConversationsPage() {
     return (_jsxs("div", { children: [_jsx("style", { children: `
         @keyframes viq-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.8)} }
         @keyframes viq-spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-      ` }), _jsxs("div", { className: "filter-toolbar fade-in", children: [_jsxs("label", { className: `filter-pill ${filters.store_id ? 'active' : ''}`, children: [_jsx(Store, { size: 14, className: "filter-pill-icon" }), _jsx("span", { className: "filter-pill-value", children: storeLabel }), _jsx(ChevronDown, { size: 13, className: "filter-pill-chevron" }), _jsxs("select", { value: filters.store_id, onChange: e => { setFilters(p => ({ ...p, store_id: e.target.value })); setPage(1); }, "aria-label": "\u041C\u0430\u0433\u0430\u0437\u0438\u043D", children: [_jsx("option", { value: "", children: "\u0412\u0441\u0435 \u043C\u0430\u0433\u0430\u0437\u0438\u043D\u044B" }), (stores?.items || []).map((s) => _jsx("option", { value: s.id, children: s.name }, s.id))] })] }), _jsxs("label", { className: `filter-pill ${filters.outcome ? 'active' : ''}`, children: [_jsx(Target, { size: 14, className: "filter-pill-icon" }), _jsx("span", { className: "filter-pill-value", children: outcomeLabel }), _jsx(ChevronDown, { size: 13, className: "filter-pill-chevron" }), _jsxs("select", { value: filters.outcome, onChange: e => { setFilters(p => ({ ...p, outcome: e.target.value })); setPage(1); }, "aria-label": "\u0418\u0441\u0445\u043E\u0434", children: [_jsx("option", { value: "", children: "\u0412\u0441\u0435 \u0438\u0441\u0445\u043E\u0434\u044B" }), Object.entries(OUTCOME_LABELS).map(([k, l]) => _jsx("option", { value: k, children: l }, k))] })] }), _jsxs("label", { className: `filter-pill ${scoreValue ? 'active' : ''}`, children: [_jsx(Award, { size: 14, className: "filter-pill-icon" }), _jsx("span", { className: "filter-pill-value", children: scoreLabel }), _jsx(ChevronDown, { size: 13, className: "filter-pill-chevron" }), _jsxs("select", { value: scoreValue, onChange: e => handleScoreFilter(e.target.value), "aria-label": "\u0421\u043A\u043E\u0440\u0438\u043D\u0433", children: [_jsx("option", { value: "", children: "\u041B\u044E\u0431\u043E\u0439 \u0441\u043A\u043E\u0440\u0438\u043D\u0433" }), _jsx("option", { value: "80+", children: "80%+ \u2014 \u043E\u0442\u043B\u0438\u0447\u043D\u044B\u0439" }), _jsx("option", { value: "60-79", children: "60\u201379% \u2014 \u0441\u0440\u0435\u0434\u043D\u0438\u0439" }), _jsx("option", { value: "<60", children: "<60% \u2014 \u0441\u043B\u0430\u0431\u044B\u0439" })] })] }), _jsxs("label", { className: `filter-pill ${sortActive ? 'active' : ''}`, children: [_jsx(ArrowDownUp, { size: 14, className: "filter-pill-icon" }), _jsx("span", { className: "filter-pill-value", children: sortLabel }), _jsx(ChevronDown, { size: 13, className: "filter-pill-chevron" }), _jsx("select", { value: sortKey, onChange: e => {
-                                    const [by, dir] = e.target.value.split('_');
-                                    setSort({ by, dir });
-                                }, "aria-label": "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430", children: Object.entries(sortLabels).map(([k, l]) => _jsx("option", { value: k, children: l }, k)) })] }), hasActiveFilters && (_jsxs("button", { className: "filter-clear", onClick: resetAll, title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B", children: [_jsx(X, { size: 12 }), " \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C"] })), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { className: "filter-meta", children: [_jsx("span", { className: "filter-meta-strong", children: (conversations?.total || 0) + pendingRows.length }), _jsx("span", { children: "\u0437\u0430\u043F\u0438\u0441\u0435\u0439" }), lastUpdatedStr && (_jsxs(_Fragment, { children: [_jsx("span", { className: "filter-meta-divider" }), _jsx("span", { className: "live-dot" }), _jsxs("span", { children: ["\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E ", lastUpdatedStr] })] }))] }), _jsxs("button", { className: "btn btn-sm btn-primary-gradient", onClick: () => setShowUpload(true), children: [_jsx(Upload, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0430\u0443\u0434\u0438\u043E"] })] }), _jsx(AudioUploadModal, { open: showUpload, onClose: () => setShowUpload(false), onUploadComplete: () => { } }), _jsxs("div", { className: "card fade-in", children: [_jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [['date', 'name', 'store', 'duration'].map(col => {
+      ` }), _jsxs("div", { className: "filter-toolbar fade-in", children: [_jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: (stores?.items || []).map((s) => ({ id: s.id, label: s.name })), selected: filters.store_id ? [filters.store_id] : [''], onChange: (ids) => { setFilters(p => ({ ...p, store_id: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: 'Все магазины' }, placeholder: "\u0412\u0441\u0435 \u043C\u0430\u0433\u0430\u0437\u0438\u043D\u044B" }) }), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: Object.entries(OUTCOME_LABELS).map(([k, l]) => ({ id: k, label: l })), selected: filters.outcome ? [filters.outcome] : [''], onChange: (ids) => { setFilters(p => ({ ...p, outcome: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: 'Все исходы' }, placeholder: "\u0412\u0441\u0435 \u0438\u0441\u0445\u043E\u0434\u044B" }) }), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: [
+                                { id: '80+', label: 'Скоринг 80%+' },
+                                { id: '60-79', label: 'Скоринг 60–79%' },
+                                { id: '<60', label: 'Скоринг < 60%' },
+                            ], selected: scoreValue ? [scoreValue] : [''], onChange: (ids) => handleScoreFilter(ids[0] === '' ? '' : ids[0]), prependOption: { id: '', label: 'Любой скоринг' }, placeholder: "\u041B\u044E\u0431\u043E\u0439 \u0441\u043A\u043E\u0440\u0438\u043D\u0433" }) }), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: Object.entries(sortLabels).map(([k, l]) => ({ id: k, label: l })), selected: [sortKey], onChange: (ids) => {
+                                const [by, dir] = (ids[0] || 'date_desc').split('_');
+                                setSort({ by, dir });
+                            }, placeholder: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430" }) }), hasActiveFilters && (_jsxs("button", { className: "filter-clear", onClick: resetAll, title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B", children: [_jsx(X, { size: 12 }), " \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C"] })), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { className: "filter-meta", children: [_jsx("span", { className: "filter-meta-strong", children: (conversations?.total || 0) + pendingRows.length }), _jsx("span", { children: "\u0437\u0430\u043F\u0438\u0441\u0435\u0439" }), lastUpdatedStr && (_jsxs(_Fragment, { children: [_jsx("span", { className: "filter-meta-divider" }), _jsx("span", { className: "live-dot" }), _jsxs("span", { children: ["\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E ", lastUpdatedStr] })] }))] }), _jsxs("button", { className: "btn btn-sm", onClick: () => setShowTranscriptUpload(true), title: "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0433\u043E\u0442\u043E\u0432\u044B\u0439 \u0440\u0430\u0437\u043C\u0435\u0447\u0435\u043D\u043D\u044B\u0439 \u0434\u0438\u0430\u043B\u043E\u0433 \u2014 \u0434\u043B\u044F \u0442\u0435\u0441\u0442\u043E\u0432 \u0441\u043A\u043E\u0440\u0438\u043D\u0433\u0430 \u0438 \u0430\u043F\u0441\u0435\u0439\u043B\u0430 \u0431\u0435\u0437 \u0430\u0443\u0434\u0438\u043E", style: { background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }, children: [_jsx(FileText, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0442\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u0431\u0430\u0446\u0438\u0438"] }), _jsxs("button", { className: "btn btn-sm btn-primary-gradient", onClick: () => setShowUpload(true), children: [_jsx(Upload, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0430\u0443\u0434\u0438\u043E"] })] }), _jsx(AudioUploadModal, { open: showUpload, onClose: () => setShowUpload(false), onUploadComplete: () => { } }), _jsx(TranscriptUploadModal, { open: showTranscriptUpload, onClose: () => setShowTranscriptUpload(false), onUploadComplete: () => { } }), _jsxs("div", { className: "card fade-in", children: [_jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [['date', 'name', 'store', 'duration'].map(col => {
                                                 const labels = { date: 'Дата и время', name: 'Продавец', store: 'Магазин', duration: 'Длительность' };
                                                 const active = sort.by === col;
                                                 const Icon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
                                                 return (_jsx("th", { onClick: () => toggleSort(col), style: { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }, children: _jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [labels[col], _jsx(Icon, { size: 12, style: { opacity: active ? 1 : 0.3, color: active ? 'var(--primary)' : 'inherit' } })] }) }, col));
-                                            }), _jsx("th", { children: "\u0422\u0435\u043C\u0430" }), _jsx("th", { children: "\u0421\u043A\u043E\u0440\u0438\u043D\u0433" }), _jsx("th", { children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), _jsx("th", { children: "\u0418\u0441\u0445\u043E\u0434 / \u0421\u0442\u0430\u0442\u0443\u0441" })] }) }), _jsx("tbody", { children: sortedRows.map((row, idx) => {
+                                            }), _jsx("th", { children: "\u0422\u0435\u043C\u0430" }), _jsx("th", { style: { textAlign: 'center' }, children: "\u0421\u043A\u043E\u0440\u0438\u043D\u0433" }), _jsx("th", { style: { textAlign: 'center' }, children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), _jsx("th", { style: { textAlign: 'center' }, children: "\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B" }), _jsx("th", { style: { textAlign: 'center' }, children: "\u0418\u0441\u0445\u043E\u0434 / \u0421\u0442\u0430\u0442\u0443\u0441" })] }) }), _jsx("tbody", { children: sortedRows.map((row, idx) => {
                                         const dateObj = row._date ? new Date(row._date) : null;
                                         const dateStr = dateObj ? dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : '—';
                                         const timeStr = dateObj ? dateObj.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -345,9 +438,9 @@ export function ConversationsPage() {
                                         if (row._type === 'pending') {
                                             const sellerName = row.seller_name || '—';
                                             return (_jsxs("tr", { onClick: () => { setSelectedRec(row); setSelectedConvId(null); }, style: { cursor: 'pointer', background: 'var(--bg)', opacity: .92,
-                                                    outline: selectedRec?.id === row.id ? '1px solid var(--primary)' : undefined }, children: [_jsxs("td", { children: [dateStr, " ", _jsx("span", { style: { color: 'var(--text-muted)' }, children: timeStr })] }), _jsx("td", { children: _jsxs("div", { className: "seller-cell", children: [_jsx("div", { className: "avatar", style: { background: '#94A3B8' }, children: sellerName[0]?.toUpperCase() || '?' }), _jsx("div", { className: "name", children: sellerName })] }) }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: row.store_name || '—' }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: durStr }), _jsx("td", { children: "\u2014" }), _jsx("td", { children: "\u2014" }), _jsx("td", {}), _jsx("td", { children: _jsx(PipelineStatus, { status: row.status }) })] }, row.id));
+                                                    outline: selectedRec?.id === row.id ? '1px solid var(--primary)' : undefined }, children: [_jsxs("td", { children: [dateStr, " ", _jsx("span", { style: { color: 'var(--text-muted)' }, children: timeStr })] }), _jsx("td", { children: _jsxs("div", { className: "seller-cell", children: [_jsx("div", { className: "avatar", style: { background: '#94A3B8' }, children: sellerName[0]?.toUpperCase() || '?' }), _jsx("div", { className: "name", children: sellerName })] }) }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: row.store_name || '—' }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: durStr }), _jsx("td", { children: "\u2014" }), _jsx("td", { style: { textAlign: 'center' }, children: "\u2014" }), _jsx("td", { style: { textAlign: 'center' }, children: "\u2014" }), _jsx("td", { style: { textAlign: 'center' }, children: "\u2014" }), _jsx("td", { style: { textAlign: 'center' }, children: _jsx(PipelineStatus, { status: row.status }) })] }, row.id));
                                         }
-                                        const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
-                                        return (_jsxs("tr", { onClick: () => { setSelectedConvId(row.id); setSelectedRec(null); }, style: { cursor: 'pointer', background: selectedConvId === row.id ? 'var(--bg-active)' : undefined }, children: [_jsxs("td", { children: [dateStr, " ", _jsx("span", { style: { color: 'var(--text-muted)' }, children: timeStr })] }), _jsx("td", { children: _jsxs("div", { className: "seller-cell", children: [_jsx("div", { className: "avatar", style: { background: color }, children: (row.seller_name || '?')[0].toUpperCase() }), _jsx("div", { className: "name", children: row.seller_name || row.seller_id })] }) }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: row.store_name || row.store_id }), _jsx("td", { children: durStr }), _jsx("td", { style: { color: 'var(--text-secondary)' }, children: row.topic || '—' }), _jsx("td", { children: _jsx(ScoreBadge, { score: row.overall_score }) }), _jsx("td", { children: row.has_upsell !== undefined && (_jsx("span", { className: `tag ${row.has_upsell ? 'tag-success' : 'tag-neutral'}`, children: row.has_upsell ? 'Да' : 'Нет' })) }), _jsx("td", { children: _jsx(OutcomeTag, { outcome: row.outcome }) })] }, row.id));
+                                        const color = avatarColorFor(row.seller_id || row.seller_name);
+                                        return (_jsxs("tr", { onClick: () => { setSelectedConvId(row.id); setSelectedRec(null); }, style: { cursor: 'pointer', background: selectedConvId === row.id ? 'var(--bg-active)' : undefined }, children: [_jsxs("td", { children: [dateStr, " ", _jsx("span", { style: { color: 'var(--text-muted)' }, children: timeStr })] }), _jsx("td", { children: _jsxs("div", { className: "seller-cell", children: [_jsx("div", { className: "avatar", style: { background: color }, children: (row.seller_name || '?')[0].toUpperCase() }), _jsx("div", { className: "name", children: row.seller_name || row.seller_id })] }) }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: row.store_name || row.store_id }), _jsx("td", { children: durStr }), _jsx("td", { style: { color: 'var(--text-secondary)' }, children: row.topic || '—' }), _jsx("td", { style: { textAlign: 'center' }, children: _jsx(ScoreBadge, { score: row.overall_score }) }), _jsx("td", { style: { textAlign: 'center' }, children: row.has_upsell !== undefined && (_jsx("span", { className: `tag ${row.has_upsell ? 'tag-success' : 'tag-neutral'}`, children: row.has_upsell ? 'Да' : 'Нет' })) }), _jsx("td", { style: { textAlign: 'center' }, children: _jsx("span", { className: "tag tag-neutral", title: "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440 \u2014 \u0442\u043E\u0447\u043D\u044B\u0439 \u0430\u043D\u0430\u043B\u0438\u0437 \u043A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B\u0430 \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0432 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435", children: "\u041D\u0435\u0442" }) }), _jsx("td", { style: { textAlign: 'center' }, children: _jsx(OutcomeTag, { outcome: row.outcome }) })] }, row.id));
                                     }) })] }) }), _jsxs("div", { style: { padding: '16px', textAlign: 'center', borderTop: '1px solid var(--border)' }, children: [_jsx("button", { className: "btn btn-outline btn-sm", onClick: () => setPage(Math.max(1, page - 1)), disabled: page === 1, children: "\u2190 \u041D\u0430\u0437\u0430\u0434" }), _jsxs("span", { style: { margin: '0 16px', color: 'var(--text-muted)', fontSize: 13 }, children: ["\u0421\u0442\u0440\u0430\u043D\u0438\u0446\u0430 ", page] }), _jsx("button", { className: "btn btn-outline btn-sm", onClick: () => setPage(page + 1), disabled: !conversations || conversations.items.length < 20, children: "\u0412\u043F\u0435\u0440\u0451\u0434 \u2192" })] })] }), _jsxs(Drawer, { isOpen: !!(selectedConvId || selectedRec), onClose: () => { setSelectedConvId(null); setSelectedRec(null); }, title: drawerTitle, children: [selectedConvId && _jsx(ConversationDetail, { conversationId: selectedConvId }), selectedRec && !selectedConvId && _jsx(RecordingDetail, { recording: selectedRec })] })] }));
 }

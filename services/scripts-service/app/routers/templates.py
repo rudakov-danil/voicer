@@ -6,9 +6,11 @@ from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.dependencies import get_current_user
+from sqlalchemy import delete as sa_delete
 from app.models import ScriptTemplate, ScriptStep, SellerScriptAssignment, StoreScriptAssignment, ScriptTemplateVersion
 from app.schemas import TemplateCreate, TemplatePatch, TemplateListItem, TemplateDetail, AssignedSeller, ScriptStepOut
 from app.validators import validate_weights_sum
+from app.short_name import derive_short_name, heuristic_short_name
 
 router = APIRouter(prefix="/api/v1/scripts/templates", tags=["templates"])
 
@@ -17,10 +19,12 @@ def _snapshot_payload(template: ScriptTemplate) -> dict:
     """Готовит JSON-снимок шаблона со всеми этапами на момент сохранения."""
     return {
         "name": template.name,
+        "short_name": template.short_name,
         "description": template.description,
         "scope": template.scope,
         "context_description": template.context_description,
         "is_active": template.is_active,
+        "applies_to_all_stores": template.applies_to_all_stores,
         "steps": [
             {
                 "id": str(s.id),
@@ -106,6 +110,7 @@ async def list_templates(
         items.append(TemplateListItem(
             id=t.id,
             name=t.name,
+            short_name=t.short_name,
             description=t.description,
             scope=t.scope,
             is_active=t.is_active,
@@ -136,9 +141,11 @@ async def create_template(
             detail={"error": "INVALID_WEIGHTS", "message": f"Sum of step weights must equal 1.000, got {total:.3f}"},
         )
 
+    short = (body.short_name or '').strip() or await derive_short_name(body.name, body.description)
     template = ScriptTemplate(
         organization_id=uuid.UUID(user["organization_id"]),
         name=body.name,
+        short_name=short,
         description=body.description,
         scope=body.scope,
         context_description=body.context_description,
@@ -207,9 +214,15 @@ async def replace_template(
         )
 
     # Update template fields (scope and org_id cannot change)
+    name_changed = template.name != body.name
     template.name = body.name
     template.description = body.description
     template.context_description = body.context_description
+    # short_name: если явно прислали — обновляем. Если изменилось имя — перегенерируем.
+    if body.short_name is not None and body.short_name.strip():
+        template.short_name = body.short_name.strip()[:60]
+    elif name_changed or not template.short_name:
+        template.short_name = await derive_short_name(body.name, body.description)
     template.updated_at = datetime.utcnow()
 
     # Replace steps
@@ -255,17 +268,47 @@ async def patch_template(
     if user["role"] not in ("director", "admin") and str(template.created_by) != user["sub"]:
         raise HTTPException(status_code=403, detail="Not allowed to modify this template")
 
+    name_changed = False
     if body.name is not None:
+        name_changed = template.name != body.name
         template.name = body.name
     if body.description is not None:
         template.description = body.description
     if body.is_active is not None:
         template.is_active = body.is_active
+    if body.applies_to_all_stores is not None:
+        template.applies_to_all_stores = body.applies_to_all_stores
+    if body.short_name is not None:
+        v = body.short_name.strip()
+        template.short_name = v[:60] if v else heuristic_short_name(template.name)
+    elif name_changed:
+        # Имя поменялось через rename → пересчитаем short_name (LLM + fallback)
+        template.short_name = await derive_short_name(template.name, template.description)
     template.updated_at = datetime.utcnow()
 
     await db.commit()
     fresh = await _get_visible_template(template.id, user, db)
     return _template_detail(fresh)
+
+
+@router.delete("/{template_id}", status_code=204)
+async def delete_template(
+    template_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Удаляет шаблон вместе с его этапами, версиями и назначениями.
+    Версии и этапы каскадно (CASCADE FK), назначения удаляем вручную (FK = RESTRICT).
+    """
+    template = await _get_visible_template(template_id, user, db)
+    if user["role"] not in ("director", "admin") and str(template.created_by) != user["sub"]:
+        raise HTTPException(status_code=403, detail="Not allowed to delete this template")
+
+    # Чистим назначения — у них FK с ondelete=RESTRICT, иначе CASCADE не сработает.
+    await db.execute(sa_delete(SellerScriptAssignment).where(SellerScriptAssignment.template_id == template.id))
+    await db.execute(sa_delete(StoreScriptAssignment).where(StoreScriptAssignment.template_id == template.id))
+    await db.delete(template)
+    await db.commit()
 
 
 async def _get_visible_template(template_id: uuid.UUID, user: dict, db: AsyncSession) -> ScriptTemplate:
@@ -294,10 +337,12 @@ def _template_detail(template: ScriptTemplate) -> dict:
     return {
         "id": template.id,
         "name": template.name,
+        "short_name": template.short_name,
         "description": template.description,
         "scope": template.scope,
         "context_description": template.context_description,
         "is_active": template.is_active,
+        "applies_to_all_stores": bool(getattr(template, "applies_to_all_stores", False)),
         "steps": [
             {
                 "id": s.id,

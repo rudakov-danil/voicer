@@ -450,21 +450,33 @@ async def identify_speaker_roles(
                 await _asyncio.sleep(wait)
                 continue
 
-            # Парсим "WORKERS: 0,2" (может быть с пробелами, разными разделителями)
+            # Парсим "WORKERS: 0,2" (может быть с пробелами, разными разделителями).
+            # БЕЗ fallback "извлечь все числа" — он схватывал ID спикеров из объяснений
+            # вида "Speaker 0 — работник, Speaker 1 — клиент" и помечал ВСЕХ как работников.
             match = re.search(r"WORKERS\s*:\s*([\d,\s]+)", raw, re.IGNORECASE)
-            if not match:
-                # Fallback: берём ВСЕ числа из ответа как ID работников
-                logger.warning(f"No 'WORKERS:' in response, falling back to extracting all numbers")
-                worker_ids = {int(x) for x in re.findall(r"\b\d+\b", raw)}
-            else:
+            if match:
                 worker_ids = {int(x) for x in re.findall(r"\d+", match.group(1))}
+            else:
+                logger.warning(f"No 'WORKERS:' in response (raw={raw!r}), defaulting first speaker as worker")
+                worker_ids = {speakers[0]}
 
             # Фильтруем по реально существующим спикерам
             worker_ids = worker_ids & set(speakers)
 
             if not worker_ids:
-                logger.warning(f"No valid worker IDs parsed (raw={raw!r}), defaulting first speaker as worker")
+                logger.warning(f"No valid worker IDs after filtering (raw={raw!r}), defaulting first speaker as worker")
                 worker_ids = {speakers[0]}
+
+            # Защита: если LLM пометил ВСЕХ спикеров как работников — это явно ошибка.
+            # В реальном диалоге всегда есть как минимум один клиент.
+            if len(worker_ids) == len(speakers) and len(speakers) > 1:
+                logger.warning(
+                    f"LLM marked all {len(speakers)} speakers as workers (raw={raw!r}). "
+                    f"Falling back to: speaker with most words = worker."
+                )
+                word_counts = {sid: sum(len(t.split()) for t in examples.get(sid, [])) for sid in speakers}
+                top_speaker = max(word_counts, key=word_counts.get)
+                worker_ids = {top_speaker}
 
             roles = {sid: ("seller" if sid in worker_ids else "customer") for sid in speakers}
             logger.info(
