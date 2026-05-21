@@ -223,3 +223,35 @@ class CrossSellRuleOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# --- Compliance rules ---
+
+class ComplianceRuleCreate(BaseModel):
+    title: str
+    description: str = ""
+    severity: str = "medium"
+    keywords: list[str] = []
+    is_active: bool = True
+
+
+class ComplianceRulePatch(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    severity: Optional[str] = None
+    keywords: Optional[list[str]] = None
+    is_active: Optional[bool] = None
+
+
+class ComplianceRuleOut(BaseModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    title: str
+    description: str
+    severity: str
+    keywords: list[str]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

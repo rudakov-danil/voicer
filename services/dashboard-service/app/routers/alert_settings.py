@@ -40,7 +40,7 @@ async def get_alert_settings(
         row = (await db.execute(sql, {"org_id": uuid.UUID(org_id)})).fetchone()
 
     if not row:
-        return {"score_threshold": 60.0, "email_recipients": [], "is_active": False, "no_activity_hours": 24}
+        return {"score_threshold": 40.0, "email_recipients": [], "is_active": False, "no_activity_hours": 24}
 
     return {
         "id": row.id,

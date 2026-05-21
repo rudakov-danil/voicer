@@ -158,12 +158,28 @@ async def seller_detail(
     if date_to is None:
         date_to = date.today()
 
+    # Предыдущий период такой же длины — для тренда score
+    period_days = (date_to - date_from).days or 1
+    prev_to = date_from - timedelta(days=1)
+    prev_from = prev_to - timedelta(days=period_days)
+
     params = {
         "org_id": uuid.UUID(org_id),
         "seller_id": seller_id,
         "date_from": date_from,
         "date_to": date_to,
+        "prev_from": prev_from,
+        "prev_to": prev_to,
     }
+
+    # Базовый профиль: имя, магазин
+    profile_sql = text("""
+        SELECT s.id, s.first_name, s.last_name, s.store_id, st.name AS store_name
+        FROM admin_schema.sellers s
+        LEFT JOIN admin_schema.stores st ON st.id = s.store_id
+        WHERE s.id = :seller_id AND s.organization_id = :org_id
+    """)
+    profile = (await db.execute(profile_sql, params)).fetchone()
 
     stats_sql = text("""
         SELECT
@@ -171,7 +187,15 @@ async def seller_detail(
             COALESCE(AVG(overall_score), 0) AS avg_score,
             CASE WHEN COUNT(*) > 0
                  THEN SUM(CASE WHEN outcome = 'purchase' THEN 1 ELSE 0 END)::FLOAT / COUNT(*)
-                 ELSE 0 END AS conversion_rate
+                 ELSE 0 END AS conversion_rate,
+            SUM(CASE WHEN overall_score >= 70 THEN 1 ELSE 0 END) AS strong_count,
+            (
+                SELECT COUNT(*) FROM analytics.conversation_compliance_violations v
+                JOIN analytics.conversations c2 ON c2.id = v.conversation_id
+                WHERE c2.organization_id = :org_id
+                  AND c2.seller_id = :seller_id
+                  AND c2.session_date BETWEEN :date_from AND :date_to
+            ) AS compliance_violations_count
         FROM analytics.conversations
         WHERE organization_id = :org_id
           AND seller_id = :seller_id
@@ -179,25 +203,70 @@ async def seller_detail(
     """)
     stats = (await db.execute(stats_sql, params)).fetchone()
 
+    prev_stats_sql = text("""
+        SELECT COALESCE(AVG(overall_score), 0) AS prev_avg_score
+        FROM analytics.conversations
+        WHERE organization_id = :org_id
+          AND seller_id = :seller_id
+          AND session_date BETWEEN :prev_from AND :prev_to
+    """)
+    prev_stats = (await db.execute(prev_stats_sql, params)).fetchone()
+    score_trend = round(
+        float(stats.avg_score) - float(prev_stats.prev_avg_score), 1
+    ) if stats and prev_stats and prev_stats.prev_avg_score else 0.0
+
+    # Этапы скрипта — группируем по конкретному скрипту, чтобы на сайдбаре
+    # семантически похожие этапы из разных скриптов («Презентация товара»
+    # vs «Презентация продукта») не смешивались в одну плоскую кашу.
+    #
+    # ВАЖНО: фильтруем по АКТУАЛЬНЫМ назначениям скрипта. Иначе исторические
+    # данные показываются у продавцов, к которым скрипт уже не применяется
+    # (был отключён или назначен на другой магазин). Скрипт «виден» для
+    # продавца, если он is_active AND одно из:
+    #  - applies_to_all_stores
+    #  - есть прямое назначение seller_script_assignments
+    #  - есть назначение через магазин продавца store_script_assignments
     stage_sql = text("""
-        SELECT cs.step_name, AVG(cs.score) AS avg_score
+        SELECT
+            cs.script_template_id,
+            cs.step_name,
+            AVG(cs.score) AS avg_score,
+            COUNT(*) AS sample_count,
+            COALESCE(t.short_name, t.name) AS script_label,
+            t.name AS script_name
         FROM analytics.conversations c
         JOIN analytics.conversation_scores cs ON cs.conversation_id = c.id
+        JOIN scripts.script_templates t ON t.id = cs.script_template_id
         WHERE c.organization_id = :org_id
           AND c.seller_id = :seller_id
           AND c.session_date BETWEEN :date_from AND :date_to
-        GROUP BY cs.step_name
-        ORDER BY avg_score
+          AND t.is_active = TRUE
+          AND (
+            t.applies_to_all_stores = TRUE
+            OR EXISTS (
+                SELECT 1 FROM scripts.seller_script_assignments sa
+                WHERE sa.seller_id = c.seller_id AND sa.template_id = t.id
+            )
+            OR EXISTS (
+                SELECT 1 FROM scripts.store_script_assignments sta
+                WHERE sta.store_id = c.store_id AND sta.template_id = t.id
+            )
+          )
+        GROUP BY cs.script_template_id, cs.step_name, t.name, t.short_name
+        ORDER BY script_label NULLS LAST, avg_score
     """)
     stage_rows = (await db.execute(stage_sql, params)).fetchall()
 
     recent_sql = text("""
-        SELECT id, session_date, overall_score, outcome
-        FROM analytics.conversations
-        WHERE organization_id = :org_id
-          AND seller_id = :seller_id
-          AND session_date BETWEEN :date_from AND :date_to
-        ORDER BY session_date DESC
+        SELECT
+            c.id, c.session_date, c.analyzed_at, c.overall_score, c.outcome, c.topic,
+            r.duration_seconds
+        FROM analytics.conversations c
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
+        WHERE c.organization_id = :org_id
+          AND c.seller_id = :seller_id
+          AND c.session_date BETWEEN :date_from AND :date_to
+        ORDER BY c.session_date DESC, c.analyzed_at DESC
         LIMIT 10
     """)
     recent_rows = (await db.execute(recent_sql, params)).fetchall()
@@ -213,26 +282,74 @@ async def seller_detail(
     """)
     chart_rows = (await db.execute(chart_sql, params)).fetchall()
 
+    # Группировка этапов по скрипту → [{script_id, script_name, steps: [...]}]
+    stage_groups: dict = {}
+    for r in stage_rows:
+        key = str(r.script_template_id) if r.script_template_id else "_unknown"
+        if key not in stage_groups:
+            stage_groups[key] = {
+                "script_id": str(r.script_template_id) if r.script_template_id else None,
+                "script_name": r.script_label or r.script_name or "Без скрипта",
+                "script_full_name": r.script_name,
+                "steps": [],
+            }
+        stage_groups[key]["steps"].append({
+            "step_name": r.step_name,
+            "avg_score": round(float(r.avg_score), 1),
+            "sample_count": int(r.sample_count or 0),
+        })
+    stage_breakdown_grouped = list(stage_groups.values())
+
+    # Рекомендации — простые эвристики на основе самого слабого этапа и компleance.
+    recommendations: list[dict] = []
+    weak_steps = [r for r in stage_rows if float(r.avg_score) < 60]
+    if weak_steps:
+        worst = weak_steps[0]
+        script_hint = f" (скрипт «{worst.script_label}»)" if worst.script_label else ""
+        recommendations.append({
+            "severity": "warning",
+            "text": f"Слабый этап — «{worst.step_name}»{script_hint}: средний {round(float(worst.avg_score), 1)}%. Стоит отработать.",
+        })
+    if stats and stats.compliance_violations_count and int(stats.compliance_violations_count) > 0:
+        recommendations.append({
+            "severity": "warning",
+            "text": f"Зафиксировано {int(stats.compliance_violations_count)} нарушений правил коммуникации за период.",
+        })
+    if stats and float(stats.avg_score) >= 80 and not recommendations:
+        recommendations.append({
+            "severity": "info",
+            "text": "Стабильно высокий скоринг — продавец работает в зелёной зоне.",
+        })
+
     return {
-        "seller": {"id": seller_id},
+        "seller": {
+            "id": str(seller_id),
+            "first_name": profile.first_name if profile else "",
+            "last_name": profile.last_name if profile else "",
+            "store_id": str(profile.store_id) if profile and profile.store_id else None,
+            "store_name": profile.store_name if profile else None,
+        },
         "stats": {
-            "total_conversations": stats.total_conversations if stats else 0,
+            "total_conversations": int(stats.total_conversations or 0) if stats else 0,
             "avg_score": round(float(stats.avg_score), 1) if stats else 0,
             "conversion_rate": round(float(stats.conversion_rate), 4) if stats else 0,
+            "strong_count": int(stats.strong_count or 0) if stats else 0,
+            "compliance_violations_count": int(stats.compliance_violations_count or 0) if stats else 0,
+            "score_trend": score_trend,
         },
-        "stage_breakdown": [
-            {"step_name": r.step_name, "avg_score": round(float(r.avg_score), 1)}
-            for r in stage_rows
-        ],
+        "stage_breakdown": stage_breakdown_grouped,
         "recent_conversations": [
             {
-                "id": r.id,
+                "id": str(r.id),
                 "session_date": str(r.session_date),
-                "overall_score": float(r.overall_score) if r.overall_score else None,
+                "topic": r.topic,
+                "overall_score": float(r.overall_score) if r.overall_score is not None else None,
                 "outcome": r.outcome,
+                "duration_seconds": int(r.duration_seconds or 0) if r.duration_seconds else None,
             }
             for r in recent_rows
         ],
+        "recommendations": recommendations,
         "score_chart": [
             {"date": str(r.session_date), "avg_score": round(float(r.avg_score), 1)}
             for r in chart_rows

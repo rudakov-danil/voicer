@@ -93,7 +93,7 @@ async def get_alert_settings(
             id=UUID("00000000-0000-0000-0000-000000000000"),
             organization_id=UUID(current_user["organization_id"]),
             store_id=store_id,
-            score_threshold=60,
+            score_threshold=40,
             no_activity_hours=4,
             email_recipients=[],
             is_active=True,

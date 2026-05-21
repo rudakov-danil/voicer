@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-export function LineChartWidget({ data, color = '#2563EB', height = 240 }) {
+export function LineChartWidget({ data, color = '#2563EB', height = 240, valueLabel = 'Значение', valueSuffix = '', }) {
     const chartData = data.map((d) => ({
         name: d.label,
         value: d.value
@@ -9,5 +9,5 @@ export function LineChartWidget({ data, color = '#2563EB', height = 240 }) {
                         backgroundColor: 'var(--bg-card)',
                         border: '1px solid var(--border)',
                         borderRadius: '8px'
-                    }, labelStyle: { color: 'var(--text)' } }), _jsx(Line, { type: "monotone", dataKey: "value", stroke: color, strokeWidth: 2, dot: { fill: color, r: 4 }, activeDot: { r: 6 } })] }) }));
+                    }, labelStyle: { color: 'var(--text)' }, formatter: (value) => [`${value}${valueSuffix}`, valueLabel] }), _jsx(Line, { type: "monotone", dataKey: "value", name: valueLabel, stroke: color, strokeWidth: 2, dot: { fill: color, r: 4 }, activeDot: { r: 6 } })] }) }));
 }

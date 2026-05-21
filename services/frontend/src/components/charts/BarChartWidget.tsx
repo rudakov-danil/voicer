@@ -4,9 +4,17 @@ interface BarChartWidgetProps {
   data: Array<{ label: string; value: number }>
   color?: string
   height?: number
+  valueLabel?: string
+  valueSuffix?: string
 }
 
-export function BarChartWidget({ data, color = '#2563EB', height = 240 }: BarChartWidgetProps) {
+export function BarChartWidget({
+  data,
+  color = '#2563EB',
+  height = 240,
+  valueLabel = 'Значение',
+  valueSuffix = '',
+}: BarChartWidgetProps) {
   const chartData = data.map((d) => ({
     name: d.label,
     value: d.value
@@ -25,8 +33,9 @@ export function BarChartWidget({ data, color = '#2563EB', height = 240 }: BarCha
             borderRadius: '8px'
           }}
           labelStyle={{ color: 'var(--text)' }}
+          formatter={(value: number) => [`${value}${valueSuffix}`, valueLabel]}
         />
-        <Bar dataKey="value" fill={color} radius={[8, 8, 0, 0]} />
+        <Bar dataKey="value" name={valueLabel} fill={color} radius={[8, 8, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )

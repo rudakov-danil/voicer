@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/auth'
+import { VoicerLogo } from '@/components/VoicerLogo'
 
 const loginSchema = z.object({
   email: z.string().email('Некорректный email'),
@@ -53,13 +54,10 @@ export function LoginPage() {
     }}>
       <div className="card" style={{ width: '360px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" style={{ margin: '0 auto 16px' }}>
-            <rect x="2" y="2" width="8" height="8" fill="#2563EB" rx="2" />
-            <rect x="14" y="2" width="8" height="8" fill="#60A5FA" rx="2" />
-            <rect x="2" y="14" width="8" height="8" fill="#60A5FA" rx="2" />
-            <rect x="14" y="14" width="8" height="8" fill="#2563EB" rx="2" />
-          </svg>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>VoiceIQ</h1>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+            <VoicerLogo size={40} />
+          </div>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>Voicer</h1>
           <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
             Речевая аналитика для розницы
           </p>
@@ -128,7 +126,7 @@ export function LoginPage() {
           textAlign: 'center',
           marginTop: '16px'
         }}>
-          Тестовые учетные данные: admin@voiceiq.ru / password123
+          Тестовые учетные данные: admin@voicer.ru / password123
         </p>
       </div>
     </div>

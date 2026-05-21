@@ -1,17 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
+import { useOutletContext } from 'react-router-dom'
 import { dashboardApi } from '@/api/dashboard'
 import { SellerDrawer } from '@/components/SellerDrawer'
 import { ScoreBadge } from '@/components/ScoreBadge'
 import { useState } from 'react'
 
+interface OutletContext { period: number }
+
 const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1']
 
 export function TeamPage() {
+  const { period } = useOutletContext<OutletContext>()
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null)
 
   const { data: sellers } = useQuery({
-    queryKey: ['sellers'],
-    queryFn: () => dashboardApi.getSellers(),
+    queryKey: ['sellers', period],
+    queryFn: () => dashboardApi.getSellers({ period }),
   })
 
   const sorted = (sellers || []).slice().sort((a, b) => (b.conversion_rate || 0) - (a.conversion_rate || 0))
@@ -19,7 +23,9 @@ export function TeamPage() {
   const avgScore = total ? Math.round(sellers!.reduce((s, x) => s + (x.avg_score || 0), 0) / total) : 0
   const maxConv = sorted[0]?.conversion_rate || 0
   const minConv = sorted[sorted.length - 1]?.conversion_rate || 0
-  const gap = minConv > 0 ? (maxConv / minConv).toFixed(1) : '—'
+  const maxPct = Math.round(maxConv * 100)
+  const minPct = Math.round(minConv * 100)
+  const spreadLabel = sorted.length >= 2 ? `${maxPct}% / ${minPct}%` : sorted.length === 1 ? `${maxPct}%` : '—'
 
   // Store aggregation
   const storeMap = new Map<string, { name: string; count: number; totalScore: number; totalConv: number; totalCheck: number }>()
@@ -47,7 +53,7 @@ export function TeamPage() {
         </div>
         <div className="metric-card">
           <div className="metric-label">Разброс конверсии (лучший/худший)</div>
-          <div className="metric-value">{gap}x</div>
+          <div className="metric-value" style={{ fontSize: 22 }}>{spreadLabel}</div>
         </div>
       </div>
 
@@ -82,11 +88,6 @@ export function TeamPage() {
                   <div className="leaderboard-info">
                     <div className="leaderboard-name">
                       {seller.first_name} {seller.last_name}
-                      {seller.conversations_count !== undefined && seller.conversations_count < 20 && (
-                        <span className="tag tag-primary" style={{ marginLeft: 6, fontSize: '10px', padding: '1px 6px' }}>
-                          Новичок
-                        </span>
-                      )}
                     </div>
                     <div className="leaderboard-store">{seller.store_name || seller.store_id}</div>
                   </div>
@@ -138,7 +139,7 @@ export function TeamPage() {
         </div>
       </div>
 
-      <SellerDrawer sellerId={selectedSellerId} onClose={() => setSelectedSellerId(null)} />
+      <SellerDrawer sellerId={selectedSellerId} onClose={() => setSelectedSellerId(null)} period={period} />
     </div>
   )
 }

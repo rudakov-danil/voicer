@@ -106,6 +106,29 @@ class ConversationScore(Base):
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="scores")
 
 
+class ConversationComplianceViolation(Base):
+    """Нарушения правил коммуникации, найденные LLM с привязкой к конкретному правилу.
+    rule_id ссылается на scripts.compliance_rules.id (без FK — другая схема/сервис).
+    """
+    __tablename__ = "conversation_compliance_violations"
+    __table_args__ = (
+        Index("idx_compliance_violations_conv", "conversation_id"),
+        Index("idx_compliance_violations_rule", "rule_id"),
+        {"schema": "analytics"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("analytics.conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    rule_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    rule_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    severity: Mapped[str] = mapped_column(String(10), nullable=False, default="medium")
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    explanation: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class Objection(Base):
     __tablename__ = "objections"
     __table_args__ = (

@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-export function BarChartWidget({ data, color = '#2563EB', height = 240 }) {
+export function BarChartWidget({ data, color = '#2563EB', height = 240, valueLabel = 'Значение', valueSuffix = '', }) {
     const chartData = data.map((d) => ({
         name: d.label,
         value: d.value
@@ -9,5 +9,5 @@ export function BarChartWidget({ data, color = '#2563EB', height = 240 }) {
                         backgroundColor: 'var(--bg-card)',
                         border: '1px solid var(--border)',
                         borderRadius: '8px'
-                    }, labelStyle: { color: 'var(--text)' } }), _jsx(Bar, { dataKey: "value", fill: color, radius: [8, 8, 0, 0] })] }) }));
+                    }, labelStyle: { color: 'var(--text)' }, formatter: (value) => [`${value}${valueSuffix}`, valueLabel] }), _jsx(Bar, { dataKey: "value", name: valueLabel, fill: color, radius: [8, 8, 0, 0] })] }) }));
 }

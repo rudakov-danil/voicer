@@ -72,12 +72,15 @@ async def list_conversations(
             c.recording_id,
             c.seller_id,
             c.store_id,
+            c.organization_id,
+            c.transcript_id,
             c.session_date,
             c.overall_score,
             c.outcome,
             c.topic,
             c.analyzed_at,
             c.has_upsell,
+            c.has_crosssell,
             r.duration_seconds,
             s.first_name AS seller_first_name,
             s.last_name AS seller_last_name,
@@ -85,7 +88,15 @@ async def list_conversations(
             EXISTS(
                 SELECT 1 FROM analytics.conversation_script_results csr
                 WHERE csr.conversation_id = c.id AND cardinality(csr.violations) > 0
-            ) AS has_violations
+            ) AS has_violations,
+            EXISTS(
+                SELECT 1 FROM analytics.conversation_compliance_violations ccv
+                WHERE ccv.conversation_id = c.id
+            ) AS has_compliance_violations,
+            (
+                SELECT COUNT(*) FROM analytics.conversation_compliance_violations ccv
+                WHERE ccv.conversation_id = c.id
+            ) AS compliance_violations_count
         FROM analytics.conversations c
         LEFT JOIN recorder.recordings r ON r.id = c.recording_id
         LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
@@ -95,6 +106,56 @@ async def list_conversations(
         LIMIT :limit OFFSET :offset
     """)
     rows = (await db.execute(list_sql, params)).fetchall()
+
+    # Keyword-фолбэк для апсейла / кросс-сейла: симметрия с детальной карточкой,
+    # где analyzeSell() матчит триггер + хотя бы один offer в сегментах продавца.
+    # Применяется только к разговорам с has_upsell/has_crosssell IS NULL — LLM не разметил.
+    needs_fallback = [r for r in rows if r.has_upsell is None or r.has_crosssell is None]
+    fallback_map: dict = {}
+    if needs_fallback:
+        fb_sql = text("""
+            WITH conv_seller_text AS (
+                SELECT c.id AS conv_id, c.organization_id, c.store_id,
+                       LOWER(string_agg(ts.text, ' ')) AS seller_text
+                FROM analytics.conversations c
+                JOIN transcription.transcript_segments ts ON ts.transcript_id = c.transcript_id
+                WHERE c.id = ANY(:conv_ids) AND LOWER(ts.speaker_role) = 'seller'
+                GROUP BY c.id, c.organization_id, c.store_id
+            )
+            SELECT
+                c.conv_id,
+                EXISTS(
+                    SELECT 1 FROM scripts.upsell_rules r
+                    WHERE r.organization_id = c.organization_id
+                      AND r.is_active = TRUE
+                      AND (r.store_id IS NULL OR r.store_id = c.store_id)
+                      AND POSITION(LOWER(r.trigger_product) IN c.seller_text) > 0
+                      AND EXISTS (
+                          SELECT 1 FROM unnest(r.required_offers) AS offer
+                          WHERE POSITION(LOWER(offer) IN c.seller_text) > 0
+                      )
+                ) AS has_upsell_kw,
+                EXISTS(
+                    SELECT 1 FROM scripts.cross_sell_rules r
+                    WHERE r.organization_id = c.organization_id
+                      AND r.is_active = TRUE
+                      AND (r.store_id IS NULL OR r.store_id = c.store_id)
+                      AND POSITION(LOWER(r.trigger_product) IN c.seller_text) > 0
+                      AND EXISTS (
+                          SELECT 1 FROM unnest(r.required_offers) AS offer
+                          WHERE POSITION(LOWER(offer) IN c.seller_text) > 0
+                      )
+                ) AS has_crosssell_kw
+            FROM conv_seller_text c
+        """)
+        fb_rows = (await db.execute(fb_sql, {"conv_ids": [r.id for r in needs_fallback]})).fetchall()
+        fallback_map = {fb.conv_id: (fb.has_upsell_kw, fb.has_crosssell_kw) for fb in fb_rows}
+
+    def _resolve(r, db_val, idx):
+        if db_val is not None:
+            return db_val
+        kw = fallback_map.get(r.id)
+        return bool(kw[idx]) if kw else False
 
     items = [
         {
@@ -110,7 +171,10 @@ async def list_conversations(
             "topic": r.topic,
             "duration_seconds": r.duration_seconds,
             "has_violations": r.has_violations,
-            "has_upsell": r.has_upsell,
+            "has_compliance_violations": r.has_compliance_violations,
+            "compliance_violations_count": int(r.compliance_violations_count or 0),
+            "has_upsell": _resolve(r, r.has_upsell, 0),
+            "has_crosssell": _resolve(r, r.has_crosssell, 1),
             "analyzed_at": r.analyzed_at,
         }
         for r in rows
@@ -226,6 +290,26 @@ async def get_conversation_detail(
         ORDER BY sort_order
     """)
     objection_rows = (await db.execute(objections_sql, {"conv_id": conversation_id})).fetchall()
+
+    # Compliance violations — нарушения правил коммуникации
+    compliance_sql = text("""
+        SELECT id, rule_id, rule_title, severity, evidence, explanation, sort_order
+        FROM analytics.conversation_compliance_violations
+        WHERE conversation_id = :conv_id
+        ORDER BY sort_order
+    """)
+    compliance_rows = (await db.execute(compliance_sql, {"conv_id": conversation_id})).fetchall()
+    compliance_violations_data = [
+        {
+            "id": str(cv.id),
+            "rule_id": str(cv.rule_id),
+            "rule_title": cv.rule_title,
+            "severity": cv.severity,
+            "evidence": cv.evidence or "",
+            "explanation": cv.explanation or "",
+        }
+        for cv in compliance_rows
+    ]
     objections_data = [
         {
             "type": o.type,
@@ -261,6 +345,7 @@ async def get_conversation_detail(
         "crosssell_results": row.crosssell_results,
         "script_results": list(scripts_map.values()),
         "objections": objections_data,
+        "compliance_violations": compliance_violations_data,
     }
 
     return {

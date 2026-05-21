@@ -49,6 +49,16 @@ class UpsellCheckResponse(BaseModel):
     checks: list[UpsellCheckItem] = []
 
 
+class ComplianceViolationItem(BaseModel):
+    rule_id: str
+    evidence: str = ""
+    explanation: str = ""
+
+
+class ComplianceCheckResponse(BaseModel):
+    violations: list[ComplianceViolationItem] = []
+
+
 class LLMResponseParseError(Exception):
     pass
 
@@ -72,6 +82,13 @@ def parse_upsell_response(raw: str) -> UpsellCheckResponse:
         return UpsellCheckResponse(**json.loads(raw))
     except (json.JSONDecodeError, ValueError) as e:
         raise LLMResponseParseError(f"Failed to parse upsell response: {e}") from e
+
+
+def parse_compliance_response(raw: str) -> ComplianceCheckResponse:
+    try:
+        return ComplianceCheckResponse(**json.loads(raw))
+    except (json.JSONDecodeError, ValueError) as e:
+        raise LLMResponseParseError(f"Failed to parse compliance response: {e}") from e
 
 
 def parse_redaction_response(raw: str, expected_count: int) -> list[str]:

@@ -633,6 +633,20 @@ function RuleRow({ rule, stores, onPatch, onDelete }: {
 
 // ─── LibraryDialog ───────────────────────────────────────────────────────────
 
+const INDUSTRY_LABELS: Record<string, string> = {
+  electronics: 'Электроника',
+  clothing: 'Одежда',
+  cosmetics: 'Косметика и парфюмерия',
+  furniture: 'Мебель',
+  telecom: 'Связь и телеком',
+  generic: 'Универсальный',
+}
+
+function industryLabel(value: string | undefined | null): string {
+  if (!value) return ''
+  return INDUSTRY_LABELS[value] || value
+}
+
 function LibraryDialog({
   onClose, onCreated, onUseDraft,
 }: {
@@ -700,7 +714,7 @@ function LibraryDialog({
                 {(presets || []).map((p: any) => (
                   <div key={p.id} className="preset-card" onClick={() => createFromPresetMut.mutate(p.id)}>
                     <div className="preset-name">{p.name}</div>
-                    <div className="preset-meta">{p.step_count} этапов · {p.industry}</div>
+                    <div className="preset-meta">{p.step_count} этапов · {industryLabel(p.industry)}</div>
                     <div className="preset-desc">{p.description}</div>
                   </div>
                 ))}
@@ -748,8 +762,23 @@ function LibraryDialog({
                 />
               </div>
               {generateMut.isError && (
-                <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 8 }}>
-                  Не удалось сгенерировать. Попробуйте ещё раз или уточните описание.
+                <div style={{
+                  fontSize: 12, color: 'var(--danger)', marginTop: 8,
+                  padding: '8px 10px', background: 'var(--danger-light)',
+                  borderRadius: 6,
+                }}>
+                  {(() => {
+                    const err = generateMut.error as any
+                    const detail = err?.response?.data?.detail
+                    const status = err?.response?.status
+                    if (detail) {
+                      return `Ошибка${status ? ` (${status})` : ''}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
+                    }
+                    if (err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')) {
+                      return 'Таймаут запроса к LLM. Попробуйте уточнить тему и сгенерировать ещё раз.'
+                    }
+                    return err?.message || 'Не удалось сгенерировать. Попробуйте ещё раз или уточните описание.'
+                  })()}
                 </div>
               )}
             </>

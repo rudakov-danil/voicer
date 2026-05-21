@@ -28,13 +28,25 @@ export const dashboardApi = {
     outcome?: string
     score_min?: number
     score_max?: number
+    period?: number
+    date_from?: string
+    date_to?: string
   }) => {
+    const apiParams: Record<string, any> = { ...params }
+    if (params.period && !params.date_from && !params.date_to) {
+      const to = new Date()
+      const from = new Date()
+      from.setDate(from.getDate() - params.period)
+      apiParams.date_from = from.toISOString().split('T')[0]
+      apiParams.date_to = to.toISOString().split('T')[0]
+    }
+    delete apiParams.period
     const response = await apiClient.get<{
       items: Conversation[]
       total: number
       page: number
       limit: number
-    }>('/api/v1/dashboard/conversations', { params })
+    }>('/api/v1/dashboard/conversations', { params: apiParams })
     return response.data
   },
 
@@ -43,8 +55,19 @@ export const dashboardApi = {
     return response.data
   },
 
-  getSellers: async (params?: { store_id?: string }) => {
-    const response = await apiClient.get<{items: any[], total: number}>('/api/v1/dashboard/sellers', { params })
+  getSellers: async (params?: { store_id?: string; period?: number; date_from?: string; date_to?: string }) => {
+    const apiParams: Record<string, string> = {}
+    if (params?.store_id) apiParams.store_id = params.store_id
+    if (params?.date_from) apiParams.date_from = params.date_from
+    if (params?.date_to) apiParams.date_to = params.date_to
+    if (params?.period && !params.date_from && !params.date_to) {
+      const to = new Date()
+      const from = new Date()
+      from.setDate(from.getDate() - params.period)
+      apiParams.date_from = from.toISOString().split('T')[0]
+      apiParams.date_to = to.toISOString().split('T')[0]
+    }
+    const response = await apiClient.get<{items: any[], total: number}>('/api/v1/dashboard/sellers', { params: apiParams })
     return (response.data.items || []).map((s: any) => ({
       id: s.seller_id,
       first_name: s.first_name || '',
@@ -60,8 +83,18 @@ export const dashboardApi = {
     })) as Seller[]
   },
 
-  getSellerDetail: async (sellerId: string) => {
-    const response = await apiClient.get(`/api/v1/dashboard/sellers/${sellerId}/detail`)
+  getSellerDetail: async (sellerId: string, params?: { period?: number; date_from?: string; date_to?: string }) => {
+    const apiParams: Record<string, string> = {}
+    if (params?.date_from) apiParams.date_from = params.date_from
+    if (params?.date_to) apiParams.date_to = params.date_to
+    if (params?.period && !params.date_from && !params.date_to) {
+      const to = new Date()
+      const from = new Date()
+      from.setDate(from.getDate() - params.period)
+      apiParams.date_from = from.toISOString().split('T')[0]
+      apiParams.date_to = to.toISOString().split('T')[0]
+    }
+    const response = await apiClient.get(`/api/v1/dashboard/sellers/${sellerId}/detail`, { params: apiParams })
     return response.data
   }
 }

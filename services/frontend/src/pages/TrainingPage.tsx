@@ -137,12 +137,12 @@ export function TrainingPage() {
             <tbody>
               {bestConversations.map((c) => {
                 const outcomeLabels: Record<string, string> = {
-                  purchase: 'Покупка', deferred: 'Отложено', price_objection: 'Возражение по цене',
+                  purchase: 'Покупка', deferred: 'Отложено', price_refusal: 'Возражение по цене',
                   competitor: 'Конкурент', unknown: 'Неизвестно',
                 }
                 const outcomeColors: Record<string, string> = {
                   purchase: 'var(--success)', deferred: 'var(--warning)',
-                  price_objection: 'var(--danger)', competitor: 'var(--primary)',
+                  price_refusal: 'var(--danger)', competitor: 'var(--primary)',
                 }
                 return (
                   <tr key={c.id}>

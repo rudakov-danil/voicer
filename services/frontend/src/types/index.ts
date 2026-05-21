@@ -39,7 +39,7 @@ export interface Conversation {
   recorded_at?: string
   duration_seconds?: number
   overall_score: number
-  outcome: 'purchase' | 'deferred' | 'price_objection' | 'competitor' | 'unknown'
+  outcome: 'purchase' | 'deferred' | 'price_refusal' | 'competitor' | 'unknown'
   has_upsell?: boolean
   has_violations?: boolean
   compliance_ok?: boolean
@@ -139,13 +139,24 @@ export interface ObjectionDistribution {
   percentage: number
 }
 
-export interface ObjectionCorrelation {
+export interface ObjectionResolution {
   type: string
   total: number
+  resolved: number
+  resolution_rate: number
+}
+
+export interface ObjectionImpactItem {
+  type: string
+  conversations: number
   purchases: number
   refusals: number
-  conversion_after: number
-  best_technique: string
+  conversion: number
+}
+
+export interface ObjectionImpact {
+  baseline_conversion: number
+  items: ObjectionImpactItem[]
 }
 
 export interface ConversionFunnel {
@@ -156,7 +167,34 @@ export interface ConversionFunnel {
 
 export interface ConversionByStore {
   store_name: string
+  total: number
+  purchases: number
   conversion_rate: number
+}
+
+export interface ConversionBySeller {
+  seller_name: string
+  total: number
+  purchases: number
+  conversion_rate: number
+}
+
+export interface OutcomeDistribution {
+  outcome: string
+  count: number
+  percentage: number
+}
+
+export interface ObjectionHandlingBucket {
+  total: number
+  purchases: number
+  conversion_rate: number
+}
+
+export interface ObjectionHandlingImpact {
+  no_objections: ObjectionHandlingBucket
+  all_resolved: ObjectionHandlingBucket
+  some_unresolved: ObjectionHandlingBucket
 }
 
 export interface SentimentData {

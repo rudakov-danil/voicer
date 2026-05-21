@@ -13,13 +13,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.llm_client import get_llm_client
-from app.models import Conversation, ConversationScriptResult, ConversationScore, Objection
+from app.models import (
+    Conversation, ConversationScriptResult, ConversationScore, Objection,
+    ConversationComplianceViolation,
+)
 from app.prompt_builder import (
     build_script_prompt,
     build_general_prompt,
     build_redaction_prompt,
     build_upsell_prompt,
     build_crosssell_prompt,
+    build_compliance_prompt,
     screen_contextual_script,
 )
 from app.rabbitmq import publish
@@ -28,6 +32,7 @@ from app.response_parser import (
     parse_general_analysis_response,
     parse_redaction_response,
     parse_upsell_response,
+    parse_compliance_response,
     LLMResponseParseError,
 )
 from app.scorer import calculate_script_score, calculate_overall_score
@@ -74,6 +79,22 @@ async def _fetch_upsell_rules(organization_id: str, store_id: str) -> list[dict]
             logger.warning("Failed to fetch upsell rules for org=%s store=%s: %s", organization_id, store_id, e)
             return []
     return [r for r in resp.json().get("items", []) if r.get("is_active")]
+
+
+async def _fetch_compliance_rules(organization_id: str) -> list[dict]:
+    """Активные правила коммуникации (комплаенс) уровня организации."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.get(
+                f"{settings.SCRIPTS_SERVICE_URL}/api/v1/scripts/compliance-rules",
+                params={"organization_id": organization_id, "only_active": "true"},
+                headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY},
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            logger.warning("Failed to fetch compliance rules for org=%s: %s", organization_id, e)
+            return []
+    return resp.json().get("items", [])
 
 
 async def _fetch_crosssell_rules(organization_id: str, store_id: str) -> list[dict]:
@@ -252,6 +273,50 @@ async def _check_sell(
     return has_any_offered, details
 
 
+async def _check_compliance(
+    segments: list[dict],
+    rules: list[dict],
+    llm_client,
+) -> list[dict]:
+    """Проверяет соблюдение правил коммуникации (комплаенс) через LLM.
+
+    Возвращает список нарушений [{rule_id, rule_title, severity, evidence, explanation}].
+    Пустой список — нарушений нет либо LLM упал.
+    """
+    if not rules:
+        return []
+
+    system, user = build_compliance_prompt(segments, rules)
+    try:
+        response = await llm_client.chat.completions.create(
+            model=settings.LLM_MODEL_NAME,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.0,
+            max_tokens=settings.LLM_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            timeout=settings.LLM_GENERAL_TIMEOUT,
+        )
+        parsed = parse_compliance_response(response.choices[0].message.content)
+    except Exception as e:
+        logger.error("Compliance check failed: %s", e)
+        return []
+
+    rules_by_id = {str(r["id"]): r for r in rules}
+    out: list[dict] = []
+    for v in parsed.violations:
+        rule = rules_by_id.get(v.rule_id)
+        if not rule:
+            continue
+        out.append({
+            "rule_id": v.rule_id,
+            "rule_title": rule.get("title", ""),
+            "severity": rule.get("severity", "medium"),
+            "evidence": (v.evidence or "").strip(),
+            "explanation": (v.explanation or "").strip(),
+        })
+    return out
+
+
 # Совместимость: внешний код вызывает _check_upsell — оставляем как тонкую обёртку.
 async def _check_upsell(segments, rules, llm_client):
     return await _check_sell(segments, rules, llm_client, kind="upsell")
@@ -382,13 +447,14 @@ async def process_analyze_message(
             logger.error("Invalid message format: %s", e)
             return  # ACK bad message, don't retry
 
-        # Step 1: Fetch transcript, scripts, upsell + crosssell rules in parallel
+        # Step 1: Fetch transcript, scripts, upsell + crosssell + compliance rules in parallel
         try:
-            segments, scripts, upsell_rules, crosssell_rules = await asyncio.gather(
+            segments, scripts, upsell_rules, crosssell_rules, compliance_rules = await asyncio.gather(
                 _fetch_transcript(recording_id),
                 _fetch_scripts(seller_id, organization_id, store_id),
                 _fetch_upsell_rules(organization_id, store_id),
                 _fetch_crosssell_rules(organization_id, store_id),
+                _fetch_compliance_rules(organization_id),
             )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -446,13 +512,15 @@ async def process_analyze_message(
         applied_scores = [r["script_score"] for r in scored_results]
         overall_score = calculate_overall_score(applied_scores)
 
-        # Step 5.1: Upsell + cross-sell rule checks (по отдельному LLM-проходу для каждого).
-        # Запускаем параллельно — независимые задачи.
+        # Step 5.1: Upsell + cross-sell + compliance checks параллельно — независимые LLM-проходы.
         has_upsell_task = _check_sell(segments, upsell_rules, llm_client, kind="upsell")
         has_crosssell_task = _check_sell(segments, crosssell_rules, llm_client, kind="crosssell")
-        (has_upsell, upsell_details), (has_crosssell, crosssell_details) = await asyncio.gather(
-            has_upsell_task, has_crosssell_task
-        )
+        compliance_task = _check_compliance(segments, compliance_rules, llm_client)
+        (
+            (has_upsell, upsell_details),
+            (has_crosssell, crosssell_details),
+            compliance_violations,
+        ) = await asyncio.gather(has_upsell_task, has_crosssell_task, compliance_task)
 
         # Step 5.5: Anonymize transcripts if privacy setting is enabled.
         # Анализ уже отработал на оригинале (имена и т.п. помогают LLM понять контекст),
@@ -465,7 +533,7 @@ async def process_analyze_message(
             except Exception as e:
                 logger.error("Transcript redaction failed for %s: %s", recording_id, e)
 
-            # 2) Собираем все evidence + raw_text одним батчем, редактируем, раскладываем обратно
+            # 2) Собираем все evidence + raw_text + compliance evidence одним батчем, редактируем
             evidence_items: list[tuple[dict, str]] = []  # (step_score_obj, evidence)
             objection_items: list[dict] = list(general.get("objections", []))
 
@@ -474,14 +542,22 @@ async def process_analyze_message(
                     if ss.evidence:
                         evidence_items.append((ss, ss.evidence))
 
-            quotes = [ev for _, ev in evidence_items] + [o.get("raw_text", "") for o in objection_items]
+            quotes = (
+                [ev for _, ev in evidence_items]
+                + [o.get("raw_text", "") for o in objection_items]
+                + [cv.get("evidence", "") for cv in compliance_violations]
+            )
             if quotes:
                 try:
                     redacted_quotes = await _redact_texts(quotes, llm_client)
-                    for (ss, _), new_text in zip(evidence_items, redacted_quotes[:len(evidence_items)]):
+                    n_ev = len(evidence_items)
+                    n_obj = len(objection_items)
+                    for (ss, _), new_text in zip(evidence_items, redacted_quotes[:n_ev]):
                         ss.evidence = new_text
-                    for obj, new_text in zip(objection_items, redacted_quotes[len(evidence_items):]):
+                    for obj, new_text in zip(objection_items, redacted_quotes[n_ev:n_ev + n_obj]):
                         obj["raw_text"] = new_text
+                    for cv, new_text in zip(compliance_violations, redacted_quotes[n_ev + n_obj:]):
+                        cv["evidence"] = new_text
                     general["objections"] = objection_items
                 except Exception as e:
                     logger.error("Evidence/raw_text redaction failed for %s: %s", recording_id, e)
@@ -570,6 +646,23 @@ async def process_analyze_message(
                 is_resolved=obj["is_resolved"],
                 resolution_technique=obj.get("resolution_technique"),
                 raw_text=obj["raw_text"],
+                sort_order=i,
+            ))
+
+        # Compliance violations
+        for i, cv in enumerate(compliance_violations):
+            try:
+                rule_uuid = uuid.UUID(cv["rule_id"])
+            except (KeyError, ValueError):
+                logger.warning("Skipping compliance violation with bad rule_id: %r", cv)
+                continue
+            db.add(ConversationComplianceViolation(
+                conversation_id=conv.id,
+                rule_id=rule_uuid,
+                rule_title=cv.get("rule_title", "")[:255],
+                severity=cv.get("severity", "medium"),
+                evidence=cv.get("evidence", ""),
+                explanation=cv.get("explanation", ""),
                 sort_order=i,
             ))
 

@@ -52,11 +52,11 @@ async def check_and_send_score_alert(
         try:
             await send_alert_email(
                 recipients=row.email_recipients,
-                subject=f"[VoiceIQ] Низкий скор продавца: {overall_score:.0f}",
+                subject=f"[Voicer] Низкий скор продавца: {overall_score:.0f}",
                 body=(
                     f"Разговор в магазине получил оценку {overall_score:.0f} из 100, "
                     f"что ниже порога {float(row.score_threshold):.0f}.\n\n"
-                    f"Перейти в дашборд: https://app.voiceiq.ru"
+                    f"Перейти в дашборд: https://app.voicer.ru"
                 ),
             )
         except Exception as e:

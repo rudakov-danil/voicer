@@ -3,6 +3,14 @@ import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { useState } from 'react'
 
+const PAGES_WITH_PERIOD = new Set<string>([
+  '/dashboard',
+  '/conversations',
+  '/team',
+  '/analytics',
+  '/compliance',
+])
+
 export function AppLayout() {
   const [period, setPeriod] = useState(30)
   const location = useLocation()
@@ -17,16 +25,22 @@ export function AppLayout() {
     '/training': 'Обучение',
     '/compliance': 'Комплаенс',
     '/settings': 'Настройки',
-    '/admin': 'Администрирование'
+    '/admin': 'Администрирование',
   }
 
-  const currentTitle = pageTitles[location.pathname] || 'VoiceIQ'
+  const currentTitle = pageTitles[location.pathname] || 'Voicer'
+  const showPeriod = PAGES_WITH_PERIOD.has(location.pathname)
 
   return (
     <>
       <Sidebar />
       <div className="main">
-        <Topbar title={currentTitle} onPeriodChange={setPeriod} period={period} />
+        <Topbar
+          title={currentTitle}
+          onPeriodChange={setPeriod}
+          period={period}
+          showPeriod={showPeriod}
+        />
         <div className="content">
           <Outlet context={{ period }} />
         </div>

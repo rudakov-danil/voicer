@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Wrench
 } from 'lucide-react'
+import { VoicerLogo } from '@/components/VoicerLogo'
 
 const COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981']
 
@@ -40,14 +41,20 @@ export function Sidebar() {
 
   const isAdmin = user?.role === 'director' || user?.role === 'admin'
 
-  const navigationItems = [
+  const navigationItems: Array<{
+    path: string
+    label: string
+    icon: typeof LayoutGrid
+    group: string
+    comingSoon?: boolean
+  }> = [
     { path: '/dashboard', label: 'Обзор', icon: LayoutGrid, group: 'Основное' },
     { path: '/conversations', label: 'Разговоры', icon: Mic2, group: 'Основное' },
     { path: '/team', label: 'Команда', icon: Users, group: 'Основное' },
     { path: '/scripts', label: 'Скрипты', icon: CheckSquare, group: 'Основное' },
     { path: '/analytics', label: 'Аналитика', icon: BarChart3, group: 'Аналитика' },
-    { path: '/intelligence', label: 'Разведка', icon: Globe, group: 'Аналитика' },
-    { path: '/training', label: 'Обучение', icon: GraduationCap, group: 'Управление' },
+    { path: '/intelligence', label: 'Разведка', icon: Globe, group: 'Аналитика', comingSoon: true },
+    { path: '/training', label: 'Обучение', icon: GraduationCap, group: 'Управление', comingSoon: true },
     { path: '/compliance', label: 'Комплаенс', icon: Shield, group: 'Управление' },
     { path: '/settings', label: 'Настройки', icon: SettingsIcon, group: 'Управление' }
   ]
@@ -76,13 +83,8 @@ export function Sidebar() {
     <div className="sidebar">
       <div className="sidebar-header">
         <div className="logo">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <rect x="2" y="2" width="8" height="8" fill="#2563EB" rx="2" />
-            <rect x="14" y="2" width="8" height="8" fill="#60A5FA" rx="2" />
-            <rect x="2" y="14" width="8" height="8" fill="#60A5FA" rx="2" />
-            <rect x="14" y="14" width="8" height="8" fill="#2563EB" rx="2" />
-          </svg>
-          <span className="logo-text">VoiceIQ</span>
+          <VoicerLogo size={22} light />
+          <span className="logo-text">Voicer</span>
         </div>
       </div>
 
@@ -93,11 +95,29 @@ export function Sidebar() {
             {items.map((item) => (
               <button
                 key={item.path}
-                onClick={() => navigate(item.path)}
-                className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
+                onClick={() => { if (!item.comingSoon) navigate(item.path) }}
+                disabled={item.comingSoon}
+                className={`nav-item ${isActive(item.path) ? 'active' : ''} ${item.comingSoon ? 'coming-soon' : ''}`}
+                style={item.comingSoon ? { cursor: 'not-allowed', opacity: 0.55 } : undefined}
+                title={item.comingSoon ? 'Раздел в разработке' : undefined}
               >
                 <item.icon size={16} />
-                {item.label}
+                <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>
+                {item.comingSoon && (
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: 0.4,
+                    padding: '2px 6px',
+                    borderRadius: 6,
+                    background: 'var(--warning)',
+                    color: '#fff',
+                    textTransform: 'uppercase',
+                    lineHeight: 1,
+                  }}>
+                    Скоро
+                  </span>
+                )}
               </button>
             ))}
           </div>

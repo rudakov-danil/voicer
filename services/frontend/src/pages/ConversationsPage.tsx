@@ -10,6 +10,7 @@ import { AudioPlayer } from '@/components/AudioPlayer'
 import { AudioUploadModal } from '@/components/AudioUpload'
 import { TranscriptUploadModal } from '@/components/TranscriptUpload'
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { useSearchParams, useOutletContext } from 'react-router-dom'
 import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, X, FileText } from 'lucide-react'
 import { MultiSelect } from '@/components/scripts/MultiSelect'
 import {
@@ -25,8 +26,8 @@ type SortDir = 'asc' | 'desc'
 
 const OUTCOME_LABELS: Record<string, string> = {
   purchase: 'Покупка',
-  deferred: 'Отложил',
-  price_objection: 'Ценовой отказ',
+  deferred: 'Отложено',
+  price_refusal: 'Отказ по цене',
   competitor: 'Ушёл к конкурентам',
   unknown: 'Не определён',
 }
@@ -47,22 +48,40 @@ function objectionTypeLabel(type: string | undefined | null): string {
 }
 
 // ─── Sell badges ──────────────────────────────────────────────────────────────
-function SellBadge({ has }: { has?: boolean | null }) {
-  if (has === true) return <span className="tag tag-success">Был предложен</span>
-  return <span className="tag tag-neutral">Нет</span>
+// Метрика — "продавец УПОМЯНУЛ апсейл/кросс-сейл", а не "клиент купил".
+// Это часть KPI продавца: попытка допродажи засчитывается, даже если клиент отказался.
+type SellAnalysisStatus = { status: string; matched: number; total: number; missed: string[] }
+
+function makeSellBadge(kind: 'upsell' | 'crosssell') {
+  const noRulesTitle = kind === 'upsell'
+    ? 'Правила апсейла не настроены для этого скрипта — система не знает, что считать апсейлом. Добавьте правила в разделе Скрипты.'
+    : 'Правила кросс-сейла не настроены — система не знает, что считать кросс-сейлом. Добавьте правила в разделе Скрипты.'
+  return function Badge({ analysis }: { analysis: SellAnalysisStatus }) {
+    if (analysis.status === 'complete' || analysis.status === 'partial') return (
+      <span
+        className="tag tag-success"
+        title={analysis.status === 'partial' && analysis.missed.length
+          ? `Упомянуто ${analysis.matched} из ${analysis.total}. Пропущено: ${analysis.missed.join(', ')}`
+          : `Упомянуто ${analysis.matched} из ${Math.max(analysis.total, analysis.matched)}`}
+      >
+        Да
+      </span>
+    )
+    if (analysis.status === 'missed') return <span className="tag tag-danger">Нет</span>
+    return (
+      <span
+        className="tag tag-neutral"
+        title={noRulesTitle}
+        style={{ cursor: 'help' }}
+      >
+        Правил нет
+      </span>
+    )
+  }
 }
 
-function CrossSellBadge({ analysis }: { analysis: { status: string; matched: number; total: number; missed: string[] } }) {
-  if (analysis.status === 'complete') return (
-    <span className="tag tag-success">Был предложен ({analysis.matched}/{Math.max(analysis.total, analysis.matched)})</span>
-  )
-  if (analysis.status === 'partial') return (
-    <span className="tag tag-warning" title={`Не предложено: ${analysis.missed.join(', ')}`}>
-      Частично ({analysis.matched}/{analysis.total})
-    </span>
-  )
-  return <span className="tag tag-neutral">Нет</span>
-}
+const SellBadge = makeSellBadge('upsell')
+const CrossSellBadge = makeSellBadge('crosssell')
 
 function HighlightLegend() {
   return (
@@ -273,18 +292,48 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
     return analyzeSell(crossSellRules as any, segments, storeId)
   }, [c.has_crosssell, crosssellResults, crossSellRules, segments, storeId])
 
+  // Анализ апсейла — симметрично кросс-сейлу: предпочитаем LLM-результат с бэка,
+  // фолбэк на клиентский матч по правилам. Раньше для апсейла фолбэка не было,
+  // поэтому при has_upsell=null показывалось "Правил нет", даже когда триггеры
+  // и офферы реально были в транскрипте.
+  const upsellAnalysis = useMemo(() => {
+    if (c.has_upsell !== null && c.has_upsell !== undefined && upsellResults.length > 0) {
+      let total = 0, matched = 0
+      const missed: string[] = []
+      for (const r of upsellResults) {
+        const required: string[] = r.required_offers || []
+        const offered: string[] = r.offered_items || []
+        total += required.length
+        matched += offered.length
+        for (const m of (r.missed_items || [])) missed.push(m)
+      }
+      let status: 'no-trigger' | 'complete' | 'partial' | 'missed' = 'no-trigger'
+      if (upsellResults.length > 0) {
+        if (total === 0) status = 'complete'
+        else if (matched === total) status = 'complete'
+        else if (matched === 0) status = 'missed'
+        else status = 'partial'
+      }
+      return { triggered: true, matched, total, missed, status }
+    }
+    return analyzeSell(upsellRules as any, segments, storeId)
+  }, [c.has_upsell, upsellResults, upsellRules, segments, storeId])
+
   const highlightRules: HighlightRule[] = useMemo(() => {
     const rules: HighlightRule[] = []
     for (const sr of scriptResults) {
       for (const step of (sr.step_scores || sr.steps || [])) {
         const evidence = (step.evidence || '').trim()
         if (!evidence) continue
-        const detected = step.detected !== false && (step.score > 0 || step.detected)
-        if (!detected) continue
+        const rawScore = Number(step.score ?? 0)
+        const isDetected = step.detected !== false && (rawScore > 0 || step.detected)
+        // Зелёным подсвечиваем только этапы, реально выполненные (≥70%).
+        // Частично выполненные не подсвечиваем — иначе вводит в заблуждение.
+        if (!isDetected || rawScore < 70) continue
         rules.push({
           text: evidence,
           kind: 'script-done',
-          tooltip: `Этап «${step.step_name || step.name}» — выполнен (${Math.round(step.score || 0)}%)`,
+          tooltip: `Этап «${step.step_name || step.name}» — выполнен (${Math.round(rawScore)}%)`,
         })
       }
     }
@@ -417,11 +466,20 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
             </div>
             <ul className="checklist">
               {(sr.step_scores || sr.steps || []).map((step: any, j: number) => {
-                const detected = step.detected !== false && (step.score > 0 || step.detected)
+                const rawScore = Number(step.score ?? 0)
+                const stepScore = Math.round(rawScore)
+                const isDetected = step.detected !== false && (rawScore > 0 || step.detected)
+                // ≥70 — выполнен, 40-69 — частично, <40 / не detected — провален
+                const status: 'done' | 'partial' | 'missed' =
+                  !isDetected || rawScore < 40 ? 'missed'
+                  : rawScore < 70 ? 'partial'
+                  : 'done'
+                const icon = status === 'done' ? '✓' : status === 'partial' ? '~' : '✕'
                 return (
                   <li key={j} className="checklist-item">
-                    <div className={`check-icon ${detected ? 'done' : 'missed'}`}>{detected ? '✓' : '✕'}</div>
-                    <span className={`checklist-text ${detected ? 'done' : 'missed'}`}>{step.step_name || step.name}</span>
+                    <div className={`check-icon ${status}`}>{icon}</div>
+                    <span className={`checklist-text ${status}`}>{step.step_name || step.name}</span>
+                    <span className={`checklist-score ${status}`}>{stepScore}%</span>
                   </li>
                 )
               })}
@@ -459,7 +517,7 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
       <div className="sell-summary">
         <div className="sell-summary-item">
           <div className="sell-summary-label">Апсейл</div>
-          <SellBadge has={c.has_upsell} />
+          <SellBadge analysis={upsellAnalysis} />
         </div>
         <div className="sell-summary-item">
           <div className="sell-summary-label">Кросс-сейл</div>
@@ -517,10 +575,21 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
+interface OutletContext { period: number }
+
 export function ConversationsPage() {
+  const { period } = useOutletContext<OutletContext>()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [page, setPage] = useState(1)
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(() => searchParams.get('conv'))
   const [selectedRec, setSelectedRec] = useState<any | null>(null)
+
+  useEffect(() => {
+    const conv = searchParams.get('conv')
+    if (conv && conv !== selectedConvId) setSelectedConvId(conv)
+    if (!conv && selectedConvId) setSelectedConvId(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
   const [showUpload, setShowUpload] = useState(false)
   const [showTranscriptUpload, setShowTranscriptUpload] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -539,7 +608,7 @@ export function ConversationsPage() {
   }, [])
 
   const { data: conversations, dataUpdatedAt: convAt } = useQuery({
-    queryKey: ['conversations', page, filters],
+    queryKey: ['conversations', page, filters, period],
     queryFn: () => dashboardApi.getConversations({
       page, limit: 20,
       store_id: filters.store_id || undefined,
@@ -547,6 +616,7 @@ export function ConversationsPage() {
       outcome: filters.outcome || undefined,
       score_min: filters.score_min,
       score_max: filters.score_max,
+      period,
     }),
     refetchInterval: 5000,
   })
@@ -817,16 +887,14 @@ export function ConversationsPage() {
                     <td style={{ color:'var(--text-secondary)' }}>{row.topic || '—'}</td>
                     <td style={{ textAlign:'center' }}><ScoreBadge score={row.overall_score} /></td>
                     <td style={{ textAlign:'center' }}>
-                      {row.has_upsell !== undefined && (
-                        <span className={`tag ${row.has_upsell ? 'tag-success' : 'tag-neutral'}`}>
-                          {row.has_upsell ? 'Да' : 'Нет'}
-                        </span>
-                      )}
+                      {row.has_upsell === true
+                        ? <span className="tag tag-success">Да</span>
+                        : <span className="tag tag-danger">Нет</span>}
                     </td>
                     <td style={{ textAlign:'center' }}>
-                      <span className="tag tag-neutral" title="Откройте разговор — точный анализ кросс-сейла появится в карточке">
-                        Нет
-                      </span>
+                      {row.has_crosssell === true
+                        ? <span className="tag tag-success">Да</span>
+                        : <span className="tag tag-danger">Нет</span>}
                     </td>
                     <td style={{ textAlign:'center' }}><OutcomeTag outcome={row.outcome} /></td>
                   </tr>
@@ -843,7 +911,19 @@ export function ConversationsPage() {
       </div>
 
       {/* Drawer */}
-      <Drawer isOpen={!!(selectedConvId || selectedRec)} onClose={() => { setSelectedConvId(null); setSelectedRec(null) }} title={drawerTitle}>
+      <Drawer
+        isOpen={!!(selectedConvId || selectedRec)}
+        onClose={() => {
+          setSelectedConvId(null)
+          setSelectedRec(null)
+          if (searchParams.get('conv')) {
+            const next = new URLSearchParams(searchParams)
+            next.delete('conv')
+            setSearchParams(next, { replace: true })
+          }
+        }}
+        title={drawerTitle}
+      >
         {selectedConvId && <ConversationDetail conversationId={selectedConvId} />}
         {selectedRec && !selectedConvId && <RecordingDetail recording={selectedRec} />}
       </Drawer>

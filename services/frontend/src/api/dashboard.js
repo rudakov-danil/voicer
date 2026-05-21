@@ -16,7 +16,16 @@ export const dashboardApi = {
         return response.data;
     },
     getConversations: async (params) => {
-        const response = await apiClient.get('/api/v1/dashboard/conversations', { params });
+        const apiParams = { ...params };
+        if (params.period && !params.date_from && !params.date_to) {
+            const to = new Date();
+            const from = new Date();
+            from.setDate(from.getDate() - params.period);
+            apiParams.date_from = from.toISOString().split('T')[0];
+            apiParams.date_to = to.toISOString().split('T')[0];
+        }
+        delete apiParams.period;
+        const response = await apiClient.get('/api/v1/dashboard/conversations', { params: apiParams });
         return response.data;
     },
     getConversationDetail: async (conversationId) => {
@@ -24,7 +33,21 @@ export const dashboardApi = {
         return response.data;
     },
     getSellers: async (params) => {
-        const response = await apiClient.get('/api/v1/dashboard/sellers', { params });
+        const apiParams = {};
+        if (params?.store_id)
+            apiParams.store_id = params.store_id;
+        if (params?.date_from)
+            apiParams.date_from = params.date_from;
+        if (params?.date_to)
+            apiParams.date_to = params.date_to;
+        if (params?.period && !params.date_from && !params.date_to) {
+            const to = new Date();
+            const from = new Date();
+            from.setDate(from.getDate() - params.period);
+            apiParams.date_from = from.toISOString().split('T')[0];
+            apiParams.date_to = to.toISOString().split('T')[0];
+        }
+        const response = await apiClient.get('/api/v1/dashboard/sellers', { params: apiParams });
         return (response.data.items || []).map((s) => ({
             id: s.seller_id,
             first_name: s.first_name || '',
@@ -39,8 +62,20 @@ export const dashboardApi = {
             score_trend: s.score_trend
         }));
     },
-    getSellerDetail: async (sellerId) => {
-        const response = await apiClient.get(`/api/v1/dashboard/sellers/${sellerId}/detail`);
+    getSellerDetail: async (sellerId, params) => {
+        const apiParams = {};
+        if (params?.date_from)
+            apiParams.date_from = params.date_from;
+        if (params?.date_to)
+            apiParams.date_to = params.date_to;
+        if (params?.period && !params.date_from && !params.date_to) {
+            const to = new Date();
+            const from = new Date();
+            from.setDate(from.getDate() - params.period);
+            apiParams.date_from = from.toISOString().split('T')[0];
+            apiParams.date_to = to.toISOString().split('T')[0];
+        }
+        const response = await apiClient.get(`/api/v1/dashboard/sellers/${sellerId}/detail`, { params: apiParams });
         return response.data;
     }
 };

@@ -151,7 +151,7 @@ class AlertSettingsResponse(BaseModel):
 
 class AlertSettingsUpdateRequest(BaseModel):
     store_id: Optional[UUID] = None
-    score_threshold: int = 60
+    score_threshold: int = 40
     no_activity_hours: Optional[int] = 4
     email_recipients: Optional[list[str]] = None
     is_active: bool = True

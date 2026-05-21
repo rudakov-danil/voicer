@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { LayoutGrid, Mic2, Users, CheckSquare, BarChart3, Globe, GraduationCap, Shield, Settings as SettingsIcon, LogOut, ChevronUp, Wrench } from 'lucide-react';
+import { VoicerLogo } from '@/components/VoicerLogo';
 const COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981'];
 export function Sidebar() {
     const location = useLocation();
@@ -28,8 +29,8 @@ export function Sidebar() {
         { path: '/team', label: 'Команда', icon: Users, group: 'Основное' },
         { path: '/scripts', label: 'Скрипты', icon: CheckSquare, group: 'Основное' },
         { path: '/analytics', label: 'Аналитика', icon: BarChart3, group: 'Аналитика' },
-        { path: '/intelligence', label: 'Разведка', icon: Globe, group: 'Аналитика' },
-        { path: '/training', label: 'Обучение', icon: GraduationCap, group: 'Управление' },
+        { path: '/intelligence', label: 'Разведка', icon: Globe, group: 'Аналитика', comingSoon: true },
+        { path: '/training', label: 'Обучение', icon: GraduationCap, group: 'Управление', comingSoon: true },
         { path: '/compliance', label: 'Комплаенс', icon: Shield, group: 'Управление' },
         { path: '/settings', label: 'Настройки', icon: SettingsIcon, group: 'Управление' }
     ];
@@ -50,7 +51,18 @@ export function Sidebar() {
         const index = user.id.charCodeAt(0) % COLORS.length;
         return COLORS[index];
     };
-    return (_jsxs("div", { className: "sidebar", children: [_jsx("div", { className: "sidebar-header", children: _jsxs("div", { className: "logo", children: [_jsxs("svg", { width: "24", height: "24", viewBox: "0 0 24 24", fill: "none", children: [_jsx("rect", { x: "2", y: "2", width: "8", height: "8", fill: "#2563EB", rx: "2" }), _jsx("rect", { x: "14", y: "2", width: "8", height: "8", fill: "#60A5FA", rx: "2" }), _jsx("rect", { x: "2", y: "14", width: "8", height: "8", fill: "#60A5FA", rx: "2" }), _jsx("rect", { x: "14", y: "14", width: "8", height: "8", fill: "#2563EB", rx: "2" })] }), _jsx("span", { className: "logo-text", children: "VoiceIQ" })] }) }), _jsx("nav", { className: "sidebar-nav", children: Object.entries(groupedItems).map(([group, items]) => (_jsxs("div", { children: [_jsx("div", { className: "nav-group-label", children: group }), items.map((item) => (_jsxs("button", { onClick: () => navigate(item.path), className: `nav-item ${isActive(item.path) ? 'active' : ''}`, children: [_jsx(item.icon, { size: 16 }), item.label] }, item.path)))] }, group))) }), _jsxs("div", { className: "sidebar-footer", ref: menuRef, style: { position: 'relative' }, children: [menuOpen && (_jsxs("div", { style: {
+    return (_jsxs("div", { className: "sidebar", children: [_jsx("div", { className: "sidebar-header", children: _jsxs("div", { className: "logo", children: [_jsx(VoicerLogo, { size: 22, light: true }), _jsx("span", { className: "logo-text", children: "Voicer" })] }) }), _jsx("nav", { className: "sidebar-nav", children: Object.entries(groupedItems).map(([group, items]) => (_jsxs("div", { children: [_jsx("div", { className: "nav-group-label", children: group }), items.map((item) => (_jsxs("button", { onClick: () => { if (!item.comingSoon)
+                                navigate(item.path); }, disabled: item.comingSoon, className: `nav-item ${isActive(item.path) ? 'active' : ''} ${item.comingSoon ? 'coming-soon' : ''}`, style: item.comingSoon ? { cursor: 'not-allowed', opacity: 0.55 } : undefined, title: item.comingSoon ? 'Раздел в разработке' : undefined, children: [_jsx(item.icon, { size: 16 }), _jsx("span", { style: { flex: 1, textAlign: 'left' }, children: item.label }), item.comingSoon && (_jsx("span", { style: {
+                                        fontSize: 9,
+                                        fontWeight: 700,
+                                        letterSpacing: 0.4,
+                                        padding: '2px 6px',
+                                        borderRadius: 6,
+                                        background: 'var(--warning)',
+                                        color: '#fff',
+                                        textTransform: 'uppercase',
+                                        lineHeight: 1,
+                                    }, children: "\u0421\u043A\u043E\u0440\u043E" }))] }, item.path)))] }, group))) }), _jsxs("div", { className: "sidebar-footer", ref: menuRef, style: { position: 'relative' }, children: [menuOpen && (_jsxs("div", { style: {
                             position: 'absolute', bottom: '100%', left: 8, right: 8,
                             background: 'var(--bg-card)', border: '1px solid var(--border)',
                             borderRadius: 8, boxShadow: '0 -4px 12px rgba(0,0,0,0.1)',

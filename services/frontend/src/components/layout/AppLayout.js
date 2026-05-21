@@ -3,6 +3,13 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { useState } from 'react';
+const PAGES_WITH_PERIOD = new Set([
+    '/dashboard',
+    '/conversations',
+    '/team',
+    '/analytics',
+    '/compliance',
+]);
 export function AppLayout() {
     const [period, setPeriod] = useState(30);
     const location = useLocation();
@@ -16,8 +23,9 @@ export function AppLayout() {
         '/training': 'Обучение',
         '/compliance': 'Комплаенс',
         '/settings': 'Настройки',
-        '/admin': 'Администрирование'
+        '/admin': 'Администрирование',
     };
-    const currentTitle = pageTitles[location.pathname] || 'VoiceIQ';
-    return (_jsxs(_Fragment, { children: [_jsx(Sidebar, {}), _jsxs("div", { className: "main", children: [_jsx(Topbar, { title: currentTitle, onPeriodChange: setPeriod, period: period }), _jsx("div", { className: "content", children: _jsx(Outlet, { context: { period } }) })] })] }));
+    const currentTitle = pageTitles[location.pathname] || 'Voicer';
+    const showPeriod = PAGES_WITH_PERIOD.has(location.pathname);
+    return (_jsxs(_Fragment, { children: [_jsx(Sidebar, {}), _jsxs("div", { className: "main", children: [_jsx(Topbar, { title: currentTitle, onPeriodChange: setPeriod, period: period, showPeriod: showPeriod }), _jsx("div", { className: "content", children: _jsx(Outlet, { context: { period } }) })] })] }));
 }

@@ -8,8 +8,6 @@ import { ConversationsPage } from '@/pages/ConversationsPage'
 import { TeamPage } from '@/pages/TeamPage'
 import { ScriptsPage } from '@/pages/ScriptsPage'
 import { AnalyticsPage } from '@/pages/AnalyticsPage'
-import { IntelligencePage } from '@/pages/IntelligencePage'
-import { TrainingPage } from '@/pages/TrainingPage'
 import { CompliancePage } from '@/pages/CompliancePage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { AdminPage } from '@/pages/AdminPage'
@@ -37,8 +35,8 @@ export default function App() {
               <Route path="team" element={<TeamPage />} />
               <Route path="scripts" element={<ScriptsPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
-              <Route path="intelligence" element={<IntelligencePage />} />
-              <Route path="training" element={<TrainingPage />} />
+              <Route path="intelligence" element={<Navigate to="/dashboard" replace />} />
+              <Route path="training" element={<Navigate to="/dashboard" replace />} />
               <Route path="compliance" element={<CompliancePage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="admin" element={<AdminPage />} />

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { scriptsApi } from '@/api/scripts'
-import { ArrowRight, Minus, Plus, RefreshCw } from 'lucide-react'
+import { ArrowRight, Minus, Plus, RefreshCw, FileText } from 'lucide-react'
 
 type Step = {
   id?: string
@@ -80,6 +80,22 @@ export function StructuralDiff({
   const stepsB = fromSnapshot(b.snapshot)
   const entries = diff(stepsA, stepsB)
 
+  // Top-level метаданные шаблона — название, описание и контекст.
+  // Если их поменяли без правок этапов, diff раньше говорил «идентичны», что
+  // вводило в заблуждение.
+  const topLevelChanges: Array<{ label: string; from: string; to: string }> = []
+  const snapA = a.snapshot || {}
+  const snapB = b.snapshot || {}
+  const compareField = (key: string, label: string) => {
+    const va = (snapA[key] ?? '').toString().trim()
+    const vb = (snapB[key] ?? '').toString().trim()
+    if (va !== vb) topLevelChanges.push({ label, from: va, to: vb })
+  }
+  compareField('name', 'Название скрипта')
+  compareField('short_name', 'Короткое название')
+  compareField('description', 'Описание скрипта')
+  compareField('context_description', 'Контекст для LLM')
+
   const added = entries.filter((e) => e.kind === 'added').length
   const removed = entries.filter((e) => e.kind === 'removed').length
   const changed = entries.filter((e) => e.kind === 'changed').length
@@ -91,6 +107,38 @@ export function StructuralDiff({
         <span className="diff-pill diff-pill--del"><Minus size={11} /> {removed} удалено</span>
         <span className="diff-pill diff-pill--chg"><RefreshCw size={11} /> {changed} изменено</span>
       </div>
+
+      {topLevelChanges.length > 0 && (
+        <div className="diff-list" style={{ marginBottom: 10 }}>
+          {topLevelChanges.map((c, i) => (
+            <div key={`top-${i}`} className="diff-row diff-row--chg">
+              <span className="diff-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <FileText size={11} /> Шапка
+              </span>
+              <div className="diff-step">
+                <div className="diff-step-name">{c.label}</div>
+                <div className="diff-step-changes">
+                  <span className="diff-change" style={{ maxWidth: '100%' }}>
+                    <span style={{
+                      color: 'var(--text-muted)', textDecoration: 'line-through',
+                      maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block',
+                    }}>
+                      {c.from || '∅'}
+                    </span>
+                    <ArrowRight size={10} style={{ margin: '0 6px', flexShrink: 0 }} />
+                    <span style={{
+                      color: 'var(--text)', fontWeight: 500,
+                      maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block',
+                    }}>
+                      {c.to || '∅'}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="diff-list">
         {entries.map((e, i) => {
@@ -146,8 +194,8 @@ export function StructuralDiff({
             </div>
           )
         })}
-        {added + removed + changed === 0 && (
-          <div className="diff-empty">Структурно версии идентичны — изменений в этапах нет.</div>
+        {added + removed + changed === 0 && topLevelChanges.length === 0 && (
+          <div className="diff-empty">Структурно версии идентичны — изменений нет.</div>
         )}
       </div>
     </div>

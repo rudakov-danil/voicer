@@ -3,9 +3,10 @@ import { PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recha
 interface DonutChartWidgetProps {
   data: Array<{ name: string; value: number; color: string }>
   height?: number
+  valueSuffix?: string
 }
 
-export function DonutChartWidget({ data, height = 240 }: DonutChartWidgetProps) {
+export function DonutChartWidget({ data, height = 240, valueSuffix = '' }: DonutChartWidgetProps) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <PieChart>
@@ -29,6 +30,7 @@ export function DonutChartWidget({ data, height = 240 }: DonutChartWidgetProps) 
             borderRadius: '8px'
           }}
           labelStyle={{ color: 'var(--text)' }}
+          formatter={(value: number, name: string) => [`${value}${valueSuffix}`, name]}
         />
         <Legend />
       </PieChart>

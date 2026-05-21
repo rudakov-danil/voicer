@@ -185,6 +185,7 @@ async def generate_with_ai(
         user_msg += f"\nДополнительные пожелания: {body.extra_notes.strip()}"
 
     llm = get_llm_client()
+    raw: str | None = None
     try:
         resp = await llm.chat.completions.create(
             model=settings.LLM_MODEL_NAME,
@@ -197,22 +198,58 @@ async def generate_with_ai(
             response_format={"type": "json_object"},
             timeout=settings.LLM_TIMEOUT,
         )
-        raw = resp.choices[0].message.content
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.error("LLM returned invalid JSON: %s", e)
-        raise HTTPException(status_code=502, detail="LLM returned invalid JSON")
+        raw = (resp.choices[0].message.content or "").strip()
     except Exception as e:
-        logger.exception("LLM generation failed")
-        raise HTTPException(status_code=502, detail=f"LLM error: {e}")
+        logger.exception("LLM call failed")
+        # APIStatusError несёт code/status — пробрасываем читаемое сообщение
+        status_code = getattr(e, "status_code", None)
+        if status_code:
+            raise HTTPException(
+                status_code=502,
+                detail=f"LLM сервер вернул {status_code}: {getattr(e, 'message', str(e))}",
+            )
+        raise HTTPException(status_code=502, detail=f"LLM недоступен: {e}")
+
+    # LLM иногда оборачивает JSON в ```json … ``` или вставляет преамбулу.
+    # Пытаемся аккуратно достать JSON-объект перед парсингом.
+    json_text = raw
+    if json_text.startswith("```"):
+        # снимаем код-блок
+        json_text = json_text.strip("`")
+        # язык на первой строке
+        first_nl = json_text.find("\n")
+        if first_nl > 0 and not json_text[:first_nl].strip().startswith("{"):
+            json_text = json_text[first_nl + 1:]
+        json_text = json_text.rstrip("`").strip()
+    # Если есть текст до/после JSON — вырезаем по фигурным скобкам
+    if not json_text.startswith("{"):
+        i = json_text.find("{")
+        j = json_text.rfind("}")
+        if i >= 0 and j > i:
+            json_text = json_text[i:j + 1]
+
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        logger.error("LLM returned invalid JSON: %s\nRaw output:\n%s", e, raw)
+        raise HTTPException(
+            status_code=502,
+            detail="LLM вернула невалидный JSON. Попробуйте уточнить тему и повторить.",
+        )
 
     # Нормализация и валидация
     if not isinstance(data, dict) or "steps" not in data:
-        raise HTTPException(status_code=502, detail="LLM response missing 'steps'")
+        raise HTTPException(
+            status_code=502,
+            detail="В ответе LLM нет поля 'steps'. Попробуйте уточнить тему и повторить.",
+        )
 
     steps_in = data.get("steps") or []
     if not steps_in or len(steps_in) < 2:
-        raise HTTPException(status_code=502, detail="LLM returned too few steps")
+        raise HTTPException(
+            status_code=502,
+            detail="LLM вернула слишком мало этапов. Попробуйте дать более подробную тему.",
+        )
 
     # Если веса не суммируются в 1 — нормализуем
     weights = [float(s.get("weight") or 0) for s in steps_in]

@@ -42,7 +42,7 @@ export function MultiSelect({
   const popoverRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null)
 
   const showSearch = searchable ?? options.length > 5
 
@@ -68,7 +68,12 @@ export function MultiSelect({
     const el = triggerRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, left: r.left, width: popoverWidth ?? r.width })
+    const vh = window.innerHeight
+    const margin = 8
+    const gap = 4
+    const spaceBelow = vh - r.bottom - margin
+    const maxHeight = Math.min(360, Math.max(120, spaceBelow - gap))
+    setPos({ top: r.bottom + gap, left: r.left, width: popoverWidth ?? r.width, maxHeight })
   }, [popoverWidth])
 
   useEffect(() => {
@@ -109,6 +114,7 @@ export function MultiSelect({
 
   const selectedMap = useMemo(() => new Set(selected), [selected])
   const selectedLabels = options.filter((o) => selectedMap.has(o.id))
+  const prependSelected = !!prependOption && selected.length === 1 && selected[0] === prependOption.id
 
   return (
     <>
@@ -122,8 +128,11 @@ export function MultiSelect({
         aria-expanded={open}
       >
         <span className="ms-value">
-          {selectedLabels.length === 0 && (
+          {selectedLabels.length === 0 && !prependSelected && (
             <span className="ms-placeholder">{placeholder}</span>
+          )}
+          {prependSelected && prependOption && (
+            <span className="ms-single-value ms-single-value--prepend">{prependOption.label}</span>
           )}
           {!single && selectedLabels.slice(0, 3).map((o) => (
             <span key={o.id} className="ms-chip" onClick={(e) => { e.stopPropagation(); toggle(o.id) }}>
@@ -134,7 +143,7 @@ export function MultiSelect({
           {!single && selectedLabels.length > 3 && (
             <span className="ms-chip ms-chip--more">+{selectedLabels.length - 3}</span>
           )}
-          {single && selectedLabels[0] && (
+          {single && !prependSelected && selectedLabels[0] && (
             <span className="ms-single-value">{selectedLabels[0].label}</span>
           )}
         </span>
@@ -145,7 +154,7 @@ export function MultiSelect({
         <div
           ref={popoverRef}
           className="ms-popover"
-          style={{ top: pos.top, left: pos.left, width: pos.width }}
+          style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
           role="listbox"
         >
           {showSearch && (

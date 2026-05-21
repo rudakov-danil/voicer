@@ -244,7 +244,11 @@ async def replace_template(
         db.add(step)
 
     await db.flush()
-    # Снимаем версию НОВОГО состояния — храним полную историю
+    # Снимаем версию НОВОГО состояния — храним полную историю.
+    # Важно: после delete+add на коллекции template.steps идентичный объект может
+    # лежать в session с устаревшей relationship. Принудительно expire, чтобы
+    # selectinload пересобрал steps из БД.
+    db.expire(template, ["steps"])
     refreshed = (await db.execute(
         select(ScriptTemplate)
         .options(selectinload(ScriptTemplate.steps))

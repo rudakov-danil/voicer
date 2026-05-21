@@ -4,9 +4,17 @@ interface LineChartWidgetProps {
   data: Array<{ label: string; value: number }>
   color?: string
   height?: number
+  valueLabel?: string
+  valueSuffix?: string
 }
 
-export function LineChartWidget({ data, color = '#2563EB', height = 240 }: LineChartWidgetProps) {
+export function LineChartWidget({
+  data,
+  color = '#2563EB',
+  height = 240,
+  valueLabel = 'Значение',
+  valueSuffix = '',
+}: LineChartWidgetProps) {
   const chartData = data.map((d) => ({
     name: d.label,
     value: d.value
@@ -25,10 +33,12 @@ export function LineChartWidget({ data, color = '#2563EB', height = 240 }: LineC
             borderRadius: '8px'
           }}
           labelStyle={{ color: 'var(--text)' }}
+          formatter={(value: number) => [`${value}${valueSuffix}`, valueLabel]}
         />
         <Line
           type="monotone"
           dataKey="value"
+          name={valueLabel}
           stroke={color}
           strokeWidth={2}
           dot={{ fill: color, r: 4 }}

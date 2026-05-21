@@ -4,8 +4,12 @@ export const analyticsApi = {
         const response = await apiClient.get('/api/v1/dashboard/objections/distribution', { params });
         return response.data;
     },
-    getObjectionsCorrelation: async (params) => {
-        const response = await apiClient.get('/api/v1/dashboard/objections/techniques', { params });
+    getObjectionsResolution: async (params) => {
+        const response = await apiClient.get('/api/v1/dashboard/objections/resolution', { params });
+        return response.data;
+    },
+    getObjectionsImpact: async (params) => {
+        const response = await apiClient.get('/api/v1/dashboard/objections/impact', { params });
         return response.data;
     },
     getConversionFunnel: async (params) => {
@@ -14,6 +18,18 @@ export const analyticsApi = {
     },
     getConversionByStore: async (params) => {
         const response = await apiClient.get('/api/v1/dashboard/conversion/by-store', { params });
+        return response.data;
+    },
+    getConversionBySeller: async (params) => {
+        const response = await apiClient.get('/api/v1/dashboard/conversion/by-seller', { params });
+        return response.data;
+    },
+    getConversionOutcomes: async (params) => {
+        const response = await apiClient.get('/api/v1/dashboard/conversion/outcomes', { params });
+        return response.data;
+    },
+    getObjectionHandlingImpact: async (params) => {
+        const response = await apiClient.get('/api/v1/dashboard/conversion/objection-handling-impact', { params });
         return response.data;
     },
     getSentiment: async (params) => {

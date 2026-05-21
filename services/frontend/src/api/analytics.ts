@@ -1,9 +1,13 @@
 import apiClient from './client'
 import type {
   ObjectionDistribution,
-  ObjectionCorrelation,
+  ObjectionResolution,
+  ObjectionImpact,
   ConversionFunnel,
   ConversionByStore,
+  ConversionBySeller,
+  OutcomeDistribution,
+  ObjectionHandlingImpact,
   SentimentData,
   SentimentTrend,
   CompetitorMention,
@@ -21,9 +25,17 @@ export const analyticsApi = {
     return response.data
   },
 
-  getObjectionsCorrelation: async (params?: { period?: number; store_id?: string }) => {
-    const response = await apiClient.get<ObjectionCorrelation[]>(
-      '/api/v1/dashboard/objections/techniques',
+  getObjectionsResolution: async (params?: { period?: number; store_id?: string }) => {
+    const response = await apiClient.get<ObjectionResolution[]>(
+      '/api/v1/dashboard/objections/resolution',
+      { params }
+    )
+    return response.data
+  },
+
+  getObjectionsImpact: async (params?: { period?: number; store_id?: string }) => {
+    const response = await apiClient.get<ObjectionImpact>(
+      '/api/v1/dashboard/objections/impact',
       { params }
     )
     return response.data
@@ -40,6 +52,30 @@ export const analyticsApi = {
   getConversionByStore: async (params?: { period?: number }) => {
     const response = await apiClient.get<ConversionByStore[]>(
       '/api/v1/dashboard/conversion/by-store',
+      { params }
+    )
+    return response.data
+  },
+
+  getConversionBySeller: async (params?: { period?: number; store_id?: string }) => {
+    const response = await apiClient.get<ConversionBySeller[]>(
+      '/api/v1/dashboard/conversion/by-seller',
+      { params }
+    )
+    return response.data
+  },
+
+  getConversionOutcomes: async (params?: { period?: number; store_id?: string }) => {
+    const response = await apiClient.get<OutcomeDistribution[]>(
+      '/api/v1/dashboard/conversion/outcomes',
+      { params }
+    )
+    return response.data
+  },
+
+  getObjectionHandlingImpact: async (params?: { period?: number; store_id?: string }) => {
+    const response = await apiClient.get<ObjectionHandlingImpact>(
+      '/api/v1/dashboard/conversion/objection-handling-impact',
       { params }
     )
     return response.data

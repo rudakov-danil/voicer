@@ -1,12 +1,13 @@
 import { useOutletContext, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
+import { notificationsApi } from '@/api/notifications'
 import { LineChartWidget } from '@/components/charts/LineChartWidget'
 import { BarChartWidget } from '@/components/charts/BarChartWidget'
 import { DonutChartWidget } from '@/components/charts/DonutChartWidget'
 import { ScoreBadge } from '@/components/ScoreBadge'
 import { OutcomeTag } from '@/components/OutcomeTag'
-import { AlertCircle, Info } from 'lucide-react'
+import { AlertCircle, ChevronRight, ShieldAlert } from 'lucide-react'
 
 interface OutletContext {
   period: number
@@ -15,15 +16,15 @@ interface OutletContext {
 const OUTCOME_COLORS: Record<string, string> = {
   purchase: '#16A34A',
   deferred: '#D97706',
-  price_objection: '#DC2626',
+  price_refusal: '#DC2626',
   competitor: '#7C3AED',
   unknown: '#94A3B8',
 }
 
 const OUTCOME_LABELS: Record<string, string> = {
   purchase: 'Покупка',
-  deferred: 'Отложил',
-  price_objection: 'Ценовой отказ',
+  deferred: 'Отложено',
+  price_refusal: 'Отказ по цене',
   competitor: 'Ушёл к конкурентам',
   unknown: 'Не определён',
 }
@@ -47,6 +48,12 @@ export function DashboardPage() {
   const { data: sellers } = useQuery({
     queryKey: ['sellers-for-dashboard'],
     queryFn: () => dashboardApi.getSellers(),
+  })
+
+  const { data: notifications } = useQuery({
+    queryKey: ['dashboard-notifications', period],
+    queryFn: () => notificationsApi.listFull({ limit: 5, days: period }),
+    staleTime: 30_000,
   })
 
   if (isLoading) {
@@ -80,8 +87,10 @@ export function DashboardPage() {
     color: OUTCOME_COLORS[o.outcome] || '#94A3B8',
   }))
 
-  // Avg check
-  const avgCheck = overview?.avg_check || 0
+  // Сводка по уведомлениям (нарушения комплаенса + низкий скор)
+  const notificationsTotal = notifications?.total ?? 0
+  const notificationsItems = notifications?.items ?? []
+  const scoreThreshold = notifications?.score_threshold ?? 40
 
   return (
     <div>
@@ -103,11 +112,13 @@ export function DashboardPage() {
           <div className="metric-change up">↑ 5%</div>
         </div>
         <div className="metric-card">
-          <div className="metric-label">Средний чек</div>
-          <div className="metric-value">
-            {avgCheck > 0 ? avgCheck.toLocaleString('ru-RU') : '—'} ₽
+          <div className="metric-label">Требуют внимания</div>
+          <div className="metric-value" style={{ color: notificationsTotal > 0 ? 'var(--danger)' : 'var(--success)' }}>
+            {notificationsTotal}
           </div>
-          <div className="metric-change up">↑ 8%</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            нарушения комплаенса или скор &lt; {Math.round(scoreThreshold)}%
+          </div>
         </div>
       </div>
 
@@ -152,25 +163,57 @@ export function DashboardPage() {
           <div className="card-header">
             <div>
               <div className="card-title">Оповещения</div>
-              <div className="card-subtitle">Требуют внимания</div>
+              <div className="card-subtitle">
+                Нарушения комплаенса или скор &lt; {Math.round(scoreThreshold)}%
+              </div>
             </div>
-          </div>
-          <div className="alert-list">
-            {(overview?.alerts || []).length === 0 && (
-              <div style={{ padding: '20px', color: 'var(--text-muted)', textAlign: 'center' }}>
-                Нет активных оповещений
-              </div>
+            {notificationsTotal > notificationsItems.length && (
+              <button className="btn btn-outline btn-sm" onClick={() => navigate('/compliance')}>
+                Все →
+              </button>
             )}
-            {(overview?.alerts || []).map((alert, i) => (
-              <div key={i} className={`alert-item ${alert.severity}`}>
-                {alert.severity === 'info' ? (
-                  <Info className="alert-icon" size={20} />
-                ) : (
-                  <AlertCircle className="alert-icon" size={20} />
-                )}
-                <div className="alert-text" dangerouslySetInnerHTML={{ __html: alert.message }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {notificationsItems.length === 0 ? (
+              <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                Нет активных оповещений за период
               </div>
-            ))}
+            ) : (
+              notificationsItems.map((n) => {
+                const sevColor =
+                  n.severity === 'high' ? 'var(--danger)' :
+                  n.severity === 'medium' ? 'var(--warning)' : 'var(--text-muted)'
+                const Icon = n.compliance_violations_count > 0 ? ShieldAlert : AlertCircle
+                return (
+                  <button
+                    key={n.conversation_id}
+                    onClick={() => navigate(`/conversations?conv=${n.conversation_id}`)}
+                    style={{
+                      background: 'transparent', border: 'none', textAlign: 'left',
+                      padding: '10px 4px', cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-light)',
+                      display: 'flex', alignItems: 'flex-start', gap: 10,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <Icon size={16} style={{ color: sevColor, marginTop: 2, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>
+                        {n.seller_name || '—'}
+                        {n.store_name && (
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {n.store_name}</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                        {n.reasons.join(' · ')}
+                      </div>
+                    </div>
+                    <ChevronRight size={14} style={{ color: 'var(--text-muted)', marginTop: 4, flexShrink: 0 }} />
+                  </button>
+                )
+              })
+            )}
           </div>
         </div>
       </div>

@@ -139,18 +139,39 @@ async def compare_versions(
         raise HTTPException(status_code=404, detail="One or both versions not found")
 
     async def _stats(version_id) -> dict:
+        # Считаем «эффективную версию» каждого разговора:
+        # 1) если в csr.script_template_version_id уже стоит UUID — используем его (новые данные);
+        # 2) иначе fallback по времени — последняя версия, созданная до c.analyzed_at
+        #    (исторические разговоры до введения версионирования).
         sql = text("""
+            WITH effective AS (
+                SELECT
+                    csr.conversation_id,
+                    csr.script_score,
+                    COALESCE(
+                        csr.script_template_version_id,
+                        (
+                            SELECT stv.id
+                            FROM scripts.script_template_versions stv
+                            WHERE stv.template_id = csr.script_template_id
+                              AND stv.created_at <= c.analyzed_at
+                            ORDER BY stv.created_at DESC
+                            LIMIT 1
+                        )
+                    ) AS effective_version_id
+                FROM analytics.conversation_script_results csr
+                JOIN analytics.conversations c ON c.id = csr.conversation_id
+                WHERE c.organization_id = :org_id
+                  AND csr.script_template_id = :template_id
+                  AND csr.was_applied = TRUE
+                  AND c.analyzed_at >= :since
+            )
             SELECT
-                COUNT(DISTINCT c.id)            AS conv_count,
-                AVG(csr.script_score)           AS avg_score,
-                COUNT(DISTINCT c.id) FILTER (WHERE csr.script_score >= 70) AS strong
-            FROM analytics.conversations c
-            JOIN analytics.conversation_script_results csr ON csr.conversation_id = c.id
-            WHERE c.organization_id = :org_id
-              AND csr.script_template_id = :template_id
-              AND csr.script_template_version_id = :version_id
-              AND csr.was_applied = TRUE
-              AND c.analyzed_at >= :since
+                COUNT(DISTINCT conversation_id)                                       AS conv_count,
+                AVG(script_score)                                                     AS avg_score,
+                COUNT(DISTINCT conversation_id) FILTER (WHERE script_score >= 70)     AS strong
+            FROM effective
+            WHERE effective_version_id = :version_id
         """)
         row = (await db.execute(sql, {
             "org_id": uuid.UUID(user["organization_id"]),
