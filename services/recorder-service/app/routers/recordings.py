@@ -148,6 +148,10 @@ class InternalRecordingCreate(BaseModel):
     audio_path: str
     file_size_bytes: Optional[int] = None
     status: str = "segmented"
+    source: str = "badge"
+    call_direction: Optional[str] = None
+    client_phone: Optional[str] = None
+    operator_phone: Optional[str] = None
 
 
 @router.post("/recordings/internal", status_code=201)
@@ -168,6 +172,10 @@ async def create_recording_internal(
         audio_path=data.audio_path,
         file_size_bytes=data.file_size_bytes,
         status=data.status,
+        source=data.source,
+        call_direction=data.call_direction,
+        client_phone=data.client_phone,
+        operator_phone=data.operator_phone,
     )
     db.add(recording)
     await db.commit()

@@ -42,7 +42,7 @@ export function MultiSelect({
   const popoverRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null)
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; width: number; maxHeight: number } | null>(null)
 
   const showSearch = searchable ?? options.length > 5
 
@@ -72,8 +72,19 @@ export function MultiSelect({
     const margin = 8
     const gap = 4
     const spaceBelow = vh - r.bottom - margin
-    const maxHeight = Math.min(360, Math.max(120, spaceBelow - gap))
-    setPos({ top: r.bottom + gap, left: r.left, width: popoverWidth ?? r.width, maxHeight })
+    const spaceAbove = r.top - margin
+    // Для строк у нижнего края экрана места снизу не хватает — открываем поповер вверх,
+    // если сверху его больше. maxHeight ограничиваем доступной стороной, чтобы он не
+    // уезжал за вьюпорт (position: fixed нельзя доскроллить).
+    const openUp = spaceBelow < 200 && spaceAbove > spaceBelow
+    const avail = Math.max(0, openUp ? spaceAbove : spaceBelow)
+    const maxHeight = Math.min(360, Math.max(120, avail - gap))
+    const base = { left: r.left, width: popoverWidth ?? r.width, maxHeight }
+    if (openUp) {
+      setPos({ ...base, bottom: vh - r.top + gap })
+    } else {
+      setPos({ ...base, top: r.bottom + gap })
+    }
   }, [popoverWidth])
 
   useEffect(() => {
@@ -154,7 +165,7 @@ export function MultiSelect({
         <div
           ref={popoverRef}
           className="ms-popover"
-          style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
+          style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
           role="listbox"
         >
           {showSearch && (

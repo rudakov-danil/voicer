@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     DEEPGRAM_MODEL: str = "nova-3"
     LLM_SERVER_URL: str = "http://llm-gpu-server:11434"
     LLM_API_KEY: str = "ollama"
+    LLM_FOLDER_ID: str = ""  # Yandex Cloud folder id (project) — пусто для OpenRouter/Ollama
     LLM_EXTRA_HEADER_NAME: str = ""
     LLM_EXTRA_HEADER_VALUE: str = ""
     LLM_MODEL_NAME: str = "qwen2.5:14b"

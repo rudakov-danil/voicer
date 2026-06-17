@@ -145,10 +145,18 @@ export function highlightSegmentText(text, rules) {
         parts.push(text.slice(cursor));
     return parts;
 }
+/** Правило применимо к разговору (store, seller), если покрывает магазин и продавца. */
+function ruleApplies(r, storeId, sellerId) {
+    if (!r.is_active)
+        return false;
+    const storeOk = !r.store_ids?.length || (!!storeId && r.store_ids.includes(storeId));
+    const sellerOk = !r.seller_ids?.length || (!!sellerId && r.seller_ids.includes(sellerId));
+    return storeOk && sellerOk;
+}
 /** Анализирует, упоминал ли продавец триггер и предлагал ли обязательные товары.
  * Берёт только сегменты с speaker_role === 'seller'.
  */
-export function analyzeSell(rules, segments, storeId) {
+export function analyzeSell(rules, segments, storeId, sellerId) {
     const empty = { triggered: false, matched: 0, total: 0, missed: [], status: 'no-trigger' };
     if (!rules?.length || !segments?.length)
         return empty;
@@ -161,8 +169,8 @@ export function analyzeSell(rules, segments, storeId) {
     if (!sellerTextRaw)
         return empty;
     const sellerNorm = normalizeForMatch(sellerTextRaw).normalized;
-    // Применимые правила: только активные и (либо без store_id, либо совпадает store)
-    const applicable = rules.filter((r) => r.is_active && (!r.store_id || r.store_id === storeId));
+    // Применимые правила: активные, покрывающие магазин и продавца разговора
+    const applicable = rules.filter((r) => ruleApplies(r, storeId, sellerId));
     if (!applicable.length)
         return empty;
     const contains = (q) => {
@@ -206,10 +214,10 @@ export function analyzeSell(rules, segments, storeId) {
 /** Собирает HighlightRule для подсветки upsell/crosssell в речи продавца.
  * trigger подкрашивается одним цветом, offers — другим (зелёный если есть, прочерк если нет — только не подсвечиваем).
  */
-export function highlightRulesForSell(rules, storeId, kind) {
+export function highlightRulesForSell(rules, storeId, kind, sellerId) {
     if (!rules?.length)
         return [];
-    const applicable = rules.filter((r) => r.is_active && (!r.store_id || r.store_id === storeId));
+    const applicable = rules.filter((r) => ruleApplies(r, storeId, sellerId));
     const out = [];
     for (const rule of applicable) {
         const t = rule.trigger_product?.trim();

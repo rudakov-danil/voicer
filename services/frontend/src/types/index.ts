@@ -93,6 +93,19 @@ export interface ScriptTemplate {
   context_description?: string | null
   is_active: boolean
   applies_to_all_stores?: boolean
+  script_type?: 'staged' | 'fulltext'
+  full_text?: string | null
+  source_document_name?: string | null
+  step_count?: number
+  block_count?: number
+  blocks?: {
+    id?: string
+    title: string
+    text: string
+    block_type: string
+    is_mandatory: boolean
+    block_order: number
+  }[]
   steps: ScriptStep[]
   assigned_sellers?: { seller_id: string; is_mandatory: boolean }[]
   assigned_stores?: { store_id: string; is_mandatory: boolean }[]
@@ -112,7 +125,8 @@ export interface ScriptStep {
 export interface UpsellRule {
   id: string
   organization_id: string
-  store_id?: string | null
+  store_ids?: string[]    // пусто = все магазины
+  seller_ids?: string[]   // пусто = все продавцы
   trigger_product: string
   required_offers: string[]
   is_active: boolean
@@ -123,7 +137,8 @@ export interface UpsellRule {
 export interface CrossSellRule {
   id: string
   organization_id: string
-  store_id?: string | null
+  store_ids?: string[]
+  seller_ids?: string[]
   trigger_product: string
   required_offers: string[]
   is_active: boolean

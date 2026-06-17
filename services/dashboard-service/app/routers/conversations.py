@@ -20,6 +20,9 @@ async def list_conversations(
     outcome: str | None = None,
     score_min: float | None = None,
     score_max: float | None = None,
+    direction: str | None = None,       # inbound | outbound — фильтр по направлению звонка
+    source: str | None = None,          # badge | manual | transcript | call_manual | call_webhook | calls (любые звонки)
+    client_phone: str | None = None,    # поиск по номеру клиента (подстрока)
     limit: int = Query(default=20),
     offset: int = Query(default=0),
     user: dict = Depends(get_current_user),
@@ -60,10 +63,25 @@ async def list_conversations(
     if score_max is not None:
         conditions.append("c.overall_score <= :score_max")
         params["score_max"] = score_max
+    if direction in ("inbound", "outbound"):
+        conditions.append("r.call_direction = :direction")
+        params["direction"] = direction
+    if source == "calls":
+        conditions.append("r.source IN ('call_manual', 'call_webhook')")
+    elif source:
+        conditions.append("r.source = :source")
+        params["source"] = source
+    if client_phone:
+        conditions.append("r.client_phone LIKE :client_phone")
+        params["client_phone"] = f"%{client_phone.strip()}%"
 
     where = " AND ".join(conditions)
 
-    count_sql = text(f"SELECT COUNT(*) FROM analytics.conversations c WHERE {where}")
+    count_sql = text(f"""
+        SELECT COUNT(*) FROM analytics.conversations c
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
+        WHERE {where}
+    """)
     total = (await db.execute(count_sql, params)).scalar_one()
 
     list_sql = text(f"""
@@ -82,6 +100,9 @@ async def list_conversations(
             c.has_upsell,
             c.has_crosssell,
             r.duration_seconds,
+            r.source,
+            r.call_direction,
+            r.client_phone,
             s.first_name AS seller_first_name,
             s.last_name AS seller_last_name,
             st.name AS store_name,
@@ -115,12 +136,12 @@ async def list_conversations(
     if needs_fallback:
         fb_sql = text("""
             WITH conv_seller_text AS (
-                SELECT c.id AS conv_id, c.organization_id, c.store_id,
+                SELECT c.id AS conv_id, c.organization_id, c.store_id, c.seller_id,
                        LOWER(string_agg(ts.text, ' ')) AS seller_text
                 FROM analytics.conversations c
                 JOIN transcription.transcript_segments ts ON ts.transcript_id = c.transcript_id
                 WHERE c.id = ANY(:conv_ids) AND LOWER(ts.speaker_role) = 'seller'
-                GROUP BY c.id, c.organization_id, c.store_id
+                GROUP BY c.id, c.organization_id, c.store_id, c.seller_id
             )
             SELECT
                 c.conv_id,
@@ -128,7 +149,8 @@ async def list_conversations(
                     SELECT 1 FROM scripts.upsell_rules r
                     WHERE r.organization_id = c.organization_id
                       AND r.is_active = TRUE
-                      AND (r.store_id IS NULL OR r.store_id = c.store_id)
+                      AND (cardinality(r.store_ids) = 0 OR c.store_id = ANY(r.store_ids))
+                      AND (cardinality(r.seller_ids) = 0 OR c.seller_id = ANY(r.seller_ids))
                       AND POSITION(LOWER(r.trigger_product) IN c.seller_text) > 0
                       AND EXISTS (
                           SELECT 1 FROM unnest(r.required_offers) AS offer
@@ -139,7 +161,8 @@ async def list_conversations(
                     SELECT 1 FROM scripts.cross_sell_rules r
                     WHERE r.organization_id = c.organization_id
                       AND r.is_active = TRUE
-                      AND (r.store_id IS NULL OR r.store_id = c.store_id)
+                      AND (cardinality(r.store_ids) = 0 OR c.store_id = ANY(r.store_ids))
+                      AND (cardinality(r.seller_ids) = 0 OR c.seller_id = ANY(r.seller_ids))
                       AND POSITION(LOWER(r.trigger_product) IN c.seller_text) > 0
                       AND EXISTS (
                           SELECT 1 FROM unnest(r.required_offers) AS offer
@@ -170,6 +193,9 @@ async def list_conversations(
             "outcome": r.outcome,
             "topic": r.topic,
             "duration_seconds": r.duration_seconds,
+            "source": r.source,
+            "call_direction": r.call_direction,
+            "client_phone": r.client_phone,
             "has_violations": r.has_violations,
             "has_compliance_violations": r.has_compliance_violations,
             "compliance_violations_count": int(r.compliance_violations_count or 0),
@@ -197,7 +223,9 @@ async def get_conversation_detail(
                c.overall_score, c.outcome, c.outcome_confidence, c.topic, c.sentiment_avg, c.analyzed_at,
                c.has_upsell, c.upsell_results,
                c.has_crosssell, c.crosssell_results,
+               c.talk_ratio, c.interruptions_count, c.longest_monologue_seconds, c.silence_ratio,
                r.duration_seconds,
+               r.source, r.call_direction, r.client_phone, r.operator_phone, r.call_metadata,
                s.first_name AS seller_first_name, s.last_name AS seller_last_name,
                st.name AS store_name
         FROM analytics.conversations c
@@ -251,8 +279,9 @@ async def get_conversation_detail(
     # Get script results — JOIN scripts.script_templates чтобы достать short_name.
     scripts_sql = text("""
         SELECT csr.script_name, csr.script_score, csr.was_applied, csr.violations,
+               csr.block_results, csr.script_template_id,
                cs.step_name, cs.score AS step_score, cs.step_detected, cs.evidence_text,
-               st.short_name AS script_short_name
+               st.short_name AS script_short_name, st.script_type, st.full_text AS script_full_text
         FROM analytics.conversation_script_results csr
         LEFT JOIN analytics.conversation_scores cs ON cs.conversation_id = csr.conversation_id
             AND cs.script_template_id = csr.script_template_id
@@ -263,17 +292,23 @@ async def get_conversation_detail(
 
     # Build script results
     scripts_map: dict = {}
+    fulltext_template_ids: set = set()
     for sr in script_rows:
         key = sr.script_name
         if key not in scripts_map:
             scripts_map[key] = {
                 "script_name": sr.script_name,
                 "script_short_name": sr.script_short_name,
+                "script_type": sr.script_type or "staged",
+                "script_template_id": str(sr.script_template_id) if sr.script_template_id else None,
                 "script_score": float(sr.script_score) if sr.script_score else None,
                 "was_applied": sr.was_applied,
                 "violations": sr.violations or [],
                 "step_scores": [],
+                "block_results": sr.block_results or [],
             }
+            if (sr.script_type or "staged") == "fulltext" and sr.script_template_id:
+                fulltext_template_ids.add(sr.script_template_id)
         if sr.step_name:
             scripts_map[key]["step_scores"].append({
                 "step_name": sr.step_name,
@@ -281,6 +316,23 @@ async def get_conversation_detail(
                 "detected": sr.step_detected,
                 "evidence": sr.evidence_text,
             })
+
+    # Для fulltext-скриптов дотягиваем тексты блоков (block_results хранит только статусы) —
+    # нужны для отображения «скрипт vs разговор» в карточке.
+    if fulltext_template_ids:
+        blocks_sql = text("""
+            SELECT id, template_id, title, text, block_type, is_mandatory, block_order
+            FROM scripts.script_blocks
+            WHERE template_id = ANY(:tpl_ids)
+        """)
+        block_rows = (await db.execute(blocks_sql, {"tpl_ids": list(fulltext_template_ids)})).fetchall()
+        blocks_by_id = {str(b.id): b for b in block_rows}
+        for sm in scripts_map.values():
+            for br in (sm["block_results"] or []):
+                block = blocks_by_id.get(str(br.get("block_id")))
+                if block is not None:
+                    br["text"] = block.text
+                    br["block_type"] = block.block_type
 
     # Objections — нужны для подсветки красным маркером в транскрипте.
     objections_sql = text("""
@@ -343,6 +395,15 @@ async def get_conversation_detail(
         "upsell_results": row.upsell_results,
         "has_crosssell": row.has_crosssell,
         "crosssell_results": row.crosssell_results,
+        "source": row.source,
+        "call_direction": row.call_direction,
+        "client_phone": row.client_phone,
+        "operator_phone": row.operator_phone,
+        "call_metadata": row.call_metadata,
+        "talk_ratio": float(row.talk_ratio) if row.talk_ratio is not None else None,
+        "interruptions_count": row.interruptions_count,
+        "longest_monologue_seconds": row.longest_monologue_seconds,
+        "silence_ratio": float(row.silence_ratio) if row.silence_ratio is not None else None,
         "script_results": list(scripts_map.values()),
         "objections": objections_data,
         "compliance_violations": compliance_violations_data,

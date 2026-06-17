@@ -13,6 +13,10 @@ export interface UploadTranscriptParams {
   session_date?: string
   segments?: TranscriptSegmentInput[]
   raw_text?: string
+  // Метаданные звонка — для тестирования телефонийного пайплайна без аудио
+  call_direction?: 'inbound' | 'outbound'
+  client_phone?: string
+  operator_phone?: string
 }
 
 export interface UploadTranscriptResponse {

@@ -46,6 +46,16 @@ class Conversation(Base):
     has_crosssell: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     crosssell_results: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
+    # ─── Метрики динамики разговора (считаются из таймкодов сегментов, без LLM) ───
+    # Доля времени речи продавца/оператора от всего времени речи (0..1)
+    talk_ratio: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+    # Сколько раз стороны перебивали друг друга (пересечение таймкодов реплик)
+    interruptions_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Самый длинный непрерывный монолог продавца/оператора, секунды
+    longest_monologue_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Доля тишины (паузы между репликами) от длительности разговора (0..1)
+    silence_ratio: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+
     script_results: Mapped[list["ConversationScriptResult"]] = relationship(
         "ConversationScriptResult", back_populates="conversation", cascade="all, delete-orphan"
     )
@@ -78,6 +88,9 @@ class ConversationScriptResult(Base):
     script_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     violations: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     skip_reason: Mapped[str | None] = mapped_column(Text)
+    # Для полнотекстовых скриптов (script_type=fulltext): покрытие по блокам.
+    # [{block_id, title, is_mandatory, status: spoken|paraphrased|missed, quote, comment}, ...]
+    block_results: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="script_results")
 

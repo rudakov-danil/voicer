@@ -31,6 +31,9 @@ export const dashboardApi = {
     period?: number
     date_from?: string
     date_to?: string
+    direction?: string
+    source?: string
+    client_phone?: string
   }) => {
     const apiParams: Record<string, any> = { ...params }
     if (params.period && !params.date_from && !params.date_to) {

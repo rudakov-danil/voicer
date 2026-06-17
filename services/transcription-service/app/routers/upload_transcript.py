@@ -46,6 +46,10 @@ class UploadTranscriptRequest(BaseModel):
     # Один из двух способов передать диалог:
     segments: list[TranscriptSegmentInput] | None = None
     raw_text: str | None = None
+    # Метаданные звонка (опционально — для тестирования телефонийного пайплайна)
+    call_direction: Literal["inbound", "outbound"] | None = None
+    client_phone: str | None = None
+    operator_phone: str | None = None
 
 
 # Префиксы ролей в свободном тексте. "продавец/менеджер/консультант" → seller,
@@ -167,6 +171,10 @@ async def upload_transcript(
                 "audio_path": f"transcript-only/{recording_id}",  # placeholder, аудио нет
                 "file_size_bytes": 0,
                 "status": "transcribed",
+                "source": "transcript",
+                "call_direction": body.call_direction,
+                "client_phone": body.client_phone,
+                "operator_phone": body.operator_phone,
             },
         )
         if rec_resp.status_code >= 400:

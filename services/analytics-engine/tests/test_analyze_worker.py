@@ -371,6 +371,99 @@ async def test_worker_publishes_cache_invalidate(db_session):
     )
 
 
+# ── Объединённый проход general+compliance (оптимизация токенов) ──────────────
+
+MERGED_MARKER = "ДВА НЕЗАВИСИМЫХ"          # есть только в объединённом промпте
+COMPLIANCE_MARKER = "аудитор соблюдения"    # есть только в раздельном комплаенс-промпте
+
+
+@pytest.mark.asyncio
+async def test_general_and_compliance_merged_happy():
+    """Объединённый вызов: один запрос отдаёт и general, и compliance."""
+    from worker.analyze_worker import _general_and_compliance
+
+    rule_id = str(uuid.uuid4())
+    rules = [{"id": rule_id, "title": "Без грубости", "severity": "high"}]
+    merged = json.dumps({
+        "general": {
+            "outcome": "purchase", "outcome_confidence": 0.9,
+            "topic": "Телефон", "sentiment_avg": 0.5, "objections": [],
+        },
+        "compliance": {
+            "violations": [{"rule_id": rule_id, "evidence": "грубая фраза", "explanation": "нарушение"}]
+        },
+    })
+
+    calls = []
+    async def se(**kw):
+        calls.append(kw["messages"][0]["content"])
+        return make_llm_response(merged)
+
+    llm = MagicMock()
+    llm.chat.completions.create = AsyncMock(side_effect=se)
+
+    general, compliance = await _general_and_compliance(SAMPLE_SEGMENTS, rules, llm)
+
+    assert general["outcome"] == "purchase"
+    assert len(compliance) == 1 and compliance[0]["rule_id"] == rule_id
+    assert compliance[0]["severity"] == "high"
+    assert len(calls) == 1                      # ровно один LLM-вызов вместо двух
+    assert MERGED_MARKER in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_general_and_compliance_fallback_on_bad_general():
+    """Битый объединённый ответ → прозрачный откат на раздельные вызовы, general сохранён."""
+    from worker.analyze_worker import _general_and_compliance
+
+    rule_id = str(uuid.uuid4())
+    rules = [{"id": rule_id, "title": "Правило", "severity": "medium"}]
+
+    async def se(**kw):
+        content = kw["messages"][0]["content"]
+        if MERGED_MARKER in content:
+            return make_llm_response("СЛОМАННЫЙ JSON {{{")     # объединённый вызов падает
+        if COMPLIANCE_MARKER in content:
+            return make_llm_response(json.dumps({"violations": []}))
+        return make_llm_response(GOOD_GENERAL_RESPONSE)         # раздельный general
+
+    llm = MagicMock()
+    llm.chat.completions.create = AsyncMock(side_effect=se)
+
+    general, compliance = await _general_and_compliance(SAMPLE_SEGMENTS, rules, llm)
+
+    assert general["outcome"] == "purchase"   # корректность не потеряна
+    assert compliance == []
+
+
+@pytest.mark.asyncio
+async def test_general_and_compliance_flag_disabled(monkeypatch):
+    """LLM_MERGE_ANALYSIS=false → объединённого вызова нет, только раздельные."""
+    from worker.analyze_worker import _general_and_compliance
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "LLM_MERGE_ANALYSIS", False)
+    rule_id = str(uuid.uuid4())
+    rules = [{"id": rule_id, "title": "Правило", "severity": "medium"}]
+
+    calls = []
+    async def se(**kw):
+        content = kw["messages"][0]["content"]
+        calls.append(content)
+        if COMPLIANCE_MARKER in content:
+            return make_llm_response(json.dumps({"violations": []}))
+        return make_llm_response(GOOD_GENERAL_RESPONSE)
+
+    llm = MagicMock()
+    llm.chat.completions.create = AsyncMock(side_effect=se)
+
+    general, compliance = await _general_and_compliance(SAMPLE_SEGMENTS, rules, llm)
+
+    assert general["outcome"] == "purchase"
+    assert not any(MERGED_MARKER in c for c in calls)   # слияния не было
+    assert len(calls) == 2                              # два раздельных вызова
+
+
 @pytest.mark.asyncio
 async def test_get_conversation_other_org(client, other_org_client, db_session):
     """AN-I-09: GET /conversations/{id} for another org → 404"""

@@ -33,4 +33,37 @@ export const recorderApi = {
         });
         return response.data;
     },
+    // ─── Телефония ─────────────────────────────────────────────────────────────
+    uploadCall: async (file, params, onProgress) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('seller_id', params.seller_id);
+        formData.append('store_id', params.store_id);
+        formData.append('direction', params.direction);
+        if (params.client_phone)
+            formData.append('client_phone', params.client_phone);
+        if (params.operator_phone)
+            formData.append('operator_phone', params.operator_phone);
+        if (params.session_date)
+            formData.append('session_date', params.session_date);
+        formData.append('channel_mode', params.channel_mode || 'auto');
+        const response = await apiClient.post('/api/v1/recorder/telephony/calls', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 300000,
+            onUploadProgress: (progressEvent) => {
+                if (onProgress && progressEvent.total) {
+                    onProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total));
+                }
+            },
+        });
+        return response.data;
+    },
+    getTelephonySettings: async () => {
+        const response = await apiClient.get('/api/v1/recorder/telephony/settings');
+        return response.data;
+    },
+    updateTelephonySettings: async (data) => {
+        const response = await apiClient.put('/api/v1/recorder/telephony/settings', data);
+        return response.data;
+    },
 };

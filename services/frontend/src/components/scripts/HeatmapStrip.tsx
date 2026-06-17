@@ -2,11 +2,12 @@ import { HelpTooltip } from './HelpTooltip'
 
 type StepRow = {
   step_name: string
-  pass_rate: number
-  avg_score: number
+  pass_rate: number | null
+  avg_score: number | null
   total_count: number
   detected_count: number
-  detection_rate: number
+  detection_rate: number | null
+  not_applicable_count?: number
 }
 
 /** Тёмная синяя — высокий pass_rate, светлая — низкий, красная — критический. */
@@ -50,20 +51,36 @@ export function HeatmapStrip({ rows }: { rows: StepRow[] }) {
         </div>
       </div>
       <div className="heatmap-cells">
-        {rows.map((r, i) => (
-          <div
-            key={i}
-            className="heatmap-cell"
-            style={{
-              background: cellColor(r.pass_rate),
-              opacity: cellOpacity(r.pass_rate),
-            }}
-            title={`${r.step_name}: ${r.pass_rate}% выполнения · ${r.avg_score} ср. балл`}
-          >
-            <div className="heatmap-cell-value">{Math.round(r.pass_rate)}%</div>
-            <div className="heatmap-cell-name">{r.step_name}</div>
-          </div>
-        ))}
+        {rows.map((r, i) => {
+          // pass_rate=null — блок/этап ни разу не требовался за период: нейтральная ячейка
+          if (r.pass_rate == null) {
+            return (
+              <div
+                key={i}
+                className="heatmap-cell"
+                style={{ background: 'var(--border)', opacity: 0.5 }}
+                title={`${r.step_name}: не встречался за период`}
+              >
+                <div className="heatmap-cell-value">—</div>
+                <div className="heatmap-cell-name">{r.step_name}</div>
+              </div>
+            )
+          }
+          return (
+            <div
+              key={i}
+              className="heatmap-cell"
+              style={{
+                background: cellColor(r.pass_rate),
+                opacity: cellOpacity(r.pass_rate),
+              }}
+              title={`${r.step_name}: ${r.pass_rate}% · ${r.avg_score ?? '—'} ср. балл${r.not_applicable_count ? ` · не требовался ${r.not_applicable_count} раз` : ''}`}
+            >
+              <div className="heatmap-cell-value">{Math.round(r.pass_rate)}%</div>
+              <div className="heatmap-cell-name">{r.step_name}</div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

@@ -28,13 +28,37 @@ class ScriptStepOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ScriptBlockCreate(BaseModel):
+    title: str
+    text: str
+    block_type: str = "other"
+    is_mandatory: bool = True
+    block_order: int
+
+
+class ScriptBlockOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    text: str
+    block_type: str
+    is_mandatory: bool
+    block_order: int
+
+    model_config = {"from_attributes": True}
+
+
 class TemplateCreate(BaseModel):
     name: str
     short_name: Optional[str] = None
     description: Optional[str] = None
     scope: str = "org_level"
     context_description: Optional[str] = None
-    steps: list[ScriptStepCreate]
+    script_type: str = "staged"  # staged | fulltext
+    steps: list[ScriptStepCreate] = []
+    # Для fulltext-скриптов:
+    blocks: list[ScriptBlockCreate] = []
+    full_text: Optional[str] = None
+    source_document_name: Optional[str] = None
 
 
 class TemplatePatch(BaseModel):
@@ -51,8 +75,10 @@ class TemplateListItem(BaseModel):
     short_name: Optional[str] = None
     description: Optional[str]
     scope: str
+    script_type: str = "staged"
     is_active: bool
     step_count: int
+    block_count: int = 0
     seller_count: int
     created_at: datetime
 
@@ -76,9 +102,13 @@ class TemplateDetail(BaseModel):
     description: Optional[str]
     scope: str
     context_description: Optional[str]
+    script_type: str = "staged"
     is_active: bool
     applies_to_all_stores: bool = False
     steps: list[ScriptStepOut]
+    blocks: list[ScriptBlockOut] = []
+    full_text: Optional[str] = None
+    source_document_name: Optional[str] = None
     assigned_sellers: list[AssignedSeller]
     assigned_stores: list[AssignedStore] = []
 
@@ -170,14 +200,18 @@ class VersionDetail(VersionItem):
 # --- Upsell rules ---
 
 class UpsellRuleCreate(BaseModel):
-    store_id: Optional[uuid.UUID] = None
+    # Пустой список = все магазины; иначе — конкретные магазины
+    store_ids: list[uuid.UUID] = []
+    # Пустой список = все продавцы покрытых магазинов; иначе — конкретные продавцы
+    seller_ids: list[uuid.UUID] = []
     trigger_product: str
     required_offers: list[str]
     is_active: bool = True
 
 
 class UpsellRulePatch(BaseModel):
-    store_id: Optional[uuid.UUID] = None
+    store_ids: Optional[list[uuid.UUID]] = None
+    seller_ids: Optional[list[uuid.UUID]] = None
     trigger_product: Optional[str] = None
     required_offers: Optional[list[str]] = None
     is_active: Optional[bool] = None
@@ -186,7 +220,8 @@ class UpsellRulePatch(BaseModel):
 class UpsellRuleOut(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
-    store_id: Optional[uuid.UUID]
+    store_ids: list[uuid.UUID] = []
+    seller_ids: list[uuid.UUID] = []
     trigger_product: str
     required_offers: list[str]
     is_active: bool
@@ -199,14 +234,16 @@ class UpsellRuleOut(BaseModel):
 # --- Cross-sell rules (симметрично Upsell) ---
 
 class CrossSellRuleCreate(BaseModel):
-    store_id: Optional[uuid.UUID] = None
+    store_ids: list[uuid.UUID] = []
+    seller_ids: list[uuid.UUID] = []
     trigger_product: str
     required_offers: list[str]
     is_active: bool = True
 
 
 class CrossSellRulePatch(BaseModel):
-    store_id: Optional[uuid.UUID] = None
+    store_ids: Optional[list[uuid.UUID]] = None
+    seller_ids: Optional[list[uuid.UUID]] = None
     trigger_product: Optional[str] = None
     required_offers: Optional[list[str]] = None
     is_active: Optional[bool] = None
@@ -215,7 +252,8 @@ class CrossSellRulePatch(BaseModel):
 class CrossSellRuleOut(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
-    store_id: Optional[uuid.UUID]
+    store_ids: list[uuid.UUID] = []
+    seller_ids: list[uuid.UUID] = []
     trigger_product: str
     required_offers: list[str]
     is_active: bool

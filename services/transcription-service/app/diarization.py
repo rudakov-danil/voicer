@@ -6,6 +6,29 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Диаризация/сегментация — механическая классификация, «размышление» reasoning-моделей
+# (qwen3.6 тратит сотни токенов ДО видимого ответа и при малом max_tokens отдаёт пустой
+# контент → роли не определяются). Отключаем reasoning через reasoning_effort="none".
+# Если провайдер не знает этот параметр (не-Yandex) — один раз ловим 400 и дальше шлём без него.
+_REASONING_PARAM_SUPPORTED = True
+
+
+async def _create_no_reasoning(llm_client, **kwargs):
+    """LLM-вызов с отключённым reasoning и провайдеро-устойчивым фолбэком."""
+    global _REASONING_PARAM_SUPPORTED
+    if _REASONING_PARAM_SUPPORTED:
+        try:
+            return await llm_client.chat.completions.create(
+                extra_body={"reasoning_effort": "none"}, **kwargs
+            )
+        except Exception as e:
+            if "reasoning_effort" in str(e):
+                _REASONING_PARAM_SUPPORTED = False
+                logger.warning("Provider rejected reasoning_effort; retrying without it")
+            else:
+                raise
+    return await llm_client.chat.completions.create(**kwargs)
+
 DIARIZATION_SYSTEM_PROMPT = """Ты — экспертная система диаризации деловых разговоров.
 Тебе дан ПОЛНЫЙ транскрипт одного разговора между РАБОТНИКОМ (S) — продавцом, консультантом, оператором, менеджером — и КЛИЕНТОМ (C).
 Имя работника: {seller_name}
@@ -136,7 +159,8 @@ async def segment_conversations(
     user_prompt = f"Транскрипт рабочего дня:\n{segments_text}\n\nНайди границы разговоров."
 
     try:
-        response = await llm_client.chat.completions.create(
+        response = await _create_no_reasoning(
+            llm_client,
             model=settings.LLM_MODEL_NAME,
             messages=[
                 {"role": "system", "content": SEGMENTATION_SYSTEM_PROMPT},
@@ -225,13 +249,16 @@ async def _diarize_batch(
         f"Верни строку из {len(batch)} букв (S/C/U) через запятую:"
     )
 
-    # max_tokens: 1 буква + запятая ≈ 1.5 токена; +200 запас
-    max_out = int(len(batch) * 1.8) + 200
+    # max_tokens: ответ ≈ 1.8 токена на реплику (буква + запятая), плюс крупный запас на
+    # «размышление» reasoning-моделей (qwen3.6 тратит ~700 токенов до видимого ответа).
+    # Без этого запаса ответ обрезается по длине и приходит пустым.
+    max_out = int(len(batch) * 1.8) + 800
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = await llm_client.chat.completions.create(
+            response = await _create_no_reasoning(
+                llm_client,
                 model=settings.LLM_MODEL_NAME,
                 messages=[
                     {"role": "system", "content": DIARIZATION_SYSTEM_PROMPT.format(seller_name=seller_name)},
@@ -431,14 +458,16 @@ async def identify_speaker_roles(
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = await llm_client.chat.completions.create(
+            response = await _create_no_reasoning(
+                llm_client,
                 model=settings.LLM_MODEL_NAME,
                 messages=[
                     {"role": "system", "content": SPEAKER_CLASSIFY_SYSTEM_PROMPT.format(seller_name=seller_name)},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.0,
-                max_tokens=100,
+                # Запас на случай фолбэка (reasoning не отключился у другого провайдера).
+                max_tokens=1024,
                 timeout=120,
             )
             raw = (response.choices[0].message.content or "").strip()

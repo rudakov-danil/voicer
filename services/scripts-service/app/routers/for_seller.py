@@ -17,6 +17,7 @@ def _serialize_template(t: ScriptTemplate, is_mandatory: bool, current_version_i
         "is_mandatory": is_mandatory,
         "context_description": t.context_description,
         "current_version_id": current_version_id,
+        "script_type": t.script_type,
         "steps": [
             {
                 "id": str(s.id),
@@ -29,6 +30,17 @@ def _serialize_template(t: ScriptTemplate, is_mandatory: bool, current_version_i
                 "example_phrases": s.example_phrases or [],
             }
             for s in sorted(t.steps, key=lambda s: s.step_order)
+        ],
+        "blocks": [
+            {
+                "id": str(b.id),
+                "title": b.title,
+                "text": b.text,
+                "block_type": b.block_type,
+                "is_mandatory": b.is_mandatory,
+                "block_order": b.block_order,
+            }
+            for b in sorted(t.blocks, key=lambda b: b.block_order)
         ],
     }
 
@@ -80,7 +92,7 @@ async def get_scripts_for_seller(
             ScriptTemplate.is_active == True,
             ScriptTemplate.applies_to_all_stores == True,
         )
-        .options(selectinload(ScriptTemplate.steps))
+        .options(selectinload(ScriptTemplate.steps), selectinload(ScriptTemplate.blocks))
     )
     all_stores_templates = (await db.execute(all_stores_q)).scalars().all()
 
@@ -93,7 +105,10 @@ async def get_scripts_for_seller(
         )
         .join(ScriptTemplate)
         .where(ScriptTemplate.is_active == True)
-        .options(selectinload(StoreScriptAssignment.template).selectinload(ScriptTemplate.steps))
+        .options(
+            selectinload(StoreScriptAssignment.template).selectinload(ScriptTemplate.steps),
+            selectinload(StoreScriptAssignment.template).selectinload(ScriptTemplate.blocks),
+        )
     )
     store_assignments = (await db.execute(store_q)).scalars().all()
 

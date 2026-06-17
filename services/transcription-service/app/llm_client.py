@@ -16,6 +16,7 @@ def get_llm_client() -> AsyncOpenAI:
         _client = AsyncOpenAI(
             base_url=base_url,
             api_key=settings.LLM_API_KEY,
+            project=settings.LLM_FOLDER_ID or None,
             default_headers=extra_headers or None,
         )
     return _client

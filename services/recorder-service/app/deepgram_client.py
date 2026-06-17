@@ -52,6 +52,99 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> d
     return _parse_deepgram_response(resp.json())
 
 
+async def transcribe_audio_multichannel(audio_bytes: bytes, operator_channel: int = 0) -> dict:
+    """
+    Транскрибация стерео-записи звонка с раздельными каналами (АТС пишет оператора
+    и клиента в разные каналы). Каждый канал транскрибируется отдельно, роль
+    определяется по номеру канала — диаризация через LLM не нужна.
+
+    Возвращает: {
+        "text": str,
+        "language": str,
+        "segments": list[dict]  # каждый сегмент дополнительно содержит "role": "seller"|"customer"
+    }
+    """
+    if not settings.DEEPGRAM_API_KEY:
+        raise RuntimeError("DEEPGRAM_API_KEY не задан")
+
+    params = {
+        "smart_format": "true",
+        "language": settings.DEEPGRAM_LANGUAGE,
+        "model": settings.DEEPGRAM_MODEL,
+        "multichannel": "true",  # раздельная транскрибация каналов
+        "utterances": "true",    # utterances несут номер канала
+    }
+    headers = {
+        "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
+        "Content-Type": "audio/wav",
+    }
+
+    async with httpx.AsyncClient(timeout=1800.0) as client:
+        resp = await client.post(
+            settings.DEEPGRAM_API_URL,
+            params=params,
+            headers=headers,
+            content=audio_bytes,
+        )
+    resp.raise_for_status()
+    return _parse_multichannel_response(resp.json(), operator_channel)
+
+
+def _parse_multichannel_response(payload: dict, operator_channel: int) -> dict:
+    """Собирает сегменты из utterances с привязкой канал → роль.
+
+    Если в ответе нет utterances с каналами (например, файл оказался моно),
+    возвращает segments=[] и поле "multichannel_failed": True — вызывающий код
+    откатится на обычную транскрибацию с диаризацией.
+    """
+    results = payload.get("results") or {}
+    utterances = results.get("utterances") or []
+
+    segments: list[dict] = []
+    channels_seen: set[int] = set()
+    for utt in utterances:
+        text = (utt.get("transcript") or "").strip()
+        if not text:
+            continue
+        channel = utt.get("channel")
+        if channel is None:
+            continue
+        channel = int(channel)
+        channels_seen.add(channel)
+        segments.append({
+            "start": float(utt.get("start", 0.0)),
+            "end": float(utt.get("end", 0.0)),
+            "text": text,
+            "avg_logprob": float(utt["confidence"]) if utt.get("confidence") is not None else None,
+            "speaker": channel,
+            "role": "seller" if channel == operator_channel else "customer",
+        })
+
+    # Меньше двух каналов с речью — канальная диаризация не имеет смысла
+    if len(channels_seen) < 2:
+        logger.warning(
+            f"Multichannel parse: only {len(channels_seen)} channel(s) with speech — "
+            "falling back to standard diarization"
+        )
+        return {"text": "", "language": settings.DEEPGRAM_LANGUAGE, "segments": [], "multichannel_failed": True}
+
+    segments.sort(key=lambda s: s["start"])
+    full_text = " ".join(s["text"] for s in segments)
+
+    language = settings.DEEPGRAM_LANGUAGE
+    channels = results.get("channels") or []
+    if channels:
+        alts = channels[0].get("alternatives") or []
+        if alts and alts[0].get("language"):
+            language = alts[0]["language"].lower()
+
+    logger.info(
+        f"Deepgram multichannel parsed: {len(segments)} segments, "
+        f"channels={sorted(channels_seen)}, operator_channel={operator_channel}"
+    )
+    return {"text": full_text, "language": language, "segments": segments}
+
+
 def _parse_deepgram_response(payload: dict) -> dict:
     """
     Маппит ответ Deepgram в плоскую структуру.

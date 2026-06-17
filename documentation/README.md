@@ -72,6 +72,7 @@ dashboard-service → Redis → frontend
 | [architecture.md](./architecture.md) | Архитектура системы, карта микросервисов, технологический стек |
 | [data-pipeline.md](./data-pipeline.md) | Полный путь данных: от бейджа до дашборда — **главный файл для понимания пайплайна** |
 | [badge-and-segmentation.md](./badge-and-segmentation.md) | Бейдж: запись чанками, склейка, VAD, нарезка разговоров |
+| [telephony.md](./telephony.md) | Телефония: приём звонков (вебхук АТС, ручная загрузка), канальная диаризация, исходы и метрики звонков, полнотекстовые скрипты |
 | [ai-analysis.md](./ai-analysis.md) | AI-анализ: 3-этапный LLM-пайплайн, скоринг, возражения, исходы |
 | [scripts-and-scoring.md](./scripts-and-scoring.md) | Скрипты продаж: структура, веса этапов, расчёт баллов |
 | [roles-and-access.md](./roles-and-access.md) | Две системы ролей: клиентские (Director/Admin/ROP/Manager) и внутренние (Super Admin) |

@@ -19,6 +19,10 @@ class Organization(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     slug = Column(String(100), nullable=False, unique=True)
+    # retail — офлайн-продажи (бейджи, магазины/продавцы);
+    # telephony — продажи по телефону (звонки, отделы/операторы).
+    # Влияет на терминологию UI и доступность телефонийных фич.
+    org_type = Column(String(20), nullable=False, default="retail", server_default="retail")
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)

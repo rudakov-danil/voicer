@@ -24,6 +24,11 @@ class RecordingResponse(BaseModel):
     started_at: datetime
     duration_seconds: Optional[int]
     status: str
+    source: str = "badge"
+    call_direction: Optional[str] = None
+    client_phone: Optional[str] = None
+    operator_phone: Optional[str] = None
+    error_message: Optional[str] = None
 
     class Config:
         from_attributes = True

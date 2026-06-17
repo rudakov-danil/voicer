@@ -29,6 +29,48 @@ SCRIPT_SCORING_SYSTEM_PROMPT = """Ты — эксперт по продажам 
 - evidence: одна КОНКРЕТНАЯ короткая фраза-цитата из реплики продавца (НЕ перефразировать, НЕ объединять разные реплики через "..."). Если есть несколько подходящих — выбери одну самую яркую. Если этап не выполнен — пустая строка.
 """
 
+FULLTEXT_SCRIPT_SYSTEM_PROMPT = """Ты — аудитор соблюдения скрипта разговора.
+Скрипт «{script_name}» задан как последовательность блоков — фраз и смысловых секций,
+которые сотрудник (в транскрипте — ПРОДАВЕЦ) должен проговорить клиенту.
+
+Блоки скрипта:
+{script_blocks}
+
+Для КАЖДОГО блока определи по транскрипту:
+- "spoken" — сотрудник произнёс блок близко к тексту (допустимы мелкие отличия и искажения транскрибации)
+- "paraphrased" — донёс смысл блока своими словами
+- "missed" — блок ТРЕБОВАЛСЯ в этом разговоре, но сотрудник его не проговорил (реальный пропуск)
+- "not_applicable" — ситуация для блока НЕ возникла, поэтому он закономерно не нужен
+  (например, блок «ответ на возражение по цене», а клиент про цену вообще не заговаривал)
+
+КАК различать "missed" и "not_applicable" для ситуативных блоков (ответы на возражения,
+реакции на «если клиент скажет…»):
+- если соответствующая ситуация/возражение В РАЗГОВОРЕ ВОЗНИКЛИ, но сотрудник их не отработал → "missed";
+- если ситуация в разговоре не возникала (клиент об этом не говорил) → "not_applicable".
+Обязательные блоки (приветствие, представление, выявление потребности и т.п.) нужны ВСЕГДА —
+для них "not_applicable" не используй: если не прозвучал, это "missed".
+
+Верни СТРОГО валидный JSON:
+{{
+  "blocks": [
+    {{
+      "block_id": "<UUID блока>",
+      "status": "<spoken|paraphrased|missed|not_applicable>",
+      "quote": "<ДОСЛОВНАЯ цитата реплики продавца из транскрипта, подтверждающая блок, или пустая строка>",
+      "comment": "<краткий комментарий: что упущено / почему ситуация не возникла, или пустая строка>"
+    }}
+  ]
+}}
+
+Правила:
+- В ответе должен быть КАЖДЫЙ блок из списка, ровно один раз.
+- quote — ОДНА короткая фраза (до ~120 символов) из реплики продавца, дословно (включая
+  искажения STT), НЕ вся реплика и НЕ перефразируй. Для missed/not_applicable — пустая строка.
+- comment — очень кратко (до ~80 символов) или пустая строка.
+- Не засчитывай блок как spoken/paraphrased, если его произнёс клиент, а не продавец.
+"""
+
+
 SCREENING_SYSTEM_PROMPT = """Определи, применим ли данный скрипт продаж к данному разговору.
 Описание контекста скрипта: {context_description}
 Ответь СТРОГО валидным JSON: {{"applicable": true|false, "reason": "краткое обоснование"}}
@@ -94,6 +136,46 @@ GENERAL_ANALYSIS_SYSTEM_PROMPT = """Ты — эксперт по продажа�
 """
 
 
+GENERAL_ANALYSIS_TELEPHONY_SYSTEM_PROMPT = """Ты — эксперт по продажам и обслуживанию по телефону.
+Тебе дан транскрипт телефонного звонка ({direction_label}) между оператором/менеджером
+(в транскрипте — ПРОДАВЕЦ) и клиентом.
+Проанализируй звонок и верни СТРОГО валидный JSON:
+{{
+  "outcome": "<purchase|appointment|callback|deferred|refusal|transfer|non_target|voicemail|unknown>",
+  "outcome_confidence": <0.0—1.0>,
+  "topic": "<тема звонка: товар/услуга/причина обращения, или null>",
+  "sentiment_avg": <-1.0 до 1.0>,
+  "objections": [
+    {{
+      "type": "<price|quality|competitors|timing|trust|not_ready|functionality>",
+      "is_resolved": <true|false>,
+      "resolution_technique": "<техника или null>",
+      "raw_text": "<ДОСЛОВНАЯ фраза клиента из транскрипта — копируй буква в букву, без перефразирования>"
+    }}
+  ]
+}}
+
+Как выбирать outcome (строго в этом порядке приоритета):
+- purchase — клиент оформил заказ/заявку/покупку прямо в звонке («оформляйте», «беру»,
+  продиктовал данные для заказа, согласился на договор).
+- appointment — назначена конкретная встреча, запись, замер, показ, визит (есть дата/время
+  или договорённость о них).
+- callback — договорились о повторном звонке/менеджер перезвонит с расчётом.
+- deferred — клиент взял паузу подумать, без конкретной договорённости о следующем шаге.
+- refusal — клиент явно отказался (по любой причине: цена, передумал, выбрал другое).
+- transfer — звонок переведён на другого сотрудника/отдел, разговор по сути не состоялся.
+- non_target — нецелевой звонок: ошиблись номером, спам, не клиент (поставщик, реклама).
+- voicemail — автоответчик, недозвон, тишина, обрыв в самом начале.
+- unknown — исход не удалось определить.
+Если был и заказ, и договорённость о встрече — приоритет purchase.
+
+Возражения — это ЛЮБОЕ сомнение или отговорка клиента, даже мимоходом, в том числе:
+- «у меня уже есть карта/услуга/договор другого банка (компании)» → type=competitors
+- «в чём подвох», «наверняка скрытые комиссии», «не верю» → type=trust
+- «дорого», «не потяну» → type=price; «не нужно», «не пользуюсь» → type=not_ready
+Если оператор ответил на возражение и клиент продолжил разговор позитивно — is_resolved=true."""
+
+
 MAX_SEGMENTS_FOR_LLM = 80
 
 
@@ -133,8 +215,84 @@ def build_script_prompt(transcript_segments: list[dict], script: dict) -> tuple[
     return system, user
 
 
-def build_general_prompt(transcript_segments: list[dict]) -> tuple[str, str]:
-    return GENERAL_ANALYSIS_SYSTEM_PROMPT, _format_transcript(transcript_segments)
+# Хардкод-перечисление типов в промптах — заменяется на коды из справочника организации.
+# Должно ДОСЛОВНО совпадать со строкой в GENERAL_*_SYSTEM_PROMPT и _MERGED_GENERAL_SECTION_*.
+OBJECTION_ENUM_PLACEHOLDER = "price|quality|competitors|timing|trust|not_ready|functionality"
+
+
+def apply_objection_types(
+    system: str, user: str, objection_types: list[dict] | None
+) -> tuple[str, str]:
+    """Подставляет настраиваемые типы возражений организации в промпт общего анализа.
+
+    1) В system: перечисление кодов в JSON-схеме заменяется на коды справочника.
+    2) В user: перед транскриптом добавляется расшифровка типов (название, описание,
+       примеры фраз) — примеры учат LLM отраслевой специфике.
+    Пустой/отсутствующий справочник → промпт остаётся со стандартными 7 типами.
+    """
+    types = [t for t in (objection_types or []) if t.get("code")]
+    if not types:
+        return system, user
+    system = system.replace(OBJECTION_ENUM_PLACEHOLDER, "|".join(t["code"] for t in types))
+    lines = []
+    for t in types:
+        line = f"- {t['code']} — {t.get('label', '')}"
+        if t.get("description"):
+            line += f": {t['description']}"
+        examples = [e for e in (t.get("example_phrases") or []) if e]
+        if examples:
+            line += "\n    Примеры фраз клиента: " + "; ".join(f"«{e}»" for e in examples)
+        lines.append(line)
+    user = "Типы возражений (в поле type используй только эти коды):\n" + "\n".join(lines) + "\n\n" + user
+    return system, user
+
+
+def _direction_label(call_context: dict | None) -> str:
+    direction = (call_context or {}).get("call_direction")
+    return {"inbound": "входящий", "outbound": "исходящий"}.get(direction, "направление неизвестно")
+
+
+def is_call_context(call_context: dict | None) -> bool:
+    """True, если запись — телефонный звонок (телефонийный набор исходов).
+
+    Звонком считается запись с source=call_* ЛИБО любая запись с указанным
+    направлением (например, транскрипт звонка, загруженный вручную для тестов).
+    """
+    if not call_context:
+        return False
+    if (call_context.get("source") or "").startswith("call"):
+        return True
+    return bool(call_context.get("call_direction"))
+
+
+def build_fulltext_script_prompt(transcript_segments: list[dict], script: dict) -> tuple[str, str]:
+    """Промпт оценки покрытия полнотекстового скрипта (script_type=fulltext)."""
+    blocks_text = "\n".join(
+        f"- ID={b['id']} | [{'обязательный' if b.get('is_mandatory', True) else 'ситуативный'}] "
+        f"{b.get('title') or 'Блок ' + str(b.get('block_order', ''))}:\n"
+        f"    «{b['text']}»"
+        for b in sorted(script.get("blocks", []), key=lambda b: b.get("block_order", 0))
+    )
+    system = FULLTEXT_SCRIPT_SYSTEM_PROMPT.format(
+        script_name=script["name"],
+        script_blocks=blocks_text,
+    )
+    return system, _format_transcript(transcript_segments)
+
+
+def build_general_prompt(
+    transcript_segments: list[dict],
+    call_context: dict | None = None,
+    objection_types: list[dict] | None = None,
+) -> tuple[str, str]:
+    if is_call_context(call_context):
+        system = GENERAL_ANALYSIS_TELEPHONY_SYSTEM_PROMPT.format(
+            direction_label=_direction_label(call_context)
+        )
+    else:
+        system = GENERAL_ANALYSIS_SYSTEM_PROMPT
+    user = _format_transcript(transcript_segments)
+    return apply_objection_types(system, user, objection_types)
 
 
 def build_redaction_prompt(texts: list[str]) -> tuple[str, str]:
@@ -227,6 +385,147 @@ COMPLIANCE_CHECK_SYSTEM_PROMPT = """Ты — аудитор соблюдения
   целом, например, общая агрессия), evidence можно оставить пустым."""
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Объединённый проход: общий анализ + комплаенс одним вызовом LLM.
+# Транскрипт пересылается один раз вместо двух. Правила обеих секций должны
+# СОВПАДАТЬ по смыслу с GENERAL_ANALYSIS_SYSTEM_PROMPT и COMPLIANCE_CHECK_SYSTEM_PROMPT —
+# при их изменении обновляй и здесь. Корректность подстрахована фолбэком в воркере.
+# Собирается из частей: заголовок + секция general (розница или телефония) + секция compliance.
+# Без .format() — в строках много литеральных фигурных скобок (JSON-схемы).
+_MERGED_HEADER_RETAIL = """Ты — эксперт по продажам и аудитор коммуникации в розничном магазине.
+Тебе дан транскрипт разговора продавца с клиентом и список правил коммуникации.
+Выполни ДВА НЕЗАВИСИМЫХ анализа и верни СТРОГО валидный JSON ровно с двумя ключами верхнего уровня: "general" и "compliance".
+"""
+
+_MERGED_HEADER_TELEPHONY = """Ты — эксперт по телефонным продажам и аудитор коммуникации.
+Тебе дан транскрипт телефонного звонка ({direction_label}) между оператором/менеджером (в транскрипте — ПРОДАВЕЦ) и клиентом, и список правил коммуникации.
+Выполни ДВА НЕЗАВИСИМЫХ анализа и верни СТРОГО валидный JSON ровно с двумя ключами верхнего уровня: "general" и "compliance".
+"""
+
+_MERGED_GENERAL_SECTION_RETAIL = """
+═══ Секция "general" — анализ итога разговора ═══
+Формат:
+{
+  "outcome": "<purchase|deferred|price_refusal|competitor|unknown>",
+  "outcome_confidence": <0.0—1.0>,
+  "topic": "<название товара или null>",
+  "sentiment_avg": <-1.0 до 1.0>,
+  "objections": [
+    {
+      "type": "<price|quality|competitors|timing|trust|not_ready|functionality>",
+      "is_resolved": <true|false>,
+      "resolution_technique": "<техника или null>",
+      "raw_text": "<ДОСЛОВНАЯ фраза клиента из транскрипта — копируй буква в букву, без перефразирования>"
+    }
+  ]
+}
+Как выбирать outcome (строго в этом порядке приоритета):
+- purchase — если клиент покупает ХОТЯ БЫ ОДИН товар/услугу здесь и сейчас. Триггеры:
+  фразы клиента «давайте беру / возьму / оформляйте», оформление чека, выписка карты лояльности,
+  благодарность за покупку. Если по части позиций клиент сказал «возьму», а по другим
+  «подумаю» — всё равно outcome=purchase (был факт продажи).
+- deferred — клиент НИЧЕГО не купил сейчас, но обещал вернуться, попросил отложить,
+  взял расчёт/контакты домой подумать. Полностью отложенная покупка.
+- price_refusal — клиент НИЧЕГО не купил И прямой повод — цена («дорого», «не по карману»,
+  «нет таких денег»), даже после попыток продавца снизить чек/предложить альтернативу.
+- competitor — клиент НИЧЕГО не купил И прямо сказал, что пойдёт/уже видел у конкурентов
+  лучше/дешевле/выгоднее.
+- unknown — разговор оборвался, неясен исход, или это вообще не диалог о продаже.
+Не путай частичное закрытие с «отложено»: если продавец оформил чек хотя бы на один товар —
+это purchase, даже если по другим позициям клиент ушёл думать.
+"""
+
+_MERGED_GENERAL_SECTION_TELEPHONY = """
+═══ Секция "general" — анализ итога звонка ═══
+Формат:
+{
+  "outcome": "<purchase|appointment|callback|deferred|refusal|transfer|non_target|voicemail|unknown>",
+  "outcome_confidence": <0.0—1.0>,
+  "topic": "<тема звонка: товар/услуга/причина обращения, или null>",
+  "sentiment_avg": <-1.0 до 1.0>,
+  "objections": [
+    {
+      "type": "<price|quality|competitors|timing|trust|not_ready|functionality>",
+      "is_resolved": <true|false>,
+      "resolution_technique": "<техника или null>",
+      "raw_text": "<ДОСЛОВНАЯ фраза клиента из транскрипта — копируй буква в букву, без перефразирования>"
+    }
+  ]
+}
+Как выбирать outcome (строго в этом порядке приоритета):
+- purchase — клиент оформил заказ/заявку/покупку прямо в звонке («оформляйте», «беру»,
+  продиктовал данные для заказа, согласился на договор).
+- appointment — назначена конкретная встреча, запись, замер, показ, визит (есть дата/время
+  или договорённость о них).
+- callback — договорились о повторном звонке/менеджер перезвонит с расчётом.
+- deferred — клиент взял паузу подумать, без конкретной договорённости о следующем шаге.
+- refusal — клиент явно отказался (по любой причине: цена, передумал, выбрал другое).
+- transfer — звонок переведён на другого сотрудника/отдел, разговор по сути не состоялся.
+- non_target — нецелевой звонок: ошиблись номером, спам, не клиент (поставщик, реклама).
+- voicemail — автоответчик, недозвон, тишина, обрыв в самом начале.
+- unknown — исход не удалось определить.
+Если был и заказ, и договорённость о встрече — приоритет purchase.
+Возражения — это ЛЮБОЕ сомнение или отговорка клиента, даже мимоходом, в том числе:
+- «у меня уже есть карта/услуга/договор другого банка (компании)» → type=competitors
+- «в чём подвох», «наверняка скрытые комиссии», «не верю» → type=trust
+- «дорого», «не потяну» → type=price; «не нужно», «не пользуюсь» → type=not_ready
+Если оператор ответил на возражение и клиент продолжил разговор позитивно — is_resolved=true.
+"""
+
+_MERGED_COMPLIANCE_SECTION = """
+═══ Секция "compliance" — аудит правил коммуникации ═══
+Список правил коммуникации дан во входных данных (продавец обязан их соблюдать: без ругательств,
+не конфликтовать с клиентом, не давать ложных обещаний и т.п.).
+Для КАЖДОГО факта нарушения (если оно есть) определи:
+- rule_id: UUID правила, которое нарушено.
+- evidence: ДОСЛОВНАЯ короткая цитата реплики продавца, которая является нарушением. Копируй буква
+  в букву, без перефразирования. Только реплика продавца, не клиента.
+- explanation: краткое (1 предложение) объяснение, почему это нарушение именно этого правила.
+Формат:
+{
+  "violations": [
+    { "rule_id": "<UUID>", "evidence": "<дословная цитата продавца>", "explanation": "<краткое объяснение>" }
+  ]
+}
+Правила комплаенса:
+- Если нарушений нет — верни "violations": []. Не выдумывай нарушения.
+- Несколько нарушений одного правила = несколько записей с одинаковым rule_id и разными evidence.
+- Оценивай только то, что в правилах коммуникации. Не добавляй замечаний по скриптам продаж/апсейлу.
+- Цитата ДОСЛОВНАЯ — никаких "..." и склейки реплик. Если конкретной цитаты нет (общая агрессия),
+  evidence можно оставить пустым.
+
+═══ Итоговый формат ответа (ровно эта структура) ═══
+{
+  "general": { ...поля секции general... },
+  "compliance": { "violations": [ ...нарушения... ] }
+}"""
+
+
+def build_general_compliance_prompt(
+    transcript_segments: list[dict],
+    compliance_rules: list[dict],
+    call_context: dict | None = None,
+    objection_types: list[dict] | None = None,
+) -> tuple[str, str]:
+    """Объединённый промпт: общий анализ + комплаенс. Транскрипт + правила — один раз."""
+    if is_call_context(call_context):
+        header = _MERGED_HEADER_TELEPHONY.format(direction_label=_direction_label(call_context))
+        general_section = _MERGED_GENERAL_SECTION_TELEPHONY
+    else:
+        header = _MERGED_HEADER_RETAIL
+        general_section = _MERGED_GENERAL_SECTION_RETAIL
+    system = header + general_section + _MERGED_COMPLIANCE_SECTION
+
+    rules_text = "\n".join(
+        f"- ID={r['id']} | важность={r.get('severity', 'medium')} | {r['title']}"
+        + (f"\n    Описание: {r['description']}" if r.get('description') else "")
+        for r in compliance_rules
+    )
+    transcript = _format_transcript(transcript_segments)
+    user = f"Правила коммуникации:\n{rules_text}\n\n{transcript}"
+    return apply_objection_types(system, user, objection_types)
+
+
 def build_compliance_prompt(transcript_segments: list[dict], rules: list[dict]) -> tuple[str, str]:
     rules_text = "\n".join(
         f"- ID={r['id']} | важность={r.get('severity', 'medium')} | {r['title']}"
@@ -260,7 +559,7 @@ async def screen_contextual_script(
     user = _format_transcript(transcript_segments)
     try:
         response = await llm_client.chat.completions.create(
-            model=settings.LLM_MODEL_NAME,
+            model=settings.LLM_CHEAP_MODEL or settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.0,
             max_tokens=200,

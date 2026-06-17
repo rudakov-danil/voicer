@@ -11,6 +11,16 @@ function normalizeStep(s) {
         example_phrases: Array.isArray(s.example_phrases) ? s.example_phrases : [],
     };
 }
+function normalizeBlock(b) {
+    return {
+        id: b.id,
+        title: b.title,
+        text: b.text,
+        block_type: b.block_type || 'other',
+        is_mandatory: b.is_mandatory !== false,
+        block_order: b.block_order ?? 0,
+    };
+}
 function normalizeTemplate(d) {
     return {
         id: d.id,
@@ -21,10 +31,24 @@ function normalizeTemplate(d) {
         context_description: d.context_description ?? null,
         is_active: !!d.is_active,
         applies_to_all_stores: !!d.applies_to_all_stores,
+        script_type: d.script_type || 'staged',
+        full_text: d.full_text ?? null,
+        source_document_name: d.source_document_name ?? null,
+        blocks: (d.blocks || []).map(normalizeBlock).sort((a, b) => a.block_order - b.block_order),
         steps: (d.steps || []).map(normalizeStep).sort((a, b) => a.order - b.order),
         assigned_sellers: d.assigned_sellers || [],
         assigned_stores: d.assigned_stores || [],
     };
+}
+// Сервер ожидает block_order по порядку массива
+function blocksForServer(blocks) {
+    return blocks.map((b, i) => ({
+        title: b.title,
+        text: b.text,
+        block_type: b.block_type || 'other',
+        is_mandatory: b.is_mandatory,
+        block_order: i + 1,
+    }));
 }
 // Сервер ожидает step_order вместо order
 function stepsForServer(steps) {
@@ -41,7 +65,12 @@ function stepsForServer(steps) {
 export const scriptsApi = {
     getTemplates: async () => {
         const response = await apiClient.get('/api/v1/scripts/templates');
-        return (response.data.items || []).map(normalizeTemplate);
+        // Список не содержит steps/blocks — сохраняем счётчики с бэка для сайдбара
+        return (response.data.items || []).map((d) => ({
+            ...normalizeTemplate(d),
+            step_count: d.step_count ?? 0,
+            block_count: d.block_count ?? 0,
+        }));
     },
     getTemplate: async (id) => {
         const response = await apiClient.get(`/api/v1/scripts/templates/${id}`);
@@ -54,7 +83,11 @@ export const scriptsApi = {
             description: data.description ?? null,
             scope: data.scope || 'org_level',
             context_description: data.context_description ?? null,
+            script_type: data.script_type || 'staged',
             steps: stepsForServer(data.steps),
+            blocks: blocksForServer(data.blocks || []),
+            full_text: data.full_text ?? null,
+            source_document_name: data.source_document_name ?? null,
         };
         const response = await apiClient.post('/api/v1/scripts/templates', body);
         return normalizeTemplate(response.data);
@@ -68,9 +101,38 @@ export const scriptsApi = {
             scope: data.scope || 'org_level',
             context_description: data.context_description ?? null,
             steps: stepsForServer(data.steps),
+            blocks: blocksForServer(data.blocks || []),
+            full_text: data.full_text ?? null,
+            source_document_name: data.source_document_name ?? null,
         };
         const response = await apiClient.put(`/api/v1/scripts/templates/${id}`, body);
         return normalizeTemplate(response.data);
+    },
+    // ─── Типы возражений (настраиваемый справочник организации) ───────────────
+    listObjectionTypes: async (onlyActive = false) => {
+        const response = await apiClient.get('/api/v1/scripts/objection-types', { params: onlyActive ? { only_active: true } : undefined });
+        return response.data.items;
+    },
+    createObjectionType: async (data) => {
+        const response = await apiClient.post('/api/v1/scripts/objection-types', data);
+        return response.data;
+    },
+    patchObjectionType: async (id, data) => {
+        const response = await apiClient.patch(`/api/v1/scripts/objection-types/${id}`, data);
+        return response.data;
+    },
+    deleteObjectionType: async (id) => {
+        await apiClient.delete(`/api/v1/scripts/objection-types/${id}`);
+    },
+    // Импорт документа скрипта (DOCX/PDF/RTF/TXT) → черновик блоков для предпросмотра
+    importDocument: async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await apiClient.post('/api/v1/scripts/templates/import-document', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 300000, // LLM-структуризация большого документа может быть долгой
+        });
+        return response.data;
     },
     patchTemplate: async (id, data) => {
         const response = await apiClient.patch(`/api/v1/scripts/templates/${id}`, data);
@@ -130,7 +192,8 @@ export const scriptsApi = {
     },
     createUpsellRule: async (data) => {
         const response = await apiClient.post('/api/v1/scripts/upsell-rules', {
-            store_id: data.store_id ?? null,
+            store_ids: data.store_ids ?? [],
+            seller_ids: data.seller_ids ?? [],
             trigger_product: data.trigger_product,
             required_offers: data.required_offers,
             is_active: data.is_active ?? true,
@@ -151,7 +214,8 @@ export const scriptsApi = {
     },
     createCrossSellRule: async (data) => {
         const response = await apiClient.post('/api/v1/scripts/cross-sell-rules', {
-            store_id: data.store_id ?? null,
+            store_ids: data.store_ids ?? [],
+            seller_ids: data.seller_ids ?? [],
             trigger_product: data.trigger_product,
             required_offers: data.required_offers,
             is_active: data.is_active ?? true,

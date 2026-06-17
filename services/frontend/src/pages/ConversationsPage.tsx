@@ -9,9 +9,11 @@ import { Drawer } from '@/components/Drawer'
 import { AudioPlayer } from '@/components/AudioPlayer'
 import { AudioUploadModal } from '@/components/AudioUpload'
 import { TranscriptUploadModal } from '@/components/TranscriptUpload'
+import { CallUploadModal } from '@/components/CallUpload'
+import { useTerms } from '@/lib/terms'
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { useSearchParams, useOutletContext } from 'react-router-dom'
-import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, X, FileText } from 'lucide-react'
+import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, X, FileText, Phone, PhoneIncoming, PhoneOutgoing } from 'lucide-react'
 import { MultiSelect } from '@/components/scripts/MultiSelect'
 import {
   avatarColorFor,
@@ -32,6 +34,25 @@ const OUTCOME_LABELS: Record<string, string> = {
   unknown: 'Не определён',
 }
 
+// Исходы звонков (телефония) — добавляются к фильтру для telephony-организаций
+const TELEPHONY_OUTCOME_LABELS: Record<string, string> = {
+  purchase: 'Продажа / заявка',
+  appointment: 'Встреча назначена',
+  callback: 'Перезвон',
+  deferred: 'Думает',
+  refusal: 'Отказ',
+  transfer: 'Перевод звонка',
+  non_target: 'Нецелевой',
+  voicemail: 'Недозвон',
+  unknown: 'Не определён',
+}
+
+function DirectionIcon({ direction }: { direction?: string | null }) {
+  if (direction === 'inbound') return <PhoneIncoming size={13} style={{ color: 'var(--success)', flexShrink: 0 }} aria-label="Входящий" />
+  if (direction === 'outbound') return <PhoneOutgoing size={13} style={{ color: '#6366F1', flexShrink: 0 }} aria-label="Исходящий" />
+  return null
+}
+
 const OBJECTION_TYPE_LABELS: Record<string, string> = {
   price: 'Цена',
   quality: 'Качество',
@@ -42,9 +63,23 @@ const OBJECTION_TYPE_LABELS: Record<string, string> = {
   functionality: 'Функциональность',
 }
 
-function objectionTypeLabel(type: string | undefined | null): string {
-  if (!type) return 'Возражение'
-  return OBJECTION_TYPE_LABELS[type] || type
+/** Лейблы типов возражений: настраиваемый справочник организации поверх стандартных. */
+function useObjectionTypeLabel(): (type: string | undefined | null) => string {
+  const { data: types } = useQuery({
+    queryKey: ['objection-types'],
+    queryFn: () => scriptsApi.listObjectionTypes(),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+  const map = useMemo(() => {
+    const m: Record<string, string> = { ...OBJECTION_TYPE_LABELS }
+    for (const t of (types || [])) m[t.code] = t.label
+    return m
+  }, [types])
+  return useCallback(
+    (type: string | undefined | null) => (!type ? 'Возражение' : (map[type] || type)),
+    [map],
+  )
 }
 
 // ─── Sell badges ──────────────────────────────────────────────────────────────
@@ -86,7 +121,8 @@ const CrossSellBadge = makeSellBadge('crosssell')
 function HighlightLegend() {
   return (
     <div className="hl-legend">
-      <span className="hl-pill hl-pill--script">Этап скрипта</span>
+      <span className="hl-pill hl-pill--script">По тексту</span>
+      <span className="hl-pill hl-pill--paraphrased">Своими словами</span>
       <span className="hl-pill hl-pill--upsell">Апсейл</span>
       <span className="hl-pill hl-pill--crosssell">Кросс-сейл</span>
       <span className="hl-pill hl-pill--objection">Возражение</span>
@@ -235,8 +271,93 @@ function RecordingDetail({ recording }: { recording: any }) {
   )
 }
 
+// ─── Fulltext script coverage (блочное покрытие полнотекстового скрипта) ─────
+const BLOCK_STATUS_META: Record<string, { icon: string; cls: string; label: string }> = {
+  spoken: { icon: '✓', cls: 'done', label: 'произнесён по тексту' },
+  paraphrased: { icon: '~', cls: 'partial', label: 'своими словами' },
+  missed: { icon: '✕', cls: 'missed', label: 'пропущен' },
+  // Ситуация не возникла — блок закономерно не нужен, не штрафуем (нейтрально)
+  not_applicable: { icon: '–', cls: 'na', label: 'не требовался' },
+}
+
+function FulltextCoverage({ scriptResult, score, sColor, shortName }: {
+  scriptResult: any
+  score: number
+  sColor: string
+  shortName: string
+}) {
+  const [openBlock, setOpenBlock] = useState<string | null>(null)
+  const blocks: any[] = scriptResult.block_results || []
+  // Знаменатель — блоки, которые реально требовались (без not_applicable):
+  // обязательные всегда + ситуативные, чья ситуация возникла
+  const required = blocks.filter(b => b.status !== 'not_applicable')
+  const okCount = required.filter(b => b.status === 'spoken' || b.status === 'paraphrased').length
+  const naCount = blocks.length - required.length
+
+  return (
+    <div>
+      <div style={{ fontWeight:600, color:'var(--text)', marginBottom:4 }} title={scriptResult.script_name || ''}>
+        Покрытие скрипта{shortName ? ` («${shortName}»)` : ''} — {score}%
+      </div>
+      <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:8 }}>
+        Проговорено {okCount} из {required.length} нужных блоков
+        {naCount > 0 && <span> · {naCount} не требовалось</span>}
+      </div>
+      <div className="progress-bar" style={{ marginBottom:12 }}>
+        <div className={`progress-bar-fill ${sColor}`} style={{ width:`${score}%` }} />
+      </div>
+      <ul className="checklist">
+        {blocks.map((b: any) => {
+          const meta = BLOCK_STATUS_META[b.status] || BLOCK_STATUS_META.missed
+          const isOpen = openBlock === b.block_id
+          return (
+            <li key={b.block_id} className="checklist-item"
+              style={{ flexDirection:'column', alignItems:'stretch', cursor:'pointer' }}
+              onClick={() => setOpenBlock(isOpen ? null : b.block_id)}
+            >
+              <div style={{ display:'flex', alignItems:'center', gap:10, width:'100%' }}>
+                <div className={`check-icon ${meta.cls}`}>{meta.icon}</div>
+                <span className={`checklist-text ${meta.cls}`} style={{ flex:1 }}>
+                  {b.title}
+                  {!b.is_mandatory && (
+                    <span style={{ marginLeft:6, fontSize:11, color:'var(--text-muted)' }}>· ситуативный</span>
+                  )}
+                </span>
+                <span className={`checklist-score ${meta.cls}`} style={{ whiteSpace:'nowrap' }}>{meta.label}</span>
+              </div>
+              {isOpen && (
+                <div style={{
+                  marginTop:8, marginLeft:30, padding:'10px 12px',
+                  background:'var(--bg)', borderRadius:'var(--radius)', fontSize:12.5, lineHeight:1.5,
+                }}>
+                  {b.text && (
+                    <div style={{ color:'var(--text-secondary)' }}>
+                      <span style={{ fontWeight:600, color:'var(--text-muted)', fontSize:11 }}>СКРИПТ: </span>
+                      {b.text}
+                    </div>
+                  )}
+                  {b.quote && (
+                    <div style={{ marginTop:6, color:'var(--success)' }}>
+                      <span style={{ fontWeight:600, fontSize:11 }}>СКАЗАНО: </span>
+                      «{b.quote}»
+                    </div>
+                  )}
+                  {b.comment && (
+                    <div style={{ marginTop:6, color:'var(--text-muted)', fontStyle:'italic' }}>{b.comment}</div>
+                  )}
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 // ─── Full conversation detail (analyzed) ─────────────────────────────────────
 function ConversationDetail({ conversationId }: { conversationId: string }) {
+  const objectionTypeLabel = useObjectionTypeLabel()
   const { data, isLoading } = useQuery({
     queryKey: ['conversation-detail', conversationId],
     queryFn: () => dashboardApi.getConversationDetail(conversationId),
@@ -261,6 +382,7 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
   const scriptResults: any[] = c.script_results || data?.script_results || []
   const objections: any[] = c.objections || data?.objections || []
   const storeId: string | undefined = c.store_id
+  const sellerId: string | undefined = c.seller_id
 
   // LLM-результаты по апсейл/кросс-сейл из бэкенда: список объектов с цитатами для подсветки.
   const upsellResults: any[] = Array.isArray(c.upsell_results) ? c.upsell_results : []
@@ -289,8 +411,8 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
       }
       return { triggered: true, matched, total, missed, status }
     }
-    return analyzeSell(crossSellRules as any, segments, storeId)
-  }, [c.has_crosssell, crosssellResults, crossSellRules, segments, storeId])
+    return analyzeSell(crossSellRules as any, segments, storeId, sellerId)
+  }, [c.has_crosssell, crosssellResults, crossSellRules, segments, storeId, sellerId])
 
   // Анализ апсейла — симметрично кросс-сейлу: предпочитаем LLM-результат с бэка,
   // фолбэк на клиентский матч по правилам. Раньше для апсейла фолбэка не было,
@@ -316,12 +438,23 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
       }
       return { triggered: true, matched, total, missed, status }
     }
-    return analyzeSell(upsellRules as any, segments, storeId)
-  }, [c.has_upsell, upsellResults, upsellRules, segments, storeId])
+    return analyzeSell(upsellRules as any, segments, storeId, sellerId)
+  }, [c.has_upsell, upsellResults, upsellRules, segments, storeId, sellerId])
 
   const highlightRules: HighlightRule[] = useMemo(() => {
     const rules: HighlightRule[] = []
     for (const sr of scriptResults) {
+      // Полнотекстовый скрипт: подсвечиваем цитаты оператора, подтверждающие блоки.
+      // spoken → зелёный (по тексту), paraphrased → жёлтый (своими словами).
+      for (const b of (sr.block_results || [])) {
+        const quote = (b.quote || '').trim()
+        if (quote.length < 3 || b.status === 'missed' || b.status === 'not_applicable') continue
+        rules.push({
+          text: quote,
+          kind: b.status === 'spoken' ? 'script-done' : 'script-partial',
+          tooltip: `Блок «${b.title}» — ${b.status === 'spoken' ? 'произнесён по тексту' : 'своими словами'}`,
+        })
+      }
       for (const step of (sr.step_scores || sr.steps || [])) {
         const evidence = (step.evidence || '').trim()
         if (!evidence) continue
@@ -374,12 +507,12 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
       pushSellQuotes(upsellResults, 'upsell')
     } else {
       // Фолбэк для старых разговоров без LLM-цитат — берём правила и ищем подстроку.
-      rules.push(...highlightRulesForSell(upsellRules as any, storeId, 'upsell'))
+      rules.push(...highlightRulesForSell(upsellRules as any, storeId, 'upsell', sellerId))
     }
     if (crosssellResults.length > 0) {
       pushSellQuotes(crosssellResults, 'crosssell')
     } else {
-      rules.push(...highlightRulesForSell(crossSellRules as any, storeId, 'crosssell'))
+      rules.push(...highlightRulesForSell(crossSellRules as any, storeId, 'crosssell', sellerId))
     }
     return rules
   }, [scriptResults, objections, upsellResults, crosssellResults, upsellRules, crossSellRules, storeId])
@@ -440,6 +573,17 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
       {/* Tags */}
       <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
         <OutcomeTag outcome={c.outcome} />
+        {c.call_direction && (
+          <span className="tag tag-neutral" style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+            <DirectionIcon direction={c.call_direction} />
+            {c.call_direction === 'inbound' ? 'Входящий' : 'Исходящий'}
+          </span>
+        )}
+        {c.client_phone && (
+          <span className="tag tag-neutral" style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+            <Phone size={12} /> {c.client_phone}
+          </span>
+        )}
         {c.topic && <span className="tag tag-neutral">{c.topic}</span>}
         {c.compliance_ok !== undefined && (
           <span className={`tag ${c.compliance_ok ? 'tag-success' : 'tag-danger'}`}>
@@ -448,11 +592,58 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
         )}
       </div>
 
+      {/* Метрики динамики разговора (считаются из таймкодов, есть не у всех записей) */}
+      {c.talk_ratio !== null && c.talk_ratio !== undefined && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:8 }}>
+          {[
+            {
+              label: 'Речь сотрудника',
+              value: `${Math.round(c.talk_ratio * 100)}%`,
+              hint: 'Доля времени речи сотрудника. Ориентир для продаж — 40–60%',
+              warn: c.talk_ratio > 0.75 || c.talk_ratio < 0.25,
+            },
+            {
+              label: 'Перебивания',
+              value: String(c.interruptions_count ?? '—'),
+              hint: 'Сколько раз стороны перебивали друг друга',
+              warn: (c.interruptions_count ?? 0) >= 5,
+            },
+            {
+              label: 'Макс. монолог',
+              value: c.longest_monologue_seconds != null ? `${c.longest_monologue_seconds}с` : '—',
+              hint: 'Самый длинный непрерывный монолог сотрудника',
+              warn: (c.longest_monologue_seconds ?? 0) >= 90,
+            },
+            {
+              label: 'Тишина',
+              value: c.silence_ratio != null ? `${Math.round(c.silence_ratio * 100)}%` : '—',
+              hint: 'Доля пауз без речи от длительности разговора',
+              warn: (c.silence_ratio ?? 0) >= 0.3,
+            },
+          ].map((m) => (
+            <div key={m.label} title={m.hint} style={{
+              padding:'10px 12px', background:'var(--bg)', borderRadius:'var(--radius)',
+              textAlign:'center', cursor:'help',
+            }}>
+              <div style={{ fontSize:16, fontWeight:700, color: m.warn ? 'var(--danger)' : 'var(--text)' }}>{m.value}</div>
+              <div style={{ fontSize:10.5, color:'var(--text-muted)', marginTop:2 }}>{m.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Script Scoring */}
       {scriptResults.map((sr: any, i: number) => {
         const score = Math.round(sr.script_score || sr.total_score || 0)
         const sColor = score >= 80 ? 'green' : score >= 60 ? 'yellow' : 'red'
         const shortName = (sr.script_short_name || '').trim()
+
+        // Полнотекстовый скрипт: вместо этапов показываем покрытие по блокам
+        if (sr.script_type === 'fulltext' && Array.isArray(sr.block_results) && sr.block_results.length > 0) {
+          return (
+            <FulltextCoverage key={i} scriptResult={sr} score={score} sColor={sColor} shortName={shortName} />
+          )
+        }
         return (
           <div key={i}>
             <div
@@ -547,8 +738,19 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
               const m = Math.floor(startSec / 60)
               const s = Math.floor(startSec % 60)
               const timeStr = `${m}:${String(s).padStart(2, '0')}`
-              const speakerLabel = isSeller ? 'Продавец' : isClient ? 'Клиент' : '—'
+              const isCall = !!c.call_direction || (c.source || '').startsWith('call')
+              const speakerLabel = isSeller ? (isCall ? 'Оператор' : 'Продавец') : isClient ? 'Клиент' : '—'
               const speakerClass = isSeller ? 'seller' : isClient ? 'client' : 'unknown'
+              // Апсейл/кросс-сейл — действия продавца, поэтому их подсветку (триггер и
+              // предложение) показываем только в репликах продавца. У клиента триггер-продукт
+              // может прозвучать (он сам упомянул товар), но это не работа менеджера —
+              // согласуется с analyzeSell, который тоже считает только речь продавца.
+              // Возражения и шаги скрипта не трогаем — они валидны для обеих сторон.
+              const segRules = isSeller
+                ? highlightRules
+                : highlightRules.filter(
+                    (r) => !r.kind.startsWith('upsell-') && !r.kind.startsWith('crosssell-')
+                  )
               return (
                 <div key={i} className="transcript-line">
                   <span className="transcript-time">{timeStr}</span>
@@ -556,7 +758,7 @@ function ConversationDetail({ conversationId }: { conversationId: string }) {
                     {speakerLabel}
                   </span>
                   <span className="transcript-text">
-                    {highlightSegmentText(seg.text, highlightRules)}
+                    {highlightSegmentText(seg.text, segRules)}
                   </span>
                 </div>
               )
@@ -579,6 +781,7 @@ interface OutletContext { period: number }
 
 export function ConversationsPage() {
   const { period } = useOutletContext<OutletContext>()
+  const terms = useTerms()
   const [searchParams, setSearchParams] = useSearchParams()
   const [page, setPage] = useState(1)
   const [selectedConvId, setSelectedConvId] = useState<string | null>(() => searchParams.get('conv'))
@@ -592,10 +795,11 @@ export function ConversationsPage() {
   }, [searchParams])
   const [showUpload, setShowUpload] = useState(false)
   const [showTranscriptUpload, setShowTranscriptUpload] = useState(false)
+  const [showCallUpload, setShowCallUpload] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [sort, setSort] = useState<{ by: SortBy; dir: SortDir }>({ by: 'date', dir: 'desc' })
   const [filters, setFilters] = useState({
-    store_id: '', seller_id: '', outcome: '',
+    store_id: '', seller_id: '', outcome: '', direction: '', source: '',
     score_min: undefined as number | undefined,
     score_max: undefined as number | undefined,
   })
@@ -614,6 +818,8 @@ export function ConversationsPage() {
       store_id: filters.store_id || undefined,
       seller_id: filters.seller_id || undefined,
       outcome: filters.outcome || undefined,
+      direction: filters.direction || undefined,
+      source: filters.source || undefined,
       score_min: filters.score_min,
       score_max: filters.score_max,
       period,
@@ -700,9 +906,9 @@ export function ConversationsPage() {
   const sortKey = `${sort.by}_${sort.dir}`
   const sortActive = sortKey !== 'date_desc'
 
-  const hasActiveFilters = !!(filters.store_id || filters.outcome || scoreValue || sortActive)
+  const hasActiveFilters = !!(filters.store_id || filters.outcome || filters.direction || filters.source || scoreValue || sortActive)
   const resetAll = () => {
-    setFilters({ store_id:'', seller_id:'', outcome:'', score_min:undefined, score_max:undefined })
+    setFilters({ store_id:'', seller_id:'', outcome:'', direction:'', source:'', score_min:undefined, score_max:undefined })
     setSort({ by:'date', dir:'desc' })
     setPage(1)
   }
@@ -728,21 +934,56 @@ export function ConversationsPage() {
             options={(stores?.items || []).map((s: any) => ({ id: s.id, label: s.name }))}
             selected={filters.store_id ? [filters.store_id] : ['']}
             onChange={(ids) => { setFilters(p => ({ ...p, store_id: ids[0] === '' ? '' : ids[0] })); setPage(1) }}
-            prependOption={{ id: '', label: 'Все магазины' }}
-            placeholder="Все магазины"
+            prependOption={{ id: '', label: terms.allStores }}
+            placeholder={terms.allStores}
           />
         </div>
 
         <div className="filter-cell">
           <MultiSelect
             single
-            options={Object.entries(OUTCOME_LABELS).map(([k, l]) => ({ id: k, label: l }))}
+            options={Object.entries(terms.isTelephony ? TELEPHONY_OUTCOME_LABELS : OUTCOME_LABELS).map(([k, l]) => ({ id: k, label: l }))}
             selected={filters.outcome ? [filters.outcome] : ['']}
             onChange={(ids) => { setFilters(p => ({ ...p, outcome: ids[0] === '' ? '' : ids[0] })); setPage(1) }}
             prependOption={{ id: '', label: 'Все исходы' }}
             placeholder="Все исходы"
           />
         </div>
+
+        {terms.isTelephony && (
+          <div className="filter-cell">
+            <MultiSelect
+              single
+              options={[
+                { id: 'inbound', label: 'Входящие' },
+                { id: 'outbound', label: 'Исходящие' },
+              ]}
+              selected={filters.direction ? [filters.direction] : ['']}
+              onChange={(ids) => { setFilters(p => ({ ...p, direction: ids[0] === '' ? '' : ids[0] })); setPage(1) }}
+              prependOption={{ id: '', label: 'Все направления' }}
+              placeholder="Все направления"
+            />
+          </div>
+        )}
+
+        {terms.isTelephony && (
+          <div className="filter-cell">
+            <MultiSelect
+              single
+              options={[
+                { id: 'calls', label: 'Звонки (все)' },
+                { id: 'call_webhook', label: 'Звонки из АТС' },
+                { id: 'call_manual', label: 'Звонки (вручную)' },
+                { id: 'manual', label: 'Загруженное аудио' },
+                { id: 'transcript', label: 'Транскрипты' },
+              ]}
+              selected={filters.source ? [filters.source] : ['']}
+              onChange={(ids) => { setFilters(p => ({ ...p, source: ids[0] === '' ? '' : ids[0] })); setPage(1) }}
+              prependOption={{ id: '', label: 'Все источники' }}
+              placeholder="Все источники"
+            />
+          </div>
+        )}
 
         <div className="filter-cell">
           <MultiSelect
@@ -803,10 +1044,17 @@ export function ConversationsPage() {
         <button className="btn btn-sm btn-primary-gradient" onClick={() => setShowUpload(true)}>
           <Upload size={14} /> Загрузить аудио
         </button>
+        {terms.isTelephony && (
+          <button className="btn btn-sm btn-primary-gradient" onClick={() => setShowCallUpload(true)}
+            title="Загрузить запись телефонного звонка с метаданными (направление, номер клиента)">
+            <Phone size={14} /> Загрузить звонок
+          </button>
+        )}
       </div>
 
       <AudioUploadModal open={showUpload} onClose={() => setShowUpload(false)} onUploadComplete={() => {}} />
       <TranscriptUploadModal open={showTranscriptUpload} onClose={() => setShowTranscriptUpload(false)} onUploadComplete={() => {}} />
+      <CallUploadModal open={showCallUpload} onClose={() => setShowCallUpload(false)} onUploadComplete={() => {}} />
 
       {/* Table */}
       <div className="card fade-in">
@@ -815,7 +1063,7 @@ export function ConversationsPage() {
             <thead>
               <tr>
                 {(['date','name','store','duration'] as const).map(col => {
-                  const labels: Record<SortBy, string> = { date:'Дата и время', name:'Продавец', store:'Магазин', duration:'Длительность' }
+                  const labels: Record<SortBy, string> = { date:'Дата и время', name:terms.seller, store:terms.store, duration:'Длительность' }
                   const active = sort.by === col
                   const Icon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
                   return (
@@ -875,7 +1123,13 @@ export function ConversationsPage() {
                     onClick={() => { setSelectedConvId(row.id); setSelectedRec(null) }}
                     style={{ cursor:'pointer', background: selectedConvId === row.id ? 'var(--bg-active)' : undefined }}
                   >
-                    <td>{dateStr} <span style={{ color:'var(--text-muted)' }}>{timeStr}</span></td>
+                    <td>
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}
+                        title={row.client_phone ? `${row.call_direction === 'inbound' ? 'Входящий' : 'Исходящий'} · ${row.client_phone}` : undefined}>
+                        {row.call_direction && <DirectionIcon direction={row.call_direction} />}
+                        {dateStr} <span style={{ color:'var(--text-muted)' }}>{timeStr}</span>
+                      </span>
+                    </td>
                     <td>
                       <div className="seller-cell">
                         <div className="avatar" style={{ background:color }}>{(row.seller_name || '?')[0].toUpperCase()}</div>

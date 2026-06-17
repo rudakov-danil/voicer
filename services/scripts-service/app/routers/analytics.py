@@ -51,6 +51,11 @@ async def step_analytics(
 
     overall = (await db.execute(text(overall_sql), params)).fetchone()
 
+    # Полнотекстовый скрипт: детализация хранится не в conversation_scores,
+    # а в conversation_script_results.block_results (JSONB) — агрегируем по блокам.
+    if template.script_type == "fulltext":
+        return await _fulltext_analytics(db, template, overall, params, days)
+
     # Per-step: группируем ТОЛЬКО по step_name, чтобы орфаны (с пересохранёнными
     # script_step_id после редактирования шаблона) схлопывались в один ряд.
     # Берём свежий step_id (MAX по дате через MAX(score_id) — для ссылок UI).
@@ -89,6 +94,7 @@ async def step_analytics(
 
     return {
         "template_id": str(template.id),
+        "script_type": template.script_type,
         "period_days": days,
         "conversation_count": conv_count,
         "avg_script_score": round(avg_score, 1) if avg_score is not None else None,
@@ -107,6 +113,84 @@ async def step_analytics(
             }
             for r in rows
         ],
+    }
+
+
+async def _fulltext_analytics(db: AsyncSession, template, overall, params: dict, days: int) -> dict:
+    """Агрегация покрытия полнотекстового скрипта по блокам из block_results (JSONB).
+
+    Возвращает тот же формат per_step, что и этапная аналитика, — фронтенд
+    переиспользует отрисовку: pass = блок прозвучал (spoken/paraphrased).
+    """
+    # applicable_count = разговоры, где блок реально требовался (без not_applicable).
+    # pass_rate и средний балл блока считаем ТОЛЬКО по применимым разговорам, иначе
+    # ситуативные блоки (редко возникающая ситуация) занижали бы тепловую карту.
+    per_block_sql = text("""
+        SELECT
+            br->>'block_id'                                              AS block_id,
+            MAX(br->>'title')                                            AS title,
+            MIN(COALESCE((br->>'block_order')::int, 0))                  AS block_order,
+            BOOL_OR(COALESCE((br->>'is_mandatory')::boolean, TRUE))      AS is_mandatory,
+            COUNT(*)                                                     AS total_count,
+            COUNT(*) FILTER (WHERE br->>'status' <> 'not_applicable')    AS applicable_count,
+            COUNT(*) FILTER (WHERE br->>'status' = 'not_applicable')     AS na_count,
+            COUNT(*) FILTER (WHERE br->>'status' = 'spoken')             AS spoken_count,
+            COUNT(*) FILTER (WHERE br->>'status' = 'paraphrased')        AS paraphrased_count,
+            COUNT(*) FILTER (WHERE br->>'status' IN ('spoken','paraphrased')) AS pass_count
+        FROM analytics.conversation_script_results csr
+        JOIN analytics.conversations c ON c.id = csr.conversation_id
+        CROSS JOIN LATERAL jsonb_array_elements(csr.block_results) AS br
+        WHERE c.organization_id = :org_id
+          AND csr.script_template_id = :template_id
+          AND csr.was_applied = TRUE
+          AND csr.block_results IS NOT NULL
+          AND c.analyzed_at >= :since
+        GROUP BY br->>'block_id'
+        ORDER BY MIN(COALESCE((br->>'block_order')::int, 0))
+    """)
+    rows = (await db.execute(per_block_sql, {
+        "org_id": params["org_id"],
+        "template_id": params["template_id"],
+        "since": params["since"],
+    })).fetchall()
+
+    conv_count = int(overall.conversation_count or 0) if overall else 0
+    avg_score = float(overall.avg_script_score) if overall and overall.avg_script_score is not None else None
+    strong = int(overall.strong_conv_count or 0) if overall else 0
+
+    per_step = []
+    for r in rows:
+        applicable = int(r.applicable_count or 0)
+        passed = int(r.pass_count or 0)
+        spoken = int(r.spoken_count or 0)
+        paraphrased = int(r.paraphrased_count or 0)
+        na = int(r.na_count or 0)
+        # Средний балл блока по применимым разговорам: spoken=100, paraphrased=70, missed=0
+        avg_block = (spoken * 100.0 + paraphrased * 70.0) / applicable if applicable else None
+        title = r.title or "Блок"
+        if not bool(r.is_mandatory):
+            title += " · ситуативный"
+        per_step.append({
+            "step_id": r.block_id,
+            "step_name": title,
+            "avg_score": round(avg_block, 1) if avg_block is not None else None,
+            "total_count": applicable,           # знаменатель — только применимые
+            "pass_count": passed,
+            "pass_rate": round(100.0 * passed / applicable, 1) if applicable else None,
+            "detected_count": passed,
+            "detection_rate": round(100.0 * passed / applicable, 1) if applicable else None,
+            "not_applicable_count": na,          # для подписи «не требовался N раз»
+        })
+
+    return {
+        "template_id": str(template.id),
+        "script_type": "fulltext",
+        "period_days": days,
+        "conversation_count": conv_count,
+        "avg_script_score": round(avg_score, 1) if avg_score is not None else None,
+        "strong_conversation_count": strong,
+        "weak_conversation_count": max(conv_count - strong, 0),
+        "per_step": per_step,
     }
 
 

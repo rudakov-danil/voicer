@@ -149,6 +149,50 @@ async def verify(current_user: dict = Depends(get_current_user)):
     }
 
 
+# --- Organization info / type ---
+
+@router.get("/organization")
+async def get_organization(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Organization).where(Organization.id == current_user["organization_id"])
+    )
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return {
+        "id": str(org.id),
+        "name": org.name,
+        "slug": org.slug,
+        "org_type": org.org_type,
+    }
+
+
+@router.patch("/organization")
+async def update_organization(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user["role"] not in ("director", "admin"):
+        raise HTTPException(status_code=403, detail="Only director/admin can change organization settings")
+    org_type = body.get("org_type")
+    if org_type not in ("retail", "telephony"):
+        raise HTTPException(status_code=422, detail="org_type must be 'retail' or 'telephony'")
+
+    result = await db.execute(
+        select(Organization).where(Organization.id == current_user["organization_id"])
+    )
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org.org_type = org_type
+    await db.commit()
+    return {"id": str(org.id), "org_type": org.org_type}
+
+
 # --- Super Admin routes ---
 
 @router.post("/super/login")

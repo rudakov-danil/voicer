@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { X, CheckCircle, AlertCircle, FileText } from 'lucide-react'
 import { adminApi } from '@/api/admin'
 import { transcriptionApi } from '@/api/transcription'
+import { useTerms } from '@/lib/terms'
 
 interface TranscriptUploadModalProps {
   open: boolean
@@ -17,10 +18,13 @@ const SAMPLE_TEXT = `Продавец: Здравствуйте, добро по
 Продавец: В этом бюджете полного привода не будет, но есть очень экономичные машины с передним приводом.`
 
 export function TranscriptUploadModal({ open, onClose, onUploadComplete }: TranscriptUploadModalProps) {
+  const terms = useTerms()
   const [rawText, setRawText] = useState('')
   const [sellerId, setSellerId] = useState('')
   const [storeId, setStoreId] = useState('')
   const [sessionDate, setSessionDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [direction, setDirection] = useState<'' | 'inbound' | 'outbound'>('')
+  const [clientPhone, setClientPhone] = useState('')
   const [status, setStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -56,6 +60,8 @@ export function TranscriptUploadModal({ open, onClose, onUploadComplete }: Trans
     setSellerId('')
     setStoreId('')
     setSessionDate(new Date().toISOString().split('T')[0])
+    setDirection('')
+    setClientPhone('')
     setStatus('idle')
     setErrorMsg('')
     onClose()
@@ -71,6 +77,8 @@ export function TranscriptUploadModal({ open, onClose, onUploadComplete }: Trans
         store_id: storeId,
         session_date: sessionDate,
         raw_text: rawText,
+        call_direction: direction || undefined,
+        client_phone: clientPhone.trim() || undefined,
       })
       setStatus('success')
       setTimeout(() => {
@@ -131,14 +139,14 @@ export function TranscriptUploadModal({ open, onClose, onUploadComplete }: Trans
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
             <div>
-              <label className="form-label">Магазин</label>
+              <label className="form-label">{terms.store}</label>
               <select className="form-input" value={storeId} onChange={(e) => { setStoreId(e.target.value); setSellerId('') }}>
                 <option value="">—</option>
                 {stores.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="form-label">Продавец</label>
+              <label className="form-label">{terms.seller}</label>
               <select className="form-input" value={sellerId} onChange={(e) => setSellerId(e.target.value)} disabled={!storeId}>
                 <option value="">—</option>
                 {sellers.map((s: any) => <option key={s.id} value={s.id}>{s.first_name} {s.last_name}</option>)}
@@ -149,6 +157,24 @@ export function TranscriptUploadModal({ open, onClose, onUploadComplete }: Trans
               <input className="form-input" type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} />
             </div>
           </div>
+
+          {terms.isTelephony && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label className="form-label">Тип звонка (опционально)</label>
+                <select className="form-input" value={direction} onChange={(e) => setDirection(e.target.value as any)}>
+                  <option value="">Не звонок / не указывать</option>
+                  <option value="inbound">Входящий звонок</option>
+                  <option value="outbound">Исходящий звонок</option>
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Номер клиента (опционально)</label>
+                <input className="form-input" type="tel" placeholder="+7..." value={clientPhone}
+                  onChange={(e) => setClientPhone(e.target.value)} disabled={!direction} />
+              </div>
+            </div>
+          )}
 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>

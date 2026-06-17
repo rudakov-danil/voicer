@@ -972,10 +972,12 @@ table tbody tr:last-child td { border-bottom: none; }
 .check-icon.done { background: var(--success-light); color: var(--success); }
 .check-icon.missed { background: var(--danger-light); color: var(--danger); }
 .check-icon.partial { background: var(--warning-light); color: var(--warning); }
+.check-icon.na { background: var(--border); color: var(--text-muted); }
 .checklist-text { flex: 1; }
 .checklist-text.done { color: var(--text); }
 .checklist-text.partial { color: var(--text); }
 .checklist-text.missed { color: var(--text-muted); text-decoration: line-through; }
+.checklist-text.na { color: var(--text-muted); }
 .checklist-score {
     font-size: 11px;
     font-weight: 600;
@@ -987,6 +989,7 @@ table tbody tr:last-child td { border-bottom: none; }
 .checklist-score.done { background: var(--success-light); color: var(--success); }
 .checklist-score.partial { background: var(--warning-light); color: var(--warning); }
 .checklist-score.missed { background: var(--danger-light); color: var(--danger); }
+.checklist-score.na { background: var(--border); color: var(--text-muted); }
 
 /* ============================================================================
    TABS
@@ -2433,6 +2436,11 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
     background: rgba(16, 163, 74, 0.22);
     color: #14532D;
 }
+/* Блок проговорён своими словами (paraphrased) — жёлтый */
+.hl--script-partial {
+    background: rgba(245, 158, 11, 0.26);
+    color: #92400E;
+}
 .hl--script-missed {
     background: rgba(220, 38, 38, 0.18);
     color: #7F1D1D;
@@ -2446,10 +2454,11 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
     background: rgba(254, 226, 226, 1);
     color: #991B1B;
 }
+/* Апсейл — фиолетовый */
 .hl--upsell-trigger,
 .hl--upsell-offer {
-    background: rgba(245, 158, 11, 0.24);
-    color: #92400E;
+    background: rgba(168, 85, 247, 0.22);
+    color: #6B21A8;
 }
 .hl--crosssell-trigger,
 .hl--crosssell-offer {
@@ -2475,7 +2484,8 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
     user-select: none;
 }
 .hl-pill--script { background: rgba(16, 163, 74, 0.22); color: #15803D; }
-.hl-pill--upsell { background: rgba(245, 158, 11, 0.24); color: #92400E; }
+.hl-pill--paraphrased { background: rgba(245, 158, 11, 0.26); color: #92400E; }
+.hl-pill--upsell { background: rgba(168, 85, 247, 0.22); color: #6B21A8; }
 .hl-pill--crosssell { background: rgba(14, 165, 233, 0.22); color: #075985; }
 .hl-pill--objection { background: rgba(254, 226, 226, 1); color: #991B1B; }
 

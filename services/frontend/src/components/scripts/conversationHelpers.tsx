@@ -22,6 +22,7 @@ export type HighlightKind =
   | 'objection-resolved'
   | 'objection-unresolved'
   | 'script-done'
+  | 'script-partial'
   | 'script-missed'
   | 'upsell-trigger'
   | 'upsell-offer'
@@ -179,10 +180,19 @@ export function highlightSegmentText(text: string, rules: HighlightRule[]): Reac
 
 export interface SellRule {
   id: string
-  store_id?: string | null
+  store_ids?: string[]   // пусто = все магазины
+  seller_ids?: string[]  // пусто = все продавцы
   trigger_product: string
   required_offers: string[]
   is_active: boolean
+}
+
+/** Правило применимо к разговору (store, seller), если покрывает магазин и продавца. */
+function ruleApplies(r: SellRule, storeId?: string | null, sellerId?: string | null): boolean {
+  if (!r.is_active) return false
+  const storeOk = !r.store_ids?.length || (!!storeId && r.store_ids.includes(storeId))
+  const sellerOk = !r.seller_ids?.length || (!!sellerId && r.seller_ids.includes(sellerId))
+  return storeOk && sellerOk
 }
 
 export interface SellAnalysis {
@@ -200,6 +210,7 @@ export function analyzeSell(
   rules: SellRule[] | undefined,
   segments: Array<{ speaker_role?: string; text?: string }> | undefined,
   storeId: string | undefined | null,
+  sellerId?: string | undefined | null,
 ): SellAnalysis {
   const empty: SellAnalysis = { triggered: false, matched: 0, total: 0, missed: [], status: 'no-trigger' }
   if (!rules?.length || !segments?.length) return empty
@@ -213,8 +224,8 @@ export function analyzeSell(
   if (!sellerTextRaw) return empty
   const sellerNorm = normalizeForMatch(sellerTextRaw).normalized
 
-  // Применимые правила: только активные и (либо без store_id, либо совпадает store)
-  const applicable = rules.filter((r) => r.is_active && (!r.store_id || r.store_id === storeId))
+  // Применимые правила: активные, покрывающие магазин и продавца разговора
+  const applicable = rules.filter((r) => ruleApplies(r, storeId, sellerId))
   if (!applicable.length) return empty
 
   const contains = (q: string) => {
@@ -258,9 +269,10 @@ export function highlightRulesForSell(
   rules: SellRule[] | undefined,
   storeId: string | undefined | null,
   kind: 'upsell' | 'crosssell',
+  sellerId?: string | undefined | null,
 ): HighlightRule[] {
   if (!rules?.length) return []
-  const applicable = rules.filter((r) => r.is_active && (!r.store_id || r.store_id === storeId))
+  const applicable = rules.filter((r) => ruleApplies(r, storeId, sellerId))
   const out: HighlightRule[] = []
   for (const rule of applicable) {
     const t = rule.trigger_product?.trim()

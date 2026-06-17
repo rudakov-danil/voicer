@@ -7,7 +7,7 @@ from datetime import date, datetime
 import aio_pika
 import httpx
 from openai import APIStatusError
-from sqlalchemy import text
+from sqlalchemy import text, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -19,16 +19,20 @@ from app.models import (
 )
 from app.prompt_builder import (
     build_script_prompt,
+    build_fulltext_script_prompt,
     build_general_prompt,
+    build_general_compliance_prompt,
     build_redaction_prompt,
     build_upsell_prompt,
     build_crosssell_prompt,
     build_compliance_prompt,
     screen_contextual_script,
 )
+from app.dynamics import compute_dynamics
 from app.rabbitmq import publish
 from app.response_parser import (
     parse_script_scoring_response,
+    parse_fulltext_scoring_response,
     parse_general_analysis_response,
     parse_redaction_response,
     parse_upsell_response,
@@ -65,13 +69,17 @@ async def _fetch_scripts(seller_id: str, organization_id: str, store_id: str | N
         return resp.json().get("scripts", [])
 
 
-async def _fetch_upsell_rules(organization_id: str, store_id: str) -> list[dict]:
-    """Активные правила апсейла, релевантные для магазина: его правила + дефолты организации."""
+async def _fetch_upsell_rules(organization_id: str, store_id: str, seller_id: str | None = None) -> list[dict]:
+    """Активные правила апсейла, релевантные для магазина и продавца: правила,
+    покрывающие магазин (или дефолты организации) И применимые к продавцу."""
+    params = {"store_id": store_id, "organization_id": organization_id, "include_org_default": "true"}
+    if seller_id:
+        params["seller_id"] = seller_id
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             resp = await client.get(
                 f"{settings.SCRIPTS_SERVICE_URL}/api/v1/scripts/upsell-rules",
-                params={"store_id": store_id, "include_org_default": "true"},
+                params=params,
                 headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY},
             )
             resp.raise_for_status()
@@ -97,13 +105,47 @@ async def _fetch_compliance_rules(organization_id: str) -> list[dict]:
     return resp.json().get("items", [])
 
 
-async def _fetch_crosssell_rules(organization_id: str, store_id: str) -> list[dict]:
+async def _fetch_objection_types(organization_id: str) -> list[dict]:
+    """Активные типы возражений организации (настраиваемый справочник).
+    Пустой список → промпт остаётся со стандартными 7 типами."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.get(
+                f"{settings.SCRIPTS_SERVICE_URL}/api/v1/scripts/objection-types",
+                params={"organization_id": organization_id, "only_active": "true"},
+                headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY},
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            logger.warning("Failed to fetch objection types for org=%s: %s", organization_id, e)
+            return []
+    return resp.json().get("items", [])
+
+
+def _normalize_objection_types(objections: list[dict], objection_types: list[dict]) -> list[dict]:
+    """Приводит коды типов от LLM к справочнику организации: неизвестный код
+    не теряем — обрезаем до длины колонки и логируем."""
+    allowed = {t["code"] for t in objection_types if t.get("code")}
+    if not allowed:
+        return objections
+    for obj in objections:
+        code = (obj.get("type") or "").strip()
+        if code not in allowed:
+            logger.warning("LLM returned unknown objection type %r (allowed: %s)", code, sorted(allowed))
+        obj["type"] = code[:30] or "unknown"
+    return objections
+
+
+async def _fetch_crosssell_rules(organization_id: str, store_id: str, seller_id: str | None = None) -> list[dict]:
     """Активные правила кросс-сейла. Симметрично _fetch_upsell_rules."""
+    params = {"store_id": store_id, "organization_id": organization_id, "include_org_default": "true"}
+    if seller_id:
+        params["seller_id"] = seller_id
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             resp = await client.get(
                 f"{settings.SCRIPTS_SERVICE_URL}/api/v1/scripts/cross-sell-rules",
-                params={"store_id": store_id, "include_org_default": "true"},
+                params=params,
                 headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY},
             )
             resp.raise_for_status()
@@ -113,8 +155,146 @@ async def _fetch_crosssell_rules(organization_id: str, store_id: str) -> list[di
     return [r for r in resp.json().get("items", []) if r.get("is_active")]
 
 
+async def _fetch_call_context(db: AsyncSession, recording_id: str) -> dict | None:
+    """Метаданные звонка из recorder.recordings (source, направление, номер клиента).
+
+    Для записей с бейджей возвращает dict с source='badge' — телефонийная логика
+    (исходы звонков) для них не включается. None — только при ошибке чтения.
+    """
+    try:
+        row = (await db.execute(text("""
+            SELECT source, call_direction, client_phone
+            FROM recorder.recordings WHERE id = :rec_id
+        """), {"rec_id": uuid.UUID(recording_id)})).fetchone()
+    except Exception as e:
+        logger.warning("Failed to read call context for %s: %s", recording_id, e)
+        return None
+    if row is None:
+        return None
+    return {
+        "source": row.source or "badge",
+        "call_direction": row.call_direction,
+        "client_phone": row.client_phone,
+    }
+
+
+STATUS_BLOCK_SCORE = {"spoken": 100.0, "paraphrased": 70.0, "missed": 0.0}
+# Статусы блока fulltext-скрипта:
+#   spoken        — произнесён близко к тексту (100)
+#   paraphrased   — передан своими словами (70)
+#   missed        — должен был прозвучать, но не прозвучал (0) — реальный провал
+#   not_applicable — ситуация не возникла (клиент не возразил/тема не поднималась),
+#                    блок корректно не нужен → ИСКЛЮЧАЕТСЯ из балла полностью
+SCORED_STATUSES = set(STATUS_BLOCK_SCORE)
+
+
+async def _score_fulltext_script(segments: list[dict], script: dict, llm_client) -> dict:
+    """Оценка покрытия полнотекстового скрипта (script_type=fulltext).
+
+    Балл скрипта = среднее по блокам, которые реально требовались в разговоре
+    (spoken=100, paraphrased=70, missed=0). Блоки со статусом not_applicable —
+    ситуация для них не возникла — в балл НЕ входят (иначе ситуативные блоки,
+    которые клиент не затронул, занижали бы средний балл и тепловую карту).
+    Обязательные блоки (is_mandatory) требуются всегда: not_applicable для них
+    не допускается и трактуется как missed.
+    """
+    system, user = build_fulltext_script_prompt(segments, script)
+    blocks_by_id = {str(b["id"]): b for b in script.get("blocks", [])}
+    # Лимит токенов масштабируем по числу блоков: ~280 токенов на блок (block_id +
+    # status + короткая цитата + комментарий) + запас. Иначе ответ обрывается на
+    # середине JSON и весь скрипт уходит в 0.
+    fulltext_max_tokens = min(
+        settings.LLM_FULLTEXT_MAX_TOKENS,
+        max(settings.LLM_MAX_TOKENS, 280 * len(blocks_by_id) + 500),
+    )
+    try:
+        response = await llm_client.chat.completions.create(
+            model=settings.LLM_MODEL_NAME,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=fulltext_max_tokens,
+            response_format={"type": "json_object"},
+            timeout=settings.LLM_SCRIPT_TIMEOUT,
+        )
+        parsed = parse_fulltext_scoring_response(response.choices[0].message.content)
+    except LLMResponseParseError as e:
+        logger.error("LLM parse error for fulltext script %s: %s", script["id"], e)
+        return {
+            "script_id": script["id"], "script_name": script["name"],
+            "script_score": 0.0, "step_scores": [], "violations": ["LLM_PARSE_ERROR"],
+            "block_results": [], "error": True,
+        }
+    except APIStatusError as e:
+        if e.status_code < 500:
+            logger.error("LLM API %d error for fulltext script %s: %s", e.status_code, script["id"], e.message)
+            return {
+                "script_id": script["id"], "script_name": script["name"],
+                "script_score": 0.0, "step_scores": [], "violations": [f"LLM_API_ERROR_{e.status_code}"],
+                "block_results": [], "error": True,
+            }
+        raise
+
+    block_results: list[dict] = []
+    scored: list[float] = []  # баллы блоков, которые реально требовались
+    violations: list[str] = []
+    seen_ids: set[str] = set()
+
+    def _record(block: dict, status: str, quote: str, comment: str) -> None:
+        is_mandatory = bool(block.get("is_mandatory", True))
+        title = block.get("title") or f"Блок {block.get('block_order', '')}"
+        # Обязательный блок не может быть «неприменимым» — он требуется всегда
+        if status == "not_applicable" and is_mandatory:
+            status = "missed"
+        block_results.append({
+            "block_id": str(block["id"]),
+            "title": title,
+            "block_order": block.get("block_order", 0),
+            "is_mandatory": is_mandatory,
+            "status": status,
+            "quote": quote,
+            "comment": comment,
+        })
+        if status in SCORED_STATUSES:
+            scored.append(STATUS_BLOCK_SCORE[status])
+            if status == "missed":
+                # Пропуск обязательного блока или необработанная возникшая ситуация
+                violations.append(f"Пропущен блок «{title}»")
+
+    for br in parsed.blocks:
+        block = blocks_by_id.get(br.block_id)
+        if block is None or br.block_id in seen_ids:
+            continue
+        seen_ids.add(br.block_id)
+        _record(block, br.status, br.quote, br.comment)
+
+    # Блоки, которые LLM не вернул: обязательные — пропущены, ситуативные — считаем
+    # неприменимыми (нет данных, что ситуация возникла → не штрафуем).
+    for bid, block in blocks_by_id.items():
+        if bid in seen_ids:
+            continue
+        is_mandatory = bool(block.get("is_mandatory", True))
+        _record(block, "missed" if is_mandatory else "not_applicable", "", "не оценён LLM")
+
+    block_results.sort(key=lambda b: b["block_order"])
+    # Если ни один блок не требовался (все ситуативные и ни один не сработал) —
+    # скрипт к этому разговору неприменим, балл не выставляем (None).
+    script_score = round(sum(scored) / len(scored), 2) if scored else None
+
+    return {
+        "script_id": script["id"],
+        "script_name": script["name"],
+        "script_score": script_score,
+        "step_scores": [],
+        "violations": violations,
+        "block_results": block_results,
+        "error": False,
+    }
+
+
 async def _score_one_script(segments: list[dict], script: dict, llm_client) -> dict:
     """Score a single script. Returns dict with script_id, script_score, step_scores, violations."""
+    if script.get("script_type") == "fulltext":
+        return await _score_fulltext_script(segments, script, llm_client)
     system, user = build_script_prompt(segments, script)
     try:
         response = await llm_client.chat.completions.create(
@@ -164,8 +344,11 @@ async def _score_one_script(segments: list[dict], script: dict, llm_client) -> d
         raise  # 5xx — пробрасываем, сообщение уйдёт в requeue
 
 
-async def _general_analysis(segments: list[dict], llm_client) -> dict:
-    system, user = build_general_prompt(segments)
+async def _general_analysis(
+    segments: list[dict], llm_client, call_context: dict | None = None,
+    objection_types: list[dict] | None = None,
+) -> dict:
+    system, user = build_general_prompt(segments, call_context, objection_types)
     try:
         response = await llm_client.chat.completions.create(
             model=settings.LLM_MODEL_NAME,
@@ -301,6 +484,12 @@ async def _check_compliance(
         logger.error("Compliance check failed: %s", e)
         return []
 
+    return _map_compliance_violations(parsed, rules)
+
+
+def _map_compliance_violations(parsed, rules: list[dict]) -> list[dict]:
+    """Сопоставляет распарсенные нарушения с правилами → список для БД.
+    Общий helper для раздельного и объединённого (general+compliance) путей."""
     rules_by_id = {str(r["id"]): r for r in rules}
     out: list[dict] = []
     for v in parsed.violations:
@@ -315,6 +504,76 @@ async def _check_compliance(
             "explanation": (v.explanation or "").strip(),
         })
     return out
+
+
+async def _general_and_compliance(
+    segments: list[dict],
+    compliance_rules: list[dict],
+    llm_client,
+    call_context: dict | None = None,
+    objection_types: list[dict] | None = None,
+) -> tuple[dict, list[dict]]:
+    """Объединённый проход: общий анализ + комплаенс ОДНИМ вызовом LLM.
+
+    Экономит токены — транскрипт пересылается один раз вместо двух. Спроектирован на
+    максимальную стабильность: при любом сбое объединённого вызова прозрачно
+    откатывается на проверенные раздельные вызовы (_general_analysis / _check_compliance),
+    которые сами по себе деградируют в дефолты и никогда не валят анализ.
+
+    Возвращает (general_dict, compliance_violations_list).
+    """
+    # Слияние выключено или комплаенс-правил нет (тогда комплаенс-вызова и так не было) →
+    # обычный путь: один вызов общего анализа.
+    if not settings.LLM_MERGE_ANALYSIS or not compliance_rules:
+        general = await _general_analysis(segments, llm_client, call_context, objection_types)
+        compliance = await _check_compliance(segments, compliance_rules, llm_client)
+        return general, compliance
+
+    try:
+        system, user = build_general_compliance_prompt(segments, compliance_rules, call_context, objection_types)
+        response = await llm_client.chat.completions.create(
+            model=settings.LLM_MODEL_NAME,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=settings.LLM_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            timeout=settings.LLM_GENERAL_TIMEOUT,
+        )
+        data = json.loads(response.choices[0].message.content)
+        if not isinstance(data, dict) or "general" not in data:
+            raise LLMResponseParseError("merged response missing 'general' key")
+        # general — критическая секция (итог/тональность). Парсим строго.
+        gen_parsed = parse_general_analysis_response(
+            json.dumps(data["general"], ensure_ascii=False)
+        )
+        general = {
+            "outcome": gen_parsed.outcome,
+            "outcome_confidence": gen_parsed.outcome_confidence,
+            "topic": gen_parsed.topic,
+            "sentiment_avg": gen_parsed.sentiment_avg,
+            "objections": [o.model_dump() for o in gen_parsed.objections],
+        }
+    except Exception as e:
+        # general не распарсился → полный откат на раздельные проверенные вызовы.
+        logger.warning(
+            "Merged general+compliance failed (%s); falling back to separate calls", e
+        )
+        general = await _general_analysis(segments, llm_client, call_context, objection_types)
+        compliance = await _check_compliance(segments, compliance_rules, llm_client)
+        return general, compliance
+
+    # general получен. Комплаенс — мягкая секция: если битая, не теряем аудит —
+    # добираем отдельным вызовом, а не молча отдаём пустой список.
+    try:
+        comp_section = data.get("compliance") or {"violations": []}
+        parsed_comp = parse_compliance_response(json.dumps(comp_section, ensure_ascii=False))
+        compliance = _map_compliance_violations(parsed_comp, compliance_rules)
+    except Exception as e:
+        logger.warning(
+            "Merged compliance section invalid (%s); re-running compliance separately", e
+        )
+        compliance = await _check_compliance(segments, compliance_rules, llm_client)
+    return general, compliance
 
 
 # Совместимость: внешний код вызывает _check_upsell — оставляем как тонкую обёртку.
@@ -363,7 +622,7 @@ async def _redact_texts(texts: list[str], llm_client) -> list[str]:
     system, user = build_redaction_prompt(payload)
     try:
         response = await llm_client.chat.completions.create(
-            model=settings.LLM_MODEL_NAME,
+            model=settings.LLM_CHEAP_MODEL or settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.0,
             max_tokens=settings.LLM_MAX_TOKENS,
@@ -449,12 +708,13 @@ async def process_analyze_message(
 
         # Step 1: Fetch transcript, scripts, upsell + crosssell + compliance rules in parallel
         try:
-            segments, scripts, upsell_rules, crosssell_rules, compliance_rules = await asyncio.gather(
+            segments, scripts, upsell_rules, crosssell_rules, compliance_rules, objection_types = await asyncio.gather(
                 _fetch_transcript(recording_id),
                 _fetch_scripts(seller_id, organization_id, store_id),
-                _fetch_upsell_rules(organization_id, store_id),
-                _fetch_crosssell_rules(organization_id, store_id),
+                _fetch_upsell_rules(organization_id, store_id, seller_id),
+                _fetch_crosssell_rules(organization_id, store_id, seller_id),
                 _fetch_compliance_rules(organization_id),
+                _fetch_objection_types(organization_id),
             )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -469,6 +729,10 @@ async def process_analyze_message(
         except httpx.HTTPError as e:
             logger.error("Failed to fetch data for recording %s: %s", recording_id, e)
             raise  # Сетевые ошибки — NACK, requeue
+
+        # Step 1.5: Контекст звонка (телефония) + метрики динамики из таймкодов
+        call_context = await _fetch_call_context(db, recording_id)
+        dynamics = compute_dynamics(segments)
 
         # Step 2: Split mandatory vs contextual
         mandatory_scripts = [s for s in scripts if s.get("is_mandatory")]
@@ -491,36 +755,45 @@ async def process_analyze_message(
             else:
                 skipped_contextual.append((script, reason))
 
-        # Step 4: Score applied scripts + general analysis in parallel
+        # Step 4: Score applied scripts + (общий анализ ⊕ комплаенс) параллельно.
+        # Общий анализ и комплаенс объединены в один LLM-проход (_general_and_compliance):
+        # транскрипт не пересылается дважды. Внутри — безопасный откат на раздельные вызовы.
         scripts_to_score = mandatory_scripts + applied_contextual
         scoring_coros = [
             _score_one_script(segments, script, llm_client)
             for script in scripts_to_score
         ]
-        general_coro = _general_analysis(segments, llm_client)
+        gen_comp_coro = _general_and_compliance(
+            segments, compliance_rules, llm_client, call_context, objection_types
+        )
 
         if scoring_coros:
-            scored_results, general = await asyncio.gather(
+            scored_results, (general, compliance_violations) = await asyncio.gather(
                 _run_parallel_with_limit(scoring_coros, settings.LLM_MAX_PARALLEL_SCRIPTS),
-                general_coro,
+                gen_comp_coro,
             )
         else:
             scored_results = []
-            general = await general_coro
+            general, compliance_violations = await gen_comp_coro
 
-        # Step 5: Calculate overall score (only from applied scripts)
-        applied_scores = [r["script_score"] for r in scored_results]
+        # Step 4.5: Нормализуем коды типов возражений против справочника организации
+        general["objections"] = _normalize_objection_types(
+            general.get("objections", []), objection_types
+        )
+
+        # Step 5: Calculate overall score (only from applied scripts).
+        # script_score=None — fulltext-скрипт, ни один блок которого не потребовался
+        # в этом разговоре: в средний балл не входит.
+        applied_scores = [r["script_score"] for r in scored_results if r["script_score"] is not None]
         overall_score = calculate_overall_score(applied_scores)
 
-        # Step 5.1: Upsell + cross-sell + compliance checks параллельно — независимые LLM-проходы.
+        # Step 5.1: Upsell + cross-sell checks параллельно — независимые LLM-проходы.
         has_upsell_task = _check_sell(segments, upsell_rules, llm_client, kind="upsell")
         has_crosssell_task = _check_sell(segments, crosssell_rules, llm_client, kind="crosssell")
-        compliance_task = _check_compliance(segments, compliance_rules, llm_client)
         (
             (has_upsell, upsell_details),
             (has_crosssell, crosssell_details),
-            compliance_violations,
-        ) = await asyncio.gather(has_upsell_task, has_crosssell_task, compliance_task)
+        ) = await asyncio.gather(has_upsell_task, has_crosssell_task)
 
         # Step 5.5: Anonymize transcripts if privacy setting is enabled.
         # Анализ уже отработал на оригинале (имена и т.п. помогают LLM понять контекст),
@@ -584,7 +857,14 @@ async def process_analyze_message(
             upsell_results=upsell_details or None,
             has_crosssell=has_crosssell,
             crosssell_results=crosssell_details or None,
+            talk_ratio=dynamics["talk_ratio"],
+            interruptions_count=dynamics["interruptions_count"],
+            longest_monologue_seconds=dynamics["longest_monologue_seconds"],
+            silence_ratio=dynamics["silence_ratio"],
         )
+        # Идемпотентность: при повторном анализе сносим прежний результат по этой записи.
+        # FK с ondelete=CASCADE убирают дочерние script_results / scores / objections / violations.
+        await db.execute(delete(Conversation).where(Conversation.recording_id == uuid.UUID(recording_id)))
         db.add(conv)
         await db.flush()
 
@@ -602,6 +882,7 @@ async def process_analyze_message(
                 was_applied=True,
                 script_score=result["script_score"],
                 violations=result["violations"],
+                block_results=result.get("block_results") or None,
             )
             db.add(sr)
 

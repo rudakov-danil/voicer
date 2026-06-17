@@ -7,7 +7,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   CheckSquare, Plus, Trash2, GripVertical, ChevronUp, ChevronDown,
   Save, X, PlayCircle, Loader, BarChart3, History, MapPin, Edit3, RotateCcw,
-  GitCompare, Sparkles, BookOpen, HelpCircle, Command, Check,
+  GitCompare, Sparkles, BookOpen, HelpCircle, Command, Check, FileText, FileUp,
 } from 'lucide-react'
 
 import { MultiSelect } from '@/components/scripts/MultiSelect'
@@ -453,6 +453,7 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
   const queryClient = useQueryClient()
   const isUpsell = kind === 'upsell'
   const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
+  const { data: sellers } = useQuery({ queryKey: ['admin-sellers'], queryFn: () => adminApi.getSellers() })
 
   const queryKey = isUpsell ? ['upsell-rules'] : ['cross-sell-rules']
   const { data, isLoading } = useQuery({
@@ -466,7 +467,8 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
   const invalidate = () => queryClient.invalidateQueries({ queryKey })
   const createMut = useMutation({
     mutationFn: () => (isUpsell ? scriptsApi.createUpsellRule : scriptsApi.createCrossSellRule)({
-      store_id: null,
+      store_ids: [],
+      seller_ids: [],
       trigger_product: 'Новый продукт',
       required_offers: [],
       is_active: false,
@@ -523,7 +525,8 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
             <tr>
               <th>Триггер-продукт</th>
               <th>{isUpsell ? 'Обязательные предложения' : 'Сопутствующие товары'}</th>
-              <th style={{ minWidth: 240 }}>Магазин</th>
+              <th style={{ minWidth: 200 }}>Магазины</th>
+              <th style={{ minWidth: 200 }}>Менеджеры</th>
               <th style={{ width: 90 }}>Активно</th>
               <th style={{ width: 50 }} />
             </tr>
@@ -533,15 +536,16 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
               <RuleRow
                 key={r.id} rule={r}
                 stores={stores?.items || []}
+                sellers={sellers?.items || []}
                 onPatch={(data) => patchMut.mutate({ id: r.id, data })}
                 onDelete={() => { if (confirm('Удалить правило?')) delMut.mutate(r.id) }}
               />
             ))}
             {isLoading && rules.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: 12 }}><SkeletonAnalyticsRow /></td></tr>
+              <tr><td colSpan={6} style={{ padding: 12 }}><SkeletonAnalyticsRow /></td></tr>
             )}
             {!isLoading && rules.length === 0 && (
-              <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 20 }}>
+              <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 20 }}>
                 {isUpsell
                   ? 'Правил апсейла пока нет. Добавьте первое — LLM начнёт отмечать разговоры, где продавец забыл предложить апсейл.'
                   : 'Правил кросс-сейла пока нет. Например: к ноутбуку — сумка и мышь.'}
@@ -554,9 +558,10 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
   )
 }
 
-function RuleRow({ rule, stores, onPatch, onDelete }: {
+function RuleRow({ rule, stores, sellers, onPatch, onDelete }: {
   rule: UpsellRule | CrossSellRule
   stores: any[]
+  sellers: any[]
   onPatch: (data: any) => void
   onDelete: () => void
 }) {
@@ -581,8 +586,13 @@ function RuleRow({ rule, stores, onPatch, onDelete }: {
   }
 
   const storeOptions = stores.map((s) => ({ id: s.id, label: s.name }))
-  const selectedStoreIds = rule.store_id ? [rule.store_id] : []
-  const ALL_STORES_ID = '__all__'
+  const selectedStoreIds = rule.store_ids || []
+  // Менеджеры фильтруются по выбранным магазинам (если магазины заданы)
+  const sellerPool = selectedStoreIds.length
+    ? sellers.filter((s) => selectedStoreIds.includes(s.store_id))
+    : sellers
+  const sellerOptions = sellerPool.map((s) => ({ id: s.id, label: `${s.first_name} ${s.last_name}` }))
+  const selectedSellerIds = rule.seller_ids || []
 
   return (
     <tr>
@@ -603,16 +613,30 @@ function RuleRow({ rule, stores, onPatch, onDelete }: {
       </td>
       <td>
         <MultiSelect
-          single
           options={storeOptions}
-          selected={selectedStoreIds.length ? selectedStoreIds : [ALL_STORES_ID]}
+          selected={selectedStoreIds}
           onChange={(ids) => {
-            const v = ids[0]
-            onPatch({ store_id: v && v !== ALL_STORES_ID ? v : null })
+            // При смене магазинов отбрасываем менеджеров, которых больше нет в покрытых магазинах
+            const allowed = ids.length
+              ? sellers.filter((s) => ids.includes(s.store_id)).map((s) => s.id)
+              : sellers.map((s) => s.id)
+            const nextSellers = selectedSellerIds.filter((id) => allowed.includes(id))
+            const patch: any = { store_ids: ids }
+            if (nextSellers.length !== selectedSellerIds.length) patch.seller_ids = nextSellers
+            onPatch(patch)
             flash()
           }}
-          prependOption={{ id: ALL_STORES_ID, label: 'Все магазины (по умолчанию)' }}
-          placeholder="Магазин"
+          selectAllLabel="Все магазины"
+          placeholder="Все магазины"
+        />
+      </td>
+      <td>
+        <MultiSelect
+          options={sellerOptions}
+          selected={selectedSellerIds}
+          onChange={(ids) => { onPatch({ seller_ids: ids }); flash() }}
+          selectAllLabel="Все менеджеры"
+          placeholder="Все менеджеры"
         />
       </td>
       <td>
@@ -625,6 +649,153 @@ function RuleRow({ rule, stores, onPatch, onDelete }: {
           <button className="btn-icon" onClick={onDelete} title="Удалить" style={{ color: 'var(--danger)' }}>
             <Trash2 size={14} />
           </button>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+// ─── Objection types (настраиваемый справочник типов возражений) ─────────────
+
+function ObjectionTypesTable() {
+  const queryClient = useQueryClient()
+  const { data: items, isLoading } = useQuery({
+    queryKey: ['objection-types'],
+    queryFn: () => scriptsApi.listObjectionTypes(),
+  })
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['objection-types'] })
+  const createMut = useMutation({ mutationFn: scriptsApi.createObjectionType, onSuccess: invalidate })
+  const patchMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => scriptsApi.patchObjectionType(id, data),
+    onSuccess: invalidate,
+  })
+  const deleteMut = useMutation({ mutationFn: scriptsApi.deleteObjectionType, onSuccess: invalidate })
+
+  const [newLabel, setNewLabel] = useState('')
+  const [newDescription, setNewDescription] = useState('')
+
+  const addType = () => {
+    if (!newLabel.trim()) return
+    createMut.mutate({
+      label: newLabel.trim(),
+      description: newDescription.trim(),
+    }, {
+      onSuccess: () => { setNewLabel(''); setNewDescription('') },
+    })
+  }
+
+  if (isLoading) return <div style={{ padding: 20, color: 'var(--text-muted)' }}>Загрузка...</div>
+
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+        AI классифицирует возражения клиентов по этим типам. Добавьте свои отраслевые типы —
+        описание подсказывает AI, когда применять тип. Стандартные типы нельзя удалить,
+        но можно выключить или переименовать.
+      </div>
+
+      <div className="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th style={{ width: 220 }}>Тип</th>
+              <th>Описание (когда применять)</th>
+              <th style={{ width: 70 }}>Активен</th>
+              <th style={{ width: 50 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {(items || []).map((t) => (
+              <ObjectionTypeRow
+                key={t.id}
+                item={t}
+                onPatch={(data) => patchMut.mutate({ id: t.id, data })}
+                onDelete={() => {
+                  if (confirm(`Удалить тип «${t.label}»?`)) deleteMut.mutate(t.id)
+                }}
+              />
+            ))}
+            {/* Строка добавления */}
+            <tr>
+              <td>
+                <input className="form-input" placeholder="Новый тип..." value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)} style={{ padding: '6px 10px' }} />
+              </td>
+              <td>
+                <input className="form-input" placeholder="Когда применять" value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)} style={{ padding: '6px 10px' }} />
+              </td>
+              <td colSpan={2}>
+                <button className="btn btn-primary btn-sm" onClick={addType}
+                  disabled={!newLabel.trim() || createMut.isPending}>
+                  <Plus size={12} /> {createMut.isPending ? '...' : 'Добавить'}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {createMut.isError && (
+        <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 8 }}>
+          {(createMut.error as any)?.response?.data?.detail || 'Не удалось добавить тип'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ObjectionTypeRow({ item, onPatch, onDelete }: {
+  item: { id: string; code: string; label: string; description: string; example_phrases: string[]; is_default: boolean; is_active: boolean }
+  onPatch: (data: any) => void
+  onDelete: () => void
+}) {
+  const [label, setLabel] = useState(item.label)
+  const [description, setDescription] = useState(item.description)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => setLabel(item.label), [item.label])
+  useEffect(() => setDescription(item.description), [item.description])
+
+  const flash = () => { setSaved(true); setTimeout(() => setSaved(false), 1500) }
+
+  const commitLabel = () => {
+    const v = label.trim()
+    if (v && v !== item.label) { onPatch({ label: v }); flash() }
+  }
+  const commitDescription = () => {
+    if (description.trim() !== item.description) { onPatch({ description: description.trim() }); flash() }
+  }
+
+  return (
+    <tr style={{ opacity: item.is_active ? 1 : 0.55 }}>
+      <td>
+        <input className="form-input" value={label}
+          onChange={(e) => setLabel(e.target.value)} onBlur={commitLabel}
+          style={{ padding: '6px 10px', fontWeight: 500 }} />
+        {item.is_default && (
+          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2, paddingLeft: 2 }}>
+            стандартный
+          </div>
+        )}
+      </td>
+      <td>
+        <input className="form-input" value={description}
+          onChange={(e) => setDescription(e.target.value)} onBlur={commitDescription}
+          style={{ padding: '6px 10px' }} />
+      </td>
+      <td>
+        <div className={`toggle-switch ${item.is_active ? 'on' : ''}`}
+          onClick={() => { onPatch({ is_active: !item.is_active }); flash() }} />
+      </td>
+      <td>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+          {saved && <span style={{ fontSize: 11, color: 'var(--success)', whiteSpace: 'nowrap' }}>✓</span>}
+          {!item.is_default && (
+            <button className="btn-icon" onClick={onDelete} title="Удалить" style={{ color: 'var(--danger)' }}>
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -647,15 +818,40 @@ function industryLabel(value: string | undefined | null): string {
   return INDUSTRY_LABELS[value] || value
 }
 
+export interface DocDraft {
+  name: string
+  description: string
+  full_text: string | null
+  source_document_name: string | null
+  blocks: { title: string; text: string; block_type: string; is_mandatory: boolean }[]
+}
+
 function LibraryDialog({
-  onClose, onCreated, onUseDraft,
+  onClose, onCreated, onUseDraft, onUseDocDraft,
 }: {
   onClose: () => void
   onCreated: (newId: string) => void
   onUseDraft: (draft: { name: string; description: string | null; steps: ScriptStep[] }) => void
+  onUseDocDraft: (draft: DocDraft) => void
 }) {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'library' | 'ai'>('library')
+  const [tab, setTab] = useState<'library' | 'ai' | 'document'>('library')
+  const docFileRef = useRef<HTMLInputElement>(null)
+  const [docFile, setDocFile] = useState<File | null>(null)
+
+  const importMut = useMutation({
+    mutationFn: (file: File) => scriptsApi.importDocument(file),
+    onSuccess: (draft) => {
+      onUseDocDraft({
+        name: draft.name_suggestion,
+        description: draft.description_suggestion,
+        full_text: draft.full_text,
+        source_document_name: draft.file_name,
+        blocks: draft.blocks,
+      })
+      onClose()
+    },
+  })
 
   const { data: presets } = useQuery({
     queryKey: ['library-presets'],
@@ -701,6 +897,10 @@ function LibraryDialog({
           <div className={`modal-tab ${tab === 'ai' ? 'active' : ''}`} onClick={() => setTab('ai')}>
             <Sparkles size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
             Сгенерировать с AI
+          </div>
+          <div className={`modal-tab ${tab === 'document' ? 'active' : ''}`} onClick={() => setTab('document')}>
+            <FileText size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Из документа
           </div>
         </div>
 
@@ -783,6 +983,68 @@ function LibraryDialog({
               )}
             </>
           )}
+
+          {tab === 'document' && (
+            <>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
+                Загрузите ваш полный скрипт документом (DOCX, PDF, RTF, TXT) — AI разобьёт его на блоки,
+                по которым система будет отслеживать, что сотрудник проговорил клиенту.
+                Перед сохранением вы сможете поправить разбивку.
+              </div>
+              <input
+                ref={docFileRef} type="file" accept=".docx,.pdf,.rtf,.txt,.md"
+                style={{ display: 'none' }}
+                onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+              />
+              <div
+                style={{
+                  border: '2px dashed var(--border)', borderRadius: 8,
+                  padding: '32px 20px', textAlign: 'center', cursor: 'pointer',
+                }}
+                onClick={() => docFileRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const f = e.dataTransfer.files[0]
+                  if (f) setDocFile(f)
+                }}
+              >
+                <FileUp size={32} style={{ color: 'var(--text-muted)', marginBottom: 10 }} />
+                {docFile ? (
+                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>
+                    {docFile.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                      · {(docFile.size / 1024).toFixed(0)} КБ</span>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 14, color: 'var(--text-secondary)', fontWeight: 500 }}>
+                      Перетащите документ или нажмите для выбора
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                      DOCX, PDF, RTF, TXT · до 20 МБ
+                    </div>
+                  </>
+                )}
+              </div>
+              {importMut.isPending && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Loader size={13} className="spin" /> AI разбирает документ на блоки — это может занять до минуты...
+                </div>
+              )}
+              {importMut.isError && (
+                <div style={{
+                  fontSize: 12, color: 'var(--danger)', marginTop: 12,
+                  padding: '8px 10px', background: 'var(--danger-light)', borderRadius: 6,
+                }}>
+                  {(() => {
+                    const err = importMut.error as any
+                    const detail = err?.response?.data?.detail
+                    return typeof detail === 'string' ? detail : (err?.message || 'Не удалось импортировать документ')
+                  })()}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         <div className="modal-footer">
@@ -801,12 +1063,266 @@ function LibraryDialog({
                 )}
               </button>
             </>
+          ) : tab === 'document' ? (
+            <>
+              <button className="btn btn-outline" onClick={onClose}>Отмена</button>
+              <button
+                className="btn btn-primary"
+                disabled={!docFile || importMut.isPending}
+                onClick={() => docFile && importMut.mutate(docFile)}
+              >
+                {importMut.isPending ? (
+                  <><Loader size={14} className="spin" /> Импорт...</>
+                ) : (
+                  <><FileUp size={14} /> Импортировать</>
+                )}
+              </button>
+            </>
           ) : (
             <button className="btn btn-outline" onClick={onClose}>Закрыть</button>
           )}
         </div>
       </div>
     </ModalOverlay>
+  )
+}
+
+// ─── Fulltext editor (полнотекстовый скрипт из документа) ────────────────────
+
+const BLOCK_TYPE_LABELS: Record<string, string> = {
+  greeting: 'Приветствие',
+  identification: 'Представление',
+  need_discovery: 'Потребности',
+  presentation: 'Презентация',
+  offer: 'Предложение',
+  objection_response: 'Возражение',
+  closing: 'Завершение',
+  other: 'Блок',
+}
+
+interface EditableBlock {
+  key: string
+  title: string
+  text: string
+  block_type: string
+  is_mandatory: boolean
+}
+
+function FulltextEditorDialog({
+  initial, templateId, onClose, onSaved,
+}: {
+  initial: {
+    name: string
+    description: string
+    full_text: string | null
+    source_document_name: string | null
+    blocks: { title: string; text: string; block_type: string; is_mandatory: boolean }[]
+  }
+  templateId: string | null // null = создание нового
+  onClose: () => void
+  onSaved: (id: string) => void
+}) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(initial.name)
+  const [description, setDescription] = useState(initial.description || '')
+  const [blocks, setBlocks] = useState<EditableBlock[]>(
+    initial.blocks.map((b, i) => ({ key: `b-${i}`, title: b.title, text: b.text, block_type: b.block_type || 'other', is_mandatory: b.is_mandatory !== false }))
+  )
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        name,
+        description,
+        scope: 'org_level' as const,
+        context_description: null,
+        script_type: 'fulltext' as const,
+        steps: [],
+        blocks: blocks.map((b, i) => ({
+          title: b.title || `Блок ${i + 1}`,
+          text: b.text,
+          block_type: b.block_type,
+          is_mandatory: b.is_mandatory,
+          block_order: i + 1,
+        })),
+        full_text: initial.full_text,
+        source_document_name: initial.source_document_name,
+      }
+      if (templateId) return scriptsApi.replaceTemplate(templateId, payload)
+      return scriptsApi.createTemplate(payload)
+    },
+    onSuccess: (saved) => {
+      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
+      queryClient.invalidateQueries({ queryKey: ['script-template-detail', saved.id] })
+      onSaved(saved.id)
+    },
+  })
+
+  const update = (key: string, patch: Partial<EditableBlock>) =>
+    setBlocks((prev) => prev.map((b) => (b.key === key ? { ...b, ...patch } : b)))
+  const remove = (key: string) => setBlocks((prev) => prev.filter((b) => b.key !== key))
+  const move = (idx: number, dir: -1 | 1) => {
+    setBlocks((prev) => {
+      const next = [...prev]
+      const j = idx + dir
+      if (j < 0 || j >= next.length) return prev
+      ;[next[idx], next[j]] = [next[j], next[idx]]
+      return next
+    })
+  }
+  const addBlock = () =>
+    setBlocks((prev) => [...prev, { key: `n-${Date.now()}`, title: `Блок ${prev.length + 1}`, text: '', block_type: 'other', is_mandatory: true }])
+
+  const mandatoryCount = blocks.filter((b) => b.is_mandatory).length
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-card editor-modal-card">
+        <div className="modal-header">
+          <div className="modal-title">
+            <FileText size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            {templateId ? 'Полнотекстовый скрипт' : 'Импорт полнотекстового скрипта'}
+            {initial.source_document_name && (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8, fontWeight: 400 }}>
+                из {initial.source_document_name}
+              </span>
+            )}
+          </div>
+          <button className="btn-icon" onClick={onClose} title="Закрыть"><X size={16} /></button>
+        </div>
+
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {initial.source_document_name ? (
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+              AI разбил документ на блоки. Проверьте разбивку: <strong>обязательные</strong> блоки нужны
+              в каждом разговоре. <strong>Ситуативные</strong> (ответы на возражения, ветки «если клиент…»)
+              учитываются в балле, только если ситуация реально возникла — если клиент её не затронул,
+              блок не штрафуется. Текст блока сравнивается с речью сотрудника дословно и по смыслу.
+            </div>
+          ) : (
+            <div style={{
+              fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.5,
+              padding: '10px 12px', background: 'var(--bg)', borderRadius: 8,
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+            }}>
+              <FileUp size={15} style={{ flexShrink: 0, marginTop: 1, color: 'var(--primary)' }} />
+              <span>
+                Полнотекстовый скрипт: добавьте блоки — фразы и секции, которые сотрудник должен
+                проговорить. <strong>Если у вас есть готовый файл скрипта</strong> (DOCX, PDF, RTF, TXT) —
+                быстрее загрузить его через «AI / Шаблон» → вкладка «Из документа»: AI разобьёт текст
+                на блоки автоматически.
+              </span>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: 12, marginBottom: 16 }}>
+            <div>
+              <label className="field-label">Название скрипта</label>
+              <input className="form-input" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div>
+              <label className="field-label">Описание</label>
+              <input className="form-input" value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontWeight: 600, color: 'var(--text)' }}>
+              Блоки скрипта
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8 }}>
+                {blocks.length} всего · {mandatoryCount} обязательных
+              </span>
+            </div>
+            <button className="btn btn-outline btn-sm" onClick={addBlock}><Plus size={12} /> Блок</button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {blocks.map((b, i) => (
+              <div key={b.key} style={{
+                border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px',
+                background: b.is_mandatory ? 'transparent' : 'var(--bg)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+                    minWidth: 18, textAlign: 'center',
+                  }}>{i + 1}</span>
+                  <input
+                    className="form-input"
+                    value={b.title}
+                    onChange={(e) => update(b.key, { title: e.target.value })}
+                    style={{ flex: 1, padding: '5px 10px', fontWeight: 500 }}
+                    placeholder="Название блока"
+                  />
+                  <select
+                    className="form-input"
+                    value={b.block_type}
+                    onChange={(e) => update(b.key, { block_type: e.target.value })}
+                    style={{ width: 140, padding: '5px 8px', fontSize: 12 }}
+                  >
+                    {Object.entries(BLOCK_TYPE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
+                  <label className="checkbox-row" style={{ fontSize: 12, whiteSpace: 'nowrap', gap: 5 }}
+                    title="Обязательный — нужен всегда. Снимите галочку для ситуативных блоков (ответ на возражение): они оцениваются, только если ситуация возникла в разговоре.">
+                    <input type="checkbox" checked={b.is_mandatory}
+                      onChange={(e) => update(b.key, { is_mandatory: e.target.checked })} />
+                    Обязательный
+                  </label>
+                  <button className="btn-icon" onClick={() => move(i, -1)} disabled={i === 0} title="Выше">
+                    <ChevronUp size={14} />
+                  </button>
+                  <button className="btn-icon" onClick={() => move(i, 1)} disabled={i === blocks.length - 1} title="Ниже">
+                    <ChevronDown size={14} />
+                  </button>
+                  <button className="btn-icon" onClick={() => remove(b.key)} title="Удалить" style={{ color: 'var(--danger)' }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <textarea
+                  className="form-input"
+                  value={b.text}
+                  onChange={(e) => update(b.key, { text: e.target.value })}
+                  rows={Math.min(6, Math.max(2, Math.ceil(b.text.length / 90)))}
+                  style={{ fontSize: 13, lineHeight: 1.5 }}
+                  placeholder="Текст, который сотрудник должен проговорить"
+                />
+              </div>
+            ))}
+            {blocks.length === 0 && (
+              <div className="empty-state-card">
+                <FileText size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
+                <p style={{ marginBottom: 12 }}>Блоков нет — добавьте хотя бы один</p>
+              </div>
+            )}
+          </div>
+
+          {saveMut.isError && (
+            <div style={{
+              fontSize: 12, color: 'var(--danger)', marginTop: 12,
+              padding: '8px 10px', background: 'var(--danger-light)', borderRadius: 6,
+            }}>
+              {(() => {
+                const err = saveMut.error as any
+                const detail = err?.response?.data?.detail
+                if (detail?.message) return detail.message
+                return typeof detail === 'string' ? detail : (err?.message || 'Не удалось сохранить')
+              })()}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-outline" onClick={onClose}>Отмена</button>
+          <button
+            className="btn btn-primary"
+            disabled={saveMut.isPending || !name.trim() || blocks.length === 0 || blocks.some((b) => !b.text.trim())}
+            onClick={() => saveMut.mutate()}
+          >
+            <Save size={14} /> {saveMut.isPending ? 'Сохранение…' : (templateId ? 'Сохранить' : 'Создать скрипт')}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1041,16 +1557,41 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
           <HeatmapStrip rows={data.per_step} />
 
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-            Детально по этапам
+            {(data as any).script_type === 'fulltext' ? 'Детально по блокам' : 'Детально по этапам'}
             <HelpTooltip content={
-              <div style={{ maxWidth: 280 }}>
-                <strong>%</strong> — доля разговоров, где этап выполнен (LLM-оценка ≥ 50 из 100).<br />
-                <strong>Обнаружен</strong> — этап идентифицирован в разговоре, даже если выполнен слабо.
-              </div>
+              (data as any).script_type === 'fulltext' ? (
+                <div style={{ maxWidth: 280 }}>
+                  <strong>%</strong> — доля разговоров, где блок прозвучал (по тексту или своими словами).<br />
+                  Ситуативные блоки помечены отдельно — они не входят в балл покрытия.
+                </div>
+              ) : (
+                <div style={{ maxWidth: 280 }}>
+                  <strong>%</strong> — доля разговоров, где этап выполнен (LLM-оценка ≥ 50 из 100).<br />
+                  <strong>Обнаружен</strong> — этап идентифицирован в разговоре, даже если выполнен слабо.
+                </div>
+              )
             } />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {data.per_step.map((s) => {
+              const isFulltext = (data as any).script_type === 'fulltext'
+              const na = (s as any).not_applicable_count || 0
+              // pass_rate=null — блок/этап ни разу не требовался за период
+              if (s.pass_rate == null) {
+                return (
+                  <div key={s.step_id} className="step-analytics" style={{ borderLeft: '3px solid var(--border)', opacity: 0.7 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{s.step_name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>не встречался</div>
+                    </div>
+                    {na > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                        Ситуация не возникала в {na} разговорах
+                      </div>
+                    )}
+                  </div>
+                )
+              }
               const color = s.pass_rate >= 70 ? 'var(--success)' : s.pass_rate >= 40 ? '#F59E0B' : 'var(--danger)'
               return (
                 <div key={s.step_id} className="step-analytics" style={{ borderLeft: `3px solid ${color}` }}>
@@ -1064,7 +1605,9 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
                     <div className="progress-fill" style={{ width: `${Math.max(2, s.pass_rate)}%`, background: color }} />
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                    Обнаружен {s.detected_count} из {s.total_count} раз ({s.detection_rate}%)
+                    {isFulltext
+                      ? `Прозвучал ${s.detected_count} из ${s.total_count} раз, где требовался${na ? ` · не требовался ${na} раз` : ''}`
+                      : `Обнаружен ${s.detected_count} из ${s.total_count} раз (${s.detection_rate}%)`}
                   </div>
                 </div>
               )
@@ -1299,16 +1842,20 @@ function ModalOverlay({ onClose, children }: { onClose: () => void; children: Re
 // ─── EditorDialog ────────────────────────────────────────────────────────────
 
 function EditorDialog({
-  template, isNew, draftInfo, onClose, onSaved,
+  template, isNew, draftInfo, onClose, onSaved, onSwitchToFulltext,
 }: {
   template: ScriptTemplate | null
   isNew: boolean
   draftInfo?: { fromAi?: boolean }
   onClose: () => void
   onSaved: (id: string) => void
+  onSwitchToFulltext?: () => void
 }) {
   const [resetKey, setResetKey] = useState(0)
   const [showHelp, setShowHelp] = useState(false)
+
+  // Переключатель типа — только при создании нового скрипта вручную
+  const showTypeSwitch = isNew && !draftInfo?.fromAi && !!onSwitchToFulltext
 
   return (
     <div className="modal-overlay">
@@ -1316,10 +1863,30 @@ function EditorDialog({
         className="modal-card editor-modal-card"
       >
         <div className="modal-header">
-          <div className="modal-title">
+          <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {isNew
               ? (draftInfo?.fromAi ? 'AI-черновик скрипта' : 'Новый скрипт')
               : (template?.name || 'Редактирование скрипта')}
+            {showTypeSwitch && (
+              <span style={{ display: 'inline-flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 3 }}>
+                <button
+                  className="btn btn-sm"
+                  style={{ background: 'var(--bg-card)', boxShadow: '0 1px 2px rgba(0,0,0,0.08)', fontWeight: 600, fontSize: 12 }}
+                  title="Скрипт из этапов с весами — классический режим"
+                >
+                  Этапный
+                </button>
+                <button
+                  className="btn btn-sm"
+                  style={{ background: 'transparent', color: 'var(--text-muted)', fontSize: 12 }}
+                  onClick={onSwitchToFulltext}
+                  title="Скрипт из блоков подробного текста — отслеживание дословного покрытия"
+                >
+                  <FileText size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                  Полнотекстовый
+                </button>
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button
@@ -1378,6 +1945,12 @@ function SelectedScriptPanel({
             {template.is_active
               ? <span className="badge badge-success">Активен</span>
               : <span className="badge badge-muted">Черновик</span>}
+            {template.script_type === 'fulltext' && (
+              <span className="badge badge-muted" title={`Полнотекстовый скрипт${template.source_document_name ? ` из ${template.source_document_name}` : ''} — отслеживание покрытия по блокам`}>
+                <FileText size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+                Полнотекстовый · {(template.blocks || []).length} блоков
+              </span>
+            )}
           </div>
           <div className="main-subtitle">{template.description || 'Без описания'}</div>
         </div>
@@ -1538,7 +2111,10 @@ function ScriptsSidebar({
                 <div className="script-item-title">{t.name}</div>
               )}
               <div className="script-item-meta">
-                {t.steps?.length || 0} этапов · {t.is_active ? 'Активен' : 'Черновик'}
+                {t.script_type === 'fulltext'
+                  ? `${(t as any).block_count ?? t.blocks?.length ?? 0} блоков · текст`
+                  : `${(t as any).step_count ?? t.steps?.length ?? 0} этапов`}
+                {' · '}{t.is_active ? 'Активен' : 'Черновик'}
                 {t.applies_to_all_stores && ' · все магазины'}
               </div>
             </div>
@@ -1598,10 +2174,11 @@ export function ScriptsPage() {
   const [forcedTab, setForcedTab] = useState<RightTab | undefined>(undefined)
   const [showLibrary, setShowLibrary] = useState(false)
   const [showRulesHelp, setShowRulesHelp] = useState(false)
-  const [rulesTab, setRulesTab] = useState<'upsell' | 'crosssell'>('upsell')
+  const [rulesTab, setRulesTab] = useState<'upsell' | 'crosssell' | 'objections'>('upsell')
 
   const [editorMode, setEditorMode] = useState<null | 'new' | 'edit' | 'ai'>(null)
   const [aiDraft, setAiDraft] = useState<{ name: string; description: string | null; steps: ScriptStep[] } | null>(null)
+  const [docDraft, setDocDraft] = useState<DocDraft | null>(null)
 
   const { data: templates, isLoading: templatesLoading } = useQuery({
     queryKey: ['script-templates'],
@@ -1648,6 +2225,14 @@ export function ScriptsPage() {
     setEditorMode('ai')
     setSelectedId(null)
   }
+
+  const handleDocDraft = (draft: DocDraft) => {
+    setDocDraft(draft)
+    setSelectedId(null)
+  }
+
+  // Редактирование существующего fulltext-скрипта идёт через FulltextEditorDialog
+  const editingFulltext = editorMode === 'edit' && selectedDetail?.script_type === 'fulltext'
 
   return (
     <div className="scripts-page">
@@ -1705,6 +2290,13 @@ export function ScriptsPage() {
             Кросс-сейл
             <HelpTooltip content="Предложение сопутствующих товаров к основной покупке (ноутбук → сумка, мышь)." />
           </div>
+          <div
+            className={`rules-tab ${rulesTab === 'objections' ? 'rules-tab--active' : ''}`}
+            onClick={() => setRulesTab('objections')}
+          >
+            Типы возражений
+            <HelpTooltip content="Справочник типов, по которым AI классифицирует возражения клиентов. Добавьте свои отраслевые типы с примерами фраз." />
+          </div>
           <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setShowRulesHelp(true)}>
             <HelpCircle size={12} /> Подробнее
           </button>
@@ -1712,6 +2304,7 @@ export function ScriptsPage() {
 
         {rulesTab === 'upsell' && <RulesTable kind="upsell" />}
         {rulesTab === 'crosssell' && <RulesTable kind="crosssell" />}
+        {rulesTab === 'objections' && <ObjectionTypesTable />}
       </div>
 
       <CommandPalette
@@ -1722,13 +2315,43 @@ export function ScriptsPage() {
         onJumpAssignments={(id) => { setSelectedId(id); setForcedTab('assignments') }}
       />
 
-      {editorMode && (
+      {editorMode && !editingFulltext && (
         <EditorDialog
           template={editorTemplate}
           isNew={editorMode !== 'edit'}
           draftInfo={{ fromAi: editorMode === 'ai' }}
           onClose={closeEditor}
           onSaved={handleEditorSaved}
+          onSwitchToFulltext={() => {
+            closeEditor()
+            setDocDraft({ name: '', description: '', full_text: null, source_document_name: null, blocks: [] })
+          }}
+        />
+      )}
+
+      {editingFulltext && selectedDetail && (
+        <FulltextEditorDialog
+          templateId={selectedDetail.id}
+          initial={{
+            name: selectedDetail.name,
+            description: selectedDetail.description || '',
+            full_text: selectedDetail.full_text || null,
+            source_document_name: selectedDetail.source_document_name || null,
+            blocks: (selectedDetail.blocks || []).map((b) => ({
+              title: b.title, text: b.text, block_type: b.block_type, is_mandatory: b.is_mandatory,
+            })),
+          }}
+          onClose={closeEditor}
+          onSaved={handleEditorSaved}
+        />
+      )}
+
+      {docDraft && (
+        <FulltextEditorDialog
+          templateId={null}
+          initial={docDraft}
+          onClose={() => setDocDraft(null)}
+          onSaved={(id) => { setDocDraft(null); handleEditorSaved(id) }}
         />
       )}
 
@@ -1737,6 +2360,7 @@ export function ScriptsPage() {
           onClose={() => setShowLibrary(false)}
           onCreated={handlePresetCreated}
           onUseDraft={handleAiDraft}
+          onUseDocDraft={handleDocDraft}
         />
       )}
 

@@ -83,10 +83,10 @@ async def upload_audio(
     await db.execute(text("""
         INSERT INTO recorder.recordings
             (id, organization_id, store_id, seller_id, device_id, session_date,
-             started_at, audio_path, file_size_bytes, status, created_at, updated_at)
+             started_at, audio_path, file_size_bytes, status, source, created_at, updated_at)
         VALUES
             (:id, :org_id, :store_id, :seller_id, :device_id, :session_date,
-             :started_at, :audio_path, :file_size, 'processing', :now, :now)
+             :started_at, :audio_path, :file_size, 'processing', 'manual', :now, :now)
     """), {
         "id": recording_id,
         "org_id": uuid.UUID(org_id),

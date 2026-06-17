@@ -19,6 +19,13 @@ export interface LoginResponse {
   }
 }
 
+export interface OrganizationInfo {
+  id: string
+  name: string
+  slug: string
+  org_type: 'retail' | 'telephony'
+}
+
 export const authApi = {
   login: async (data: LoginRequest) => {
     const response = await apiClient.post<LoginResponse>('/api/v1/auth/login', data)
@@ -29,6 +36,16 @@ export const authApi = {
     const response = await apiClient.post<LoginResponse>('/api/v1/auth/refresh', {
       refresh_token: refreshToken
     })
+    return response.data
+  },
+
+  getOrganization: async () => {
+    const response = await apiClient.get<OrganizationInfo>('/api/v1/auth/organization')
+    return response.data
+  },
+
+  updateOrganization: async (data: { org_type: 'retail' | 'telephony' }) => {
+    const response = await apiClient.patch('/api/v1/auth/organization', data)
     return response.data
   }
 }

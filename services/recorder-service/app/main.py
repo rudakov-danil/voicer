@@ -8,7 +8,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.config import settings
-from app.routers import chunks, recordings, upload
+from app.routers import chunks, recordings, telephony, upload
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ Instrumentator().instrument(app).expose(app)
 
 app.include_router(chunks.router)
 app.include_router(recordings.router)
+app.include_router(telephony.router)
 app.include_router(upload.router)
 
 
