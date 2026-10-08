@@ -47,6 +47,10 @@ check)
   fi
   echo "== Фронтенд"
   ls -la --time-style=long-iso services/frontend/dist 2>&1 | head -6
+  echo "index.html ссылается на: $(grep -oE '/assets/[^"]+' services/frontend/dist/index.html 2>/dev/null | tr '\n' ' ')"
+  echo "Файлов в assets: $(find services/frontend/dist/assets -type f 2>/dev/null | wc -l)"
+  find services/frontend/dist/assets -type f -printf '%f\n' 2>/dev/null | sort | head -80 | tr '\n' ' '
+  echo
   echo "== Веб-сервер машины (80/443)"
   for c in nginx caddy apache2 haproxy traefik; do command -v "$c" >/dev/null && echo "$c: $(command -v "$c")"; done
   # sites-enabled — симлинки, поэтому -R
