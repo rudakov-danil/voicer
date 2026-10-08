@@ -5,6 +5,7 @@
 #   verify  — новые эндпоинты отвечают через nginx (без изменений на сервере)
 #   reanalyze — повторный анализ записей ($REANALYZE) и ошибки воркера
 #   llm-test — тестовый запрос к модели с текущими настройками .env
+#   deepgram-test — распознавание примера Deepgram кодом recorder-service
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -148,6 +149,32 @@ async def main():
     await ask(messages=[{"role": "system", "content": "Отвечай только JSON."},
                         {"role": "user", "content": 'Верни {"ok": true, "city": "<столица Казахстана>"}'}],
               response_format={"type": "json_object"})
+
+asyncio.run(main())
+PY
+  ;;
+deepgram-test)
+  # Пример Deepgram через код recorder-service в работающем контейнере
+  need_dc
+  $DC exec -T recorder-service python - <<'PY' || true
+import asyncio, time
+import httpx
+from app.config import settings
+from app.deepgram_client import transcribe_audio, _language_params
+
+async def main():
+    print(f"Модель: {settings.DEEPGRAM_MODEL}, DEEPGRAM_LANGUAGE={settings.DEEPGRAM_LANGUAGE} -> {_language_params()}")
+    async with httpx.AsyncClient(timeout=60) as c:
+        audio = (await c.get("https://static.deepgram.com/examples/Bueller-Life-moves-pretty-fast.wav")).content
+    t = time.monotonic()
+    try:
+        r = await transcribe_audio(audio, "sample.wav")
+    except httpx.HTTPStatusError as e:
+        print("Ошибка Deepgram:", e.response.status_code, e.response.text[:500])
+        return
+    speakers = sorted({str(s.get("speaker")) for s in r["segments"]})
+    print(f"За {time.monotonic() - t:.1f} с: язык {r['language']}, сегментов {len(r['segments'])}, спикеры {speakers}")
+    print("Текст:", r["text"][:300])
 
 asyncio.run(main())
 PY

@@ -91,6 +91,9 @@ case $MODE in
   llm-test)
     remote llm-test
     ;;
+  deepgram-test)
+    remote deepgram-test
+    ;;
   server-diff)
     # Чем код сервисов на сервере отличается от репозитория (repo → сервер).
     # Похожее на ключи и токены заменяем на [скрыто].
