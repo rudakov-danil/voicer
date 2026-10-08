@@ -11,6 +11,7 @@
 #   reprocess — записи ($REANALYZE) с нуля: Deepgram, диаризация, анализ
 #   reupload — копии записей ($REANALYZE) как новые загрузки, исходные не меняются
 #   roles-compare — роли по репликам: сохранённые, по Deepgram и от LLM
+#   deepgram-words — сырой ответ Deepgram по записи: абзацы, utterances, слова (лог удалить после чтения)
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -456,6 +457,58 @@ async def main():
             same = sum(s.speaker_role == a for s, a in zip(segs, dg))
             print(f"Сохранённые роли совпадают с Deepgram-правилом в {same} из {len(segs)}, "
                   f"Deepgram и LLM расходятся в {sum(a != b for a, b in zip(dg, llm))}")
+
+asyncio.run(main())
+PY
+  ;;
+deepgram-words)
+  # Сырой ответ Deepgram для записи: абзацы, utterances и слова со спикерами в окне 15–30 с.
+  # В логе будут слова записи — лог запуска удалить после чтения. REANALYZE: id записи или «--latest 1»
+  need_dc
+  $DC exec -T -e REANALYZE="$REANALYZE" recorder-service python - <<'PY' || true
+import asyncio, os, re, uuid
+import httpx
+from sqlalchemy import text
+from app.config import settings
+from app.database import async_session_maker
+from app.deepgram_client import _language_params
+from app.minio_client import download_bytes
+from app.routers.mobile import MIME_TYPES
+from app.routers.upload import BUCKET, CONTENT_TYPE_MAP
+from pathlib import Path
+
+async def main():
+    ids = [uuid.UUID(x) for x in re.findall(r"[0-9a-f-]{36}", os.environ.get("REANALYZE", ""))]
+    async with async_session_maker() as db:
+        if ids:
+            r = (await db.execute(text("SELECT id, audio_path FROM recorder.recordings WHERE id = :id"), {"id": ids[0]})).first()
+        else:
+            r = (await db.execute(text("SELECT id, audio_path FROM recorder.recordings ORDER BY created_at DESC LIMIT 1"))).first()
+    obj = r.audio_path[len(BUCKET) + 1:]
+    ext = Path(obj).suffix
+    audio = await asyncio.to_thread(download_bytes, BUCKET, obj)
+    params = {"smart_format": "true", **_language_params(), "model": settings.DEEPGRAM_MODEL,
+              "diarize_model": "latest", "paragraphs": "true", "utterances": "true"}
+    print(f"Запись {r.id}, {len(audio)} байт; параметры {params}")
+    async with httpx.AsyncClient(timeout=300) as c:
+        resp = await c.post(settings.DEEPGRAM_API_URL, params=params, content=audio, headers={
+            "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
+            "Content-Type": MIME_TYPES.get(ext) or CONTENT_TYPE_MAP.get(ext, "application/octet-stream")})
+    resp.raise_for_status()
+    res = resp.json()["results"]
+    ch = res["channels"][0]
+    alt = ch["alternatives"][0]
+    print(f"Язык: {ch.get('detected_language')}, уверенность {ch.get('language_confidence')}")
+    print("== Абзацы (из них мы режем реплики)")
+    for p in (alt.get("paragraphs") or {}).get("paragraphs", []):
+        print(f"  {p['start']:6.2f}-{p['end']:6.2f}  спикер {p.get('speaker')}  предложений {len(p.get('sentences', []))}")
+    print("== Utterances")
+    for u in res.get("utterances", []):
+        print(f"  {u['start']:6.2f}-{u['end']:6.2f}  спикер {u.get('speaker')}  слов {len(u.get('words', []))}")
+    print("== Слова 15–30 с: начало-конец, спикер, уверенность спикера, слово")
+    for w in alt.get("words", []):
+        if 15 <= w["start"] <= 30:
+            print(f"  {w['start']:6.2f}-{w['end']:6.2f}  {w.get('speaker')}  {w.get('speaker_confidence', 0):.2f}  {w.get('punctuated_word') or w['word']}")
 
 asyncio.run(main())
 PY

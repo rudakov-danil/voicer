@@ -106,6 +106,9 @@ case $MODE in
   roles-compare)
     remote roles-compare
     ;;
+  deepgram-words)
+    remote deepgram-words
+    ;;
   reupload)
     [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
       || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }
