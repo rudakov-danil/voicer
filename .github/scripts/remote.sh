@@ -6,6 +6,8 @@
 #   reanalyze — повторный анализ записей ($REANALYZE) и ошибки воркера
 #   llm-test — тестовый запрос к модели с текущими настройками .env
 #   deepgram-test — распознавание примера Deepgram кодом recorder-service
+#   logs    — ошибки сервисов $SERVICES за 30 минут, очереди, последние записи
+#   rediarize — записи ($REANALYZE) или застрявшие за сутки снова в диаризацию и анализ
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -178,6 +180,98 @@ async def main():
 
 asyncio.run(main())
 PY
+  ;;
+rediarize)
+  # REANALYZE с id записей — эти записи; иначе застрявшие до диаризации за сутки.
+  # Диаризация сама ставит анализ; ждём новый разговор до 5 минут.
+  need_dc
+  $DC exec -T -e REANALYZE="$REANALYZE" diarize-worker python - <<'PY' || true
+import asyncio, os, re, time, uuid
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import select, text
+from app.database import async_session_maker
+from app.models import Transcript
+from app import rabbitmq
+
+async def main():
+    ids = [uuid.UUID(x) for x in re.findall(r"[0-9a-f-]{36}", os.environ.get("REANALYZE", ""))]
+    started = datetime.now(timezone.utc)
+    async with async_session_maker() as db:
+        q = select(Transcript)
+        if ids:
+            q = q.where(Transcript.recording_id.in_(ids))
+        else:
+            q = q.where(Transcript.status == "transcribed", Transcript.created_at >= started - timedelta(days=1))
+        rows = (await db.execute(q.order_by(Transcript.created_at.desc()))).scalars().all()
+    if not rows:
+        print("Записей для диаризации нет")
+        return
+    for t in rows:
+        print(f"В очередь диаризации: запись {t.recording_id} ({t.status}), расшифровка от {t.created_at:%Y-%m-%d %H:%M} UTC")
+        await rabbitmq.publish("queue.diarize", {
+            "recording_id": str(t.recording_id), "transcript_id": str(t.id), "seller_id": str(t.seller_id),
+            "store_id": str(t.store_id), "organization_id": str(t.organization_id),
+        })
+    await rabbitmq.close()
+    pending = {t.recording_id for t in rows}
+    deadline = time.monotonic() + 300
+    while pending and time.monotonic() < deadline:
+        await asyncio.sleep(10)
+        async with async_session_maker() as db:
+            done = (await db.execute(text(
+                "SELECT recording_id, outcome, overall_score, topic FROM analytics.conversations "
+                "WHERE recording_id = ANY(:ids) AND analyzed_at > :t"), {"ids": list(pending), "t": started})).all()
+        for r in done:
+            score = f"{float(r.overall_score):.0f}" if r.overall_score is not None else "—"
+            print(f"Готово: запись {r.recording_id}: исход {r.outcome}, балл {score}, тема «{r.topic or '—'}»")
+            pending.discard(r.recording_id)
+    for rid in pending:
+        print(f"Не дождался анализа за 5 минут: запись {rid}")
+
+asyncio.run(main())
+PY
+  echo "== diarize-worker и analytics-worker: ошибки за 10 минут"
+  for svc in diarize-worker analytics-worker; do
+    $DC logs --since 10m --no-log-prefix "$svc" 2>&1 \
+      | grep -iE 'error|exception|traceback|denied|forbidden|40[13]|failed' | cut -c1-240 | tail -15 || true
+  done
+  ;;
+worker-log)
+  # Полный журнал сервисов за 15 минут, строки обрезаны. Лог запуска стоит удалить после чтения
+  need_dc
+  for svc in $SERVICES; do
+    echo "== $svc"
+    $DC logs --since 15m --no-log-prefix "$svc" 2>&1 | cut -c1-200 | tail -80 || true
+  done
+  ;;
+conv-info)
+  # Служебные поля последних разговоров, без текста
+  need_dc
+  $DC exec -T postgres psql -U voiceiq -d voiceiq -x -c "
+    SELECT c.recording_id, c.analyzed_at, c.outcome, c.outcome_confidence, c.topic IS NOT NULL AS has_topic,
+           c.call_category, c.is_scorable, c.llm_model, c.sentiment_avg, c.overall_score,
+           (SELECT count(*) FROM transcription.transcript_segments s WHERE s.transcript_id = c.transcript_id) AS segments,
+           (SELECT string_agg(r || ':' || n, ' ') FROM (SELECT s.speaker_role r, count(*) n FROM transcription.transcript_segments s
+              WHERE s.transcript_id = c.transcript_id GROUP BY 1) x) AS roles,
+           (SELECT length(t.full_text) FROM transcription.transcripts t WHERE t.id = c.transcript_id) AS text_len,
+           (SELECT t.language FROM transcription.transcripts t WHERE t.id = c.transcript_id) AS lang,
+           (SELECT count(*) FROM analytics.conversation_script_results r WHERE r.conversation_id = c.id) AS scripts,
+           (SELECT count(*) FROM analytics.conversation_scores sc WHERE sc.conversation_id = c.id) AS step_scores
+    FROM analytics.conversations c ORDER BY c.analyzed_at DESC LIMIT 4" 2>&1 || true
+  ;;
+logs)
+  # Ошибки сервисов за 30 минут, очереди и последние записи. Строки обрезаем: в логах бывает текст разговоров
+  need_dc
+  for svc in $SERVICES; do
+    echo "== $svc: ошибки за 30 минут"
+    $DC logs --since 30m --no-log-prefix "$svc" 2>&1 \
+      | grep -iE 'error|exception|traceback|denied|forbidden|40[13]|failed|retry|requeue|timeout' | cut -c1-240 | tail -30 || true
+  done
+  echo "== Очереди RabbitMQ"
+  $DC exec -T rabbitmq rabbitmqctl -q list_queues name messages messages_unacknowledged consumers 2>&1 | tail -20 || true
+  echo "== Последние записи"
+  $DC exec -T postgres psql -U voiceiq -d voiceiq -c \
+    "SELECT id, status, created_at FROM recorder.recordings ORDER BY created_at DESC LIMIT 5" 2>&1 || true
   ;;
 *)
   echo "Неизвестный этап: $1"

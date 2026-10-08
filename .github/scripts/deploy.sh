@@ -94,6 +94,20 @@ case $MODE in
   deepgram-test)
     remote deepgram-test
     ;;
+  logs)
+    remote logs
+    ;;
+  worker-log)
+    remote worker-log
+    ;;
+  conv-info)
+    remote conv-info
+    ;;
+  rediarize)
+    [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
+      || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }
+    remote rediarize
+    ;;
   server-diff)
     # Чем код сервисов на сервере отличается от репозитория (repo → сервер).
     # Похожее на ключи и токены заменяем на [скрыто].
