@@ -1,18 +1,14 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
-import { analyticsApi } from '@/api/analytics'
 import { adminApi } from '@/api/admin'
 import { recorderApi } from '@/api/recorder'
-import { scriptsApi } from '@/api/scripts'
-import { ScoreBadge } from '@/components/ScoreBadge'
 import { OutcomeTag } from '@/components/OutcomeTag'
 import { Drawer } from '@/components/Drawer'
-import { AudioPlayer } from '@/components/AudioPlayer'
 import { AudioUploadModal } from '@/components/AudioUpload'
 import { TranscriptUploadModal } from '@/components/TranscriptUpload'
 import { CallUploadModal } from '@/components/CallUpload'
 import { useTerms } from '@/lib/terms'
-import { useState, useEffect, useCallback, useMemo, Fragment, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { useSearchParams, useOutletContext, useNavigate } from 'react-router-dom'
 import {
   OUTCOME_LABELS,
@@ -21,20 +17,13 @@ import {
   DirectionIcon,
   useObjectionTypeLabel,
 } from '@/components/conversation/shared'
-import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowDown, History, X, FileText, Phone, PhoneIncoming, PhoneOutgoing, Sparkles, RefreshCw, ChevronRight, Trash2, Search, ShieldAlert, MessageCircleWarning } from 'lucide-react'
+import { Upload, CheckCircle, Clock, Loader, AlertCircle, X, FileText, Phone, Sparkles, ChevronRight, Search, ShieldAlert, MessageCircleWarning } from 'lucide-react'
 import { Fingerprint, clock } from '@/components/ui/Fingerprint'
 import { Meter, UpsellDots } from '@/components/ui/Meter'
 import type { ConversationView, FingerprintMark } from '@/types'
 import { t, L, locale } from '@/i18n'
 import { MultiSelect } from '@/components/scripts/MultiSelect'
 import { QuickView } from '@/components/conversation/QuickView'
-import {
-  avatarColorFor,
-  highlightSegmentText,
-  highlightRulesForSell,
-  analyzeSell,
-  type HighlightRule,
-} from '@/components/scripts/conversationHelpers'
 
 type SortBy  = 'date' | 'name' | 'duration' | 'store'
 type SortDir = 'asc' | 'desc'
@@ -58,7 +47,6 @@ function PipelineStatus({ status }: { status: string }) {
 function RecordingDetail({ recording }: { recording: any }) {
   const status = recording.status as string
   const sellerName = recording.seller_name || '—'
-  const sellerColorKey = recording.seller_id || recording.seller_name || ''
   const storeName = recording.store_name || '—'
   const dateObj = recording.started_at ? new Date(recording.started_at) : null
   const dateStr = dateObj ? dateObj.toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' }) : '—'
@@ -88,9 +76,7 @@ function RecordingDetail({ recording }: { recording: any }) {
 
       {/* Seller + Store card */}
       <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', background:'var(--bg)', borderRadius:'var(--radius)' }}>
-        <div style={{ width:44, height:44, borderRadius:'50%', background:avatarColorFor(sellerColorKey), display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:700, fontSize:16, flexShrink:0 }}>
-          {sellerName[0]?.toUpperCase() || '?'}
-        </div>
+        <span className="avatar avatar-lg" aria-hidden="true" translate="no">{initialsOf(recording.seller_name)}</span>
         <div style={{ flex:1 }}>
           <div style={{ fontWeight:600, color:'var(--text)', fontSize:15 }}>{sellerName}</div>
           <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:2 }}>{storeName}</div>
@@ -126,7 +112,7 @@ function RecordingDetail({ recording }: { recording: any }) {
                   <div style={{
                     width:24, height:24, borderRadius:'50%', flexShrink:0,
                     display:'flex', alignItems:'center', justifyContent:'center',
-                    background: isDone ? 'var(--success)' : isActive ? '#6366F1' : isFail ? 'var(--danger)' : 'var(--border)',
+                    background: isDone ? 'var(--success)' : isActive ? 'var(--accent)' : isFail ? 'var(--danger)' : 'var(--border)',
                     color: (isDone || isActive || isFail) ? 'white' : 'var(--text-muted)',
                     fontSize:13, fontWeight:700,
                   }}>
@@ -144,7 +130,7 @@ function RecordingDetail({ recording }: { recording: any }) {
                 <div style={{ paddingBottom: i < steps.length - 1 ? 16 : 0, paddingTop:3 }}>
                   <div style={{
                     fontSize:14, fontWeight: isActive ? 600 : 400,
-                    color: isDone ? 'var(--text)' : isActive ? '#6366F1' : isFail ? 'var(--danger)' : 'var(--text-muted)',
+                    color: isDone ? 'var(--text)' : isActive ? 'var(--accent)' : isFail ? 'var(--danger)' : 'var(--text-muted)',
                   }}>
                     {step.label}
                     {isActive && <span style={{ marginLeft:6, fontSize:12, fontWeight:400, color:'var(--text-muted)' }}>— в процессе</span>}
@@ -224,7 +210,7 @@ function GroupChildRows({ conversationId, selectedConvId, onSelect }: {
             <td style={{ textAlign: 'center' }}>
               {it.is_scorable === false
                 ? <span className="tag tag-neutral" title={`Категория: ${CALL_CATEGORY_LABELS[it.call_category || ''] || it.call_category || 'нецелевой'}. Не влияет на рейтинг.`}>Не оценивается</span>
-                : it.overall_score != null ? <ScoreBadge score={it.overall_score} /> : '—'}
+                : <Meter score={it.overall_score} />}
             </td>
             <td style={{ textAlign: 'center' }}>
               {it.is_scorable === false ? <span style={{ color: 'var(--text-muted)' }}>—</span>

@@ -87,9 +87,10 @@ function InfoTooltip({ children }: { children: ReactNode }) {
   )
 }
 
+// Категориальная палитра концепта: три основных цвета, дальше — шкала и нейтральные
 const OBJECTION_COLORS: Record<string, string> = {
-  price: '#EF4444', not_ready: '#F59E0B', competitors: '#3B82F6',
-  functionality: '#8B5CF6', quality: '#EC4899', trust: '#10B981', timing: '#6366F1',
+  price: '#4C6EF5', competitors: '#EB6834', timing: '#1BAF7A',
+  functionality: '#5873EC', not_ready: '#E8A317', quality: '#97ADFC', trust: '#5F6778',
 }
 const OBJECTION_LABELS: Record<string, string> = {
   price: 'Цена', not_ready: 'Не готов сейчас', competitors: 'Конкуренты',

@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '@/api/dashboard';
 import { adminApi } from '@/api/admin';
 import { recorderApi } from '@/api/recorder';
-import { ScoreBadge } from '@/components/ScoreBadge';
 import { OutcomeTag } from '@/components/OutcomeTag';
 import { Drawer } from '@/components/Drawer';
 import { AudioUploadModal } from '@/components/AudioUpload';
@@ -19,7 +18,6 @@ import { Meter, UpsellDots } from '@/components/ui/Meter';
 import { t, L, locale } from '@/i18n';
 import { MultiSelect } from '@/components/scripts/MultiSelect';
 import { QuickView } from '@/components/conversation/QuickView';
-import { avatarColorFor, } from '@/components/scripts/conversationHelpers';
 // ─── Pipeline status badge ────────────────────────────────────────────────────
 // Флаги концепта, без бесконечной пульсации: статус обновляется опросом списка.
 function PipelineStatus({ status }) {
@@ -35,7 +33,6 @@ function PipelineStatus({ status }) {
 function RecordingDetail({ recording }) {
     const status = recording.status;
     const sellerName = recording.seller_name || '—';
-    const sellerColorKey = recording.seller_id || recording.seller_name || '';
     const storeName = recording.store_name || '—';
     const dateObj = recording.started_at ? new Date(recording.started_at) : null;
     const dateStr = dateObj ? dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
@@ -57,7 +54,7 @@ function RecordingDetail({ recording }) {
         : status === 'transcribed' ? 'diarize'
             : status === 'diarized' ? 'analyze'
                 : null;
-    return (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 20 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: 'var(--bg)', borderRadius: 'var(--radius)' }, children: [_jsx("div", { style: { width: 44, height: 44, borderRadius: '50%', background: avatarColorFor(sellerColorKey), display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 16, flexShrink: 0 }, children: sellerName[0]?.toUpperCase() || '?' }), _jsxs("div", { style: { flex: 1 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', fontSize: 15 }, children: sellerName }), _jsx("div", { style: { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }, children: storeName })] })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsxs("span", { className: "tag tag-neutral", children: ["\uD83D\uDCC5 ", dateStr, ", ", timeStr] }), recording.duration_seconds
+    return (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 20 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: 'var(--bg)', borderRadius: 'var(--radius)' }, children: [_jsx("span", { className: "avatar avatar-lg", "aria-hidden": "true", translate: "no", children: initialsOf(recording.seller_name) }), _jsxs("div", { style: { flex: 1 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', fontSize: 15 }, children: sellerName }), _jsx("div", { style: { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }, children: storeName })] })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsxs("span", { className: "tag tag-neutral", children: ["\uD83D\uDCC5 ", dateStr, ", ", timeStr] }), recording.duration_seconds
                         ? _jsxs("span", { className: "tag tag-neutral", children: ["\u23F1 ", mins, ":", String(secs).padStart(2, '0')] })
                         : _jsx("span", { className: "tag tag-neutral", style: { color: 'var(--text-muted)' }, children: "\u0414\u043B\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u044F\u0435\u0442\u0441\u044F..." }), recording.file_size_bytes && (_jsxs("span", { className: "tag tag-neutral", children: ["\uD83D\uDCBE ", (recording.file_size_bytes / 1024 / 1024).toFixed(1), " \u041C\u0411"] }))] }), _jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 12, fontSize: 14 }, children: "\u0421\u0442\u0430\u0442\u0443\u0441 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0438" }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 0 }, children: steps.map((step, i) => {
                             const isActive = step.key === currentStep && !isFailed;
@@ -67,12 +64,12 @@ function RecordingDetail({ recording }) {
                             return (_jsxs("div", { style: { display: 'flex', alignItems: 'flex-start', gap: 12 }, children: [_jsxs("div", { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', width: 24 }, children: [_jsxs("div", { style: {
                                                     width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                    background: isDone ? 'var(--success)' : isActive ? '#6366F1' : isFail ? 'var(--danger)' : 'var(--border)',
+                                                    background: isDone ? 'var(--success)' : isActive ? 'var(--accent)' : isFail ? 'var(--danger)' : 'var(--border)',
                                                     color: (isDone || isActive || isFail) ? 'white' : 'var(--text-muted)',
                                                     fontSize: 13, fontWeight: 700,
                                                 }, children: [isDone && _jsx(CheckCircle, { size: 14 }), isActive && _jsx(Loader, { size: 14, style: { animation: 'viq-spin 1s linear infinite' } }), isFail && _jsx(AlertCircle, { size: 14 }), isPending && _jsx(Clock, { size: 14 })] }), i < steps.length - 1 && (_jsx("div", { style: { width: 2, flex: 1, minHeight: 20, background: isDone ? 'var(--success)' : 'var(--border)', margin: '2px 0' } }))] }), _jsx("div", { style: { paddingBottom: i < steps.length - 1 ? 16 : 0, paddingTop: 3 }, children: _jsxs("div", { style: {
                                                 fontSize: 14, fontWeight: isActive ? 600 : 400,
-                                                color: isDone ? 'var(--text)' : isActive ? '#6366F1' : isFail ? 'var(--danger)' : 'var(--text-muted)',
+                                                color: isDone ? 'var(--text)' : isActive ? 'var(--accent)' : isFail ? 'var(--danger)' : 'var(--text-muted)',
                                             }, children: [step.label, isActive && _jsx("span", { style: { marginLeft: 6, fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }, children: "\u2014 \u0432 \u043F\u0440\u043E\u0446\u0435\u0441\u0441\u0435" }), isDone && _jsx("span", { style: { marginLeft: 6, fontSize: 12, fontWeight: 400, color: 'var(--success)' }, children: "\u2014 \u0433\u043E\u0442\u043E\u0432\u043E" }), isFail && _jsx("span", { style: { marginLeft: 6, fontSize: 12, fontWeight: 400, color: 'var(--danger)' }, children: "\u2014 \u043E\u0448\u0438\u0431\u043A\u0430" })] }) })] }, step.key));
                         }) })] }), isFailed && recording.error_message && (_jsx("div", { style: { padding: '10px 14px', background: 'rgba(239,68,68,0.08)', borderRadius: 'var(--radius)', color: 'var(--danger)', fontSize: 13 }, children: recording.error_message })), !isFailed && (_jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)', paddingTop: 4 }, children: "\u0421\u0442\u0440\u0430\u043D\u0438\u0446\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043A\u0430\u0436\u0434\u044B\u0435 5 \u0441\u0435\u043A\u0443\u043D\u0434 \u2014 \u0441\u0442\u0430\u0442\u0443\u0441 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438." }))] }));
 }
@@ -97,7 +94,7 @@ function GroupChildRows({ conversationId, selectedConvId, onSelect }) {
             const durStr = it.duration_seconds ? `${mins}:${String(secs).padStart(2, '0')}` : '—';
             return (_jsxs("tr", { onClick: () => onSelect(it.id), style: { cursor: 'pointer', background: selectedConvId === it.id ? 'var(--bg-active)' : 'var(--bg)' }, children: [_jsx("td", { style: { paddingLeft: 52 }, children: _jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)' }, children: [_jsx(DirectionIcon, { direction: it.call_direction }), dateStr] }) }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: it.seller_name || '—' }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: it.store_name || '—' }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: durStr }), _jsx("td", { style: { color: 'var(--text-secondary)' }, children: it.topic || '—' }), _jsx("td", { style: { textAlign: 'center' }, children: it.is_scorable === false
                             ? _jsx("span", { className: "tag tag-neutral", title: `Категория: ${CALL_CATEGORY_LABELS[it.call_category || ''] || it.call_category || 'нецелевой'}. Не влияет на рейтинг.`, children: "\u041D\u0435 \u043E\u0446\u0435\u043D\u0438\u0432\u0430\u0435\u0442\u0441\u044F" })
-                            : it.overall_score != null ? _jsx(ScoreBadge, { score: it.overall_score }) : '—' }), _jsx("td", { style: { textAlign: 'center' }, children: it.is_scorable === false ? _jsx("span", { style: { color: 'var(--text-muted)' }, children: "\u2014" })
+                            : _jsx(Meter, { score: it.overall_score }) }), _jsx("td", { style: { textAlign: 'center' }, children: it.is_scorable === false ? _jsx("span", { style: { color: 'var(--text-muted)' }, children: "\u2014" })
                             : it.has_upsell === true ? _jsx("span", { className: "tag tag-success", children: "\u0414\u0430" })
                                 : it.has_upsell === false ? _jsx("span", { className: "tag tag-danger", children: "\u041D\u0435\u0442" })
                                     : _jsx("span", { style: { color: 'var(--text-muted)' }, children: "\u2014" }) }), _jsx("td", { style: { textAlign: 'center' }, children: it.is_scorable === false ? _jsx("span", { style: { color: 'var(--text-muted)' }, children: "\u2014" })

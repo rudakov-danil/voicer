@@ -1431,7 +1431,7 @@ function LiveTestDialog({
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ fontWeight: 500 }}>{s.step_name}</div>
                       <div style={{
-                        color: s.score >= 70 ? 'var(--success)' : s.score >= 40 ? '#F59E0B' : 'var(--danger)',
+                        color: s.score >= 70 ? 'var(--success)' : s.score >= 40 ? 'var(--warn)' : 'var(--danger)',
                         fontWeight: 600, fontSize: 14,
                       }}>{s.score}% (вес {s.weight})</div>
                     </div>
@@ -1599,7 +1599,7 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
                   </div>
                 )
               }
-              const color = s.pass_rate >= 70 ? 'var(--success)' : s.pass_rate >= 40 ? '#F59E0B' : 'var(--danger)'
+              const color = s.pass_rate >= 70 ? 'var(--success)' : s.pass_rate >= 40 ? 'var(--warn)' : 'var(--danger)'
               return (
                 <div key={s.step_id} className="step-analytics" style={{ borderLeft: `3px solid ${color}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>

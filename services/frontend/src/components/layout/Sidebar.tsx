@@ -66,9 +66,11 @@ function initials(text: string) {
     .toUpperCase()
 }
 
-export function Sidebar({ period }: { period: number }) {
+/** Сайдбар; mobile — только навигация для выпадающего меню мобильной шапки. */
+export function Sidebar({ period, mobile, onNavigate }: { period: number; mobile?: boolean; onNavigate?: () => void }) {
   const location = useLocation()
-  const navigate = useNavigate()
+  const routerNavigate = useNavigate()
+  const navigate = (to: string) => { routerNavigate(to); onNavigate?.() }
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const { data: org } = useOrganization()
@@ -107,6 +109,28 @@ export function Sidebar({ period }: { period: number }) {
     )
   }
 
+  const nav = (
+    <nav className="nav" aria-label={t('Разделы')}>
+      {MAIN.map(renderItem)}
+      <div className="nav-label">{t('Контроль')}</div>
+      {control.map(renderItem)}
+      <div className="nav-label">{t('Подборки')}</div>
+      {VIEWS.map((v) => {
+        const n = counts?.[v.id]
+        const active = location.pathname === '/conversations' && currentView === v.id
+        return (
+          <button key={v.id} type="button" className="nav-item nav-view" aria-current={active ? 'page' : undefined}
+            title={t(v.label)} onClick={() => navigate(`/conversations?view=${v.id}`)}>
+            <span className="nav-dot" style={{ background: v.dot }} aria-hidden="true" />
+            <span>{t(v.label)}</span>
+            {n != null && <span className="nav-count">{n.toLocaleString()}</span>}
+          </button>
+        )
+      })}
+    </nav>
+  )
+  if (mobile) return nav
+
   return (
     <aside className="sidebar" aria-label={t('Навигация')}>
       <a className="brand" href="/dashboard" onClick={(e) => { e.preventDefault(); navigate('/dashboard') }}>
@@ -126,24 +150,7 @@ export function Sidebar({ period }: { period: number }) {
         </div>
       )}
 
-      <nav className="nav" aria-label={t('Разделы')}>
-        {MAIN.map(renderItem)}
-        <div className="nav-label">{t('Контроль')}</div>
-        {control.map(renderItem)}
-        <div className="nav-label">{t('Подборки')}</div>
-        {VIEWS.map((v) => {
-          const n = counts?.[v.id]
-          const active = location.pathname === '/conversations' && currentView === v.id
-          return (
-            <button key={v.id} type="button" className="nav-item nav-view" aria-current={active ? 'page' : undefined}
-              title={t(v.label)} onClick={() => navigate(`/conversations?view=${v.id}`)}>
-              <span className="nav-dot" style={{ background: v.dot }} aria-hidden="true" />
-              <span>{t(v.label)}</span>
-              {n != null && <span className="nav-count">{n.toLocaleString()}</span>}
-            </button>
-          )
-        })}
-      </nav>
+      {nav}
 
       <div className="sidebar-foot">
         <div className="me">
@@ -167,7 +174,7 @@ export function Sidebar({ period }: { period: number }) {
             className="btn-icon"
             aria-label={t('Выйти')}
             title={t('Выйти')}
-            onClick={() => { logout(); navigate('/login') }}
+            onClick={() => { logout(); routerNavigate('/login') }}
           >
             <LogOut size={16} aria-hidden="true" />
           </button>
