@@ -1,10 +1,27 @@
 import logging
+from pathlib import Path
 
 import httpx
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _language_params() -> dict:
+    """DEEPGRAM_LANGUAGE=auto (или пусто) — Deepgram сам определяет язык записи."""
+    lang = (settings.DEEPGRAM_LANGUAGE or "").strip().lower()
+    return {"detect_language": "true"} if lang in ("", "auto") else {"language": lang}
+
+
+def _fallback_language() -> str:
+    lang = (settings.DEEPGRAM_LANGUAGE or "").strip().lower()
+    return "ru" if lang in ("", "auto") else lang
+
+
+def _detected_language(channel: dict, alt: dict) -> str:
+    # При detect_language язык приходит в channels[0].detected_language
+    return (channel.get("detected_language") or alt.get("language") or _fallback_language()).lower()
 
 
 async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
@@ -30,15 +47,19 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> d
 
     params = {
         "smart_format": "true",
-        "language": settings.DEEPGRAM_LANGUAGE,
+        **_language_params(),
         "model": settings.DEEPGRAM_MODEL,
         "diarize": "true",       # разделение на спикеров
+        "diarize_model": "latest",
         "paragraphs": "true",    # группировка подряд идущих реплик одного спикера в крупные блоки
         "utterances": "true",    # сегментация на смысловые реплики (по паузам ≥0.8с) — fallback
     }
     headers = {
         "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
-        "Content-Type": "audio/wav",
+        "Content-Type": {
+            ".webm": "audio/webm", ".mp4": "audio/mp4", ".m4a": "audio/mp4",
+            ".ogg": "audio/ogg", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+        }.get(Path(filename).suffix.lower(), "application/octet-stream"),
     }
 
     async with httpx.AsyncClient(timeout=1800.0) as client:
@@ -69,7 +90,7 @@ async def transcribe_audio_multichannel(audio_bytes: bytes, operator_channel: in
 
     params = {
         "smart_format": "true",
-        "language": settings.DEEPGRAM_LANGUAGE,
+        **_language_params(),
         "model": settings.DEEPGRAM_MODEL,
         "multichannel": "true",  # раздельная транскрибация каналов
         "utterances": "true",    # utterances несут номер канала
@@ -126,17 +147,14 @@ def _parse_multichannel_response(payload: dict, operator_channel: int) -> dict:
             f"Multichannel parse: only {len(channels_seen)} channel(s) with speech — "
             "falling back to standard diarization"
         )
-        return {"text": "", "language": settings.DEEPGRAM_LANGUAGE, "segments": [], "multichannel_failed": True}
+        return {"text": "", "language": _fallback_language(), "segments": [], "multichannel_failed": True}
 
     segments.sort(key=lambda s: s["start"])
     full_text = " ".join(s["text"] for s in segments)
 
-    language = settings.DEEPGRAM_LANGUAGE
     channels = results.get("channels") or []
-    if channels:
-        alts = channels[0].get("alternatives") or []
-        if alts and alts[0].get("language"):
-            language = alts[0]["language"].lower()
+    alts = (channels[0].get("alternatives") or [{}]) if channels else [{}]
+    language = _detected_language(channels[0] if channels else {}, alts[0])
 
     logger.info(
         f"Deepgram multichannel parsed: {len(segments)} segments, "
@@ -158,15 +176,15 @@ def _parse_deepgram_response(payload: dict) -> dict:
     results = payload.get("results") or {}
     channels = results.get("channels") or []
     if not channels:
-        return {"text": "", "language": settings.DEEPGRAM_LANGUAGE, "segments": []}
+        return {"text": "", "language": _fallback_language(), "segments": []}
 
     alternatives = channels[0].get("alternatives") or []
     if not alternatives:
-        return {"text": "", "language": settings.DEEPGRAM_LANGUAGE, "segments": []}
+        return {"text": "", "language": _fallback_language(), "segments": []}
 
     alt = alternatives[0]
     full_text = (alt.get("transcript") or "").strip()
-    language = (alt.get("language") or settings.DEEPGRAM_LANGUAGE).lower()
+    language = _detected_language(channels[0], alt)
 
     segments: list[dict] = []
 
