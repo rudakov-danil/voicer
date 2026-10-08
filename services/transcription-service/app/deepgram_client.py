@@ -7,6 +7,22 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _language_params() -> dict:
+    """DEEPGRAM_LANGUAGE=auto (или пусто) — Deepgram сам определяет язык записи."""
+    lang = (settings.DEEPGRAM_LANGUAGE or "").strip().lower()
+    return {"detect_language": "true"} if lang in ("", "auto") else {"language": lang}
+
+
+def _fallback_language() -> str:
+    lang = (settings.DEEPGRAM_LANGUAGE or "").strip().lower()
+    return "ru" if lang in ("", "auto") else lang
+
+
+def _detected_language(channel: dict, alt: dict) -> str:
+    # При detect_language язык приходит в channels[0].detected_language
+    return (channel.get("detected_language") or alt.get("language") or _fallback_language()).lower()
+
+
 async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
     """
     Отправляет аудио в Deepgram Speech-to-Text API с включённой диаризацией.
@@ -30,9 +46,9 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> d
 
     params = {
         "smart_format": "true",
-        "language": settings.DEEPGRAM_LANGUAGE,
+        **_language_params(),
         "model": settings.DEEPGRAM_MODEL,
-        "diarize": "true",       # разделение на спикеров
+        "diarize_model": "latest",  # разделение на спикеров; вместе с diarize Deepgram отвечает 400
         "paragraphs": "true",    # группировка подряд идущих реплик одного спикера в крупные блоки
         "utterances": "true",    # сегментация на смысловые реплики (по паузам ≥0.8с) — fallback
     }
@@ -65,15 +81,15 @@ def _parse_deepgram_response(payload: dict) -> dict:
     results = payload.get("results") or {}
     channels = results.get("channels") or []
     if not channels:
-        return {"text": "", "language": settings.DEEPGRAM_LANGUAGE, "segments": []}
+        return {"text": "", "language": _fallback_language(), "segments": []}
 
     alternatives = channels[0].get("alternatives") or []
     if not alternatives:
-        return {"text": "", "language": settings.DEEPGRAM_LANGUAGE, "segments": []}
+        return {"text": "", "language": _fallback_language(), "segments": []}
 
     alt = alternatives[0]
     full_text = (alt.get("transcript") or "").strip()
-    language = (alt.get("language") or settings.DEEPGRAM_LANGUAGE).lower()
+    language = _detected_language(channels[0], alt)
 
     segments: list[dict] = []
 

@@ -35,12 +35,16 @@ async def list_conversations(
     date_from: date | None = None,
     date_to: date | None = None,
     outcome: str | None = None,
+    recording_id: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     conditions = _org_filter(user)
+    # Повторный анализ пересоздаёт разговор с новым id — интерфейс находит его по записи
+    if recording_id:
+        conditions.append(Conversation.recording_id == recording_id)
     if store_id:
         conditions.append(Conversation.store_id == store_id)
     if seller_id:

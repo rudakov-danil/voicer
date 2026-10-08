@@ -34,6 +34,21 @@ export const analyticsApi = {
     return response.data
   },
 
+  // Повторный анализ записи: воркер пересоздаёт разговор с новым id
+  reanalyze: async (recordingId: string) => {
+    const response = await apiClient.post<{ status: string }>(`/api/v1/analytics/reanalyze/${recordingId}`)
+    return response.data
+  },
+
+  // Разговор по записи — чтобы найти его после повторного анализа
+  findByRecording: async (recordingId: string) => {
+    const response = await apiClient.get<{ items: Array<{ id: string; analyzed_at: string }> }>(
+      '/api/v1/analytics/conversations',
+      { params: { recording_id: recordingId, limit: 1 } },
+    )
+    return response.data.items[0] ?? null
+  },
+
   // Полное удаление диалога (разговор + транскрипт + запись)
   deleteConversation: async (conversationId: string) => {
     const response = await apiClient.delete(`/api/v1/analytics/conversations/${conversationId}`)

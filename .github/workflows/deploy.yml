@@ -10,14 +10,22 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "check — только посмотреть, deploy — выкатить"
+        description: "check — только посмотреть, deploy — выкатить, verify — проверить выкаченное, reanalyze — повторный анализ, llm-test — тестовый запрос к модели, server-diff — отличия кода на сервере, deepgram-test — проверка Deepgram"
         type: choice
-        options: [check, deploy]
+        options: [check, deploy, verify, reanalyze, llm-test, server-diff, deepgram-test]
         default: check
       services:
         description: "Сервисы для пересборки и перезапуска"
         type: string
         default: "dashboard-service dashboard-worker analytics-engine analytics-worker"
+      domain:
+        description: "Домен, который check проверяет: DNS, сертификат, ответ сервера"
+        type: string
+        default: "lk.voicer-ai.pro"
+      recordings:
+        description: "Для reanalyze: «--latest N» или id записей через пробел"
+        type: string
+        default: "--latest 1"
 
 concurrency:
   group: deploy-prod
@@ -33,6 +41,8 @@ jobs:
     env:
       APP_DIR: ${{ vars.DEPLOY_PATH || '/home/voicer/voiceiq' }}
       SERVICES: ${{ inputs.services }}
+      DOMAIN: ${{ inputs.domain }}
+      REANALYZE: ${{ inputs.recordings }}
     steps:
       - uses: actions/checkout@v4
 

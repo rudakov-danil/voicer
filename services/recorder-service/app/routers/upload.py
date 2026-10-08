@@ -189,7 +189,7 @@ async def _transcribe_and_enqueue(
                      full_text, language, duration_seconds, status, whisper_model, created_at)
                 VALUES
                     (:id, :rec_id, :org_id, :store_id, :seller_id,
-                     :full_text, 'ru', :duration, 'transcribed', 'deepgram-whisper', :now)
+                     :full_text, :language, :duration, 'transcribed', 'deepgram-whisper', :now)
             """), {
                 "id": transcript_id,
                 "rec_id": recording_id,
@@ -197,6 +197,7 @@ async def _transcribe_and_enqueue(
                 "store_id": uuid.UUID(store_id),
                 "seller_id": uuid.UUID(seller_id),
                 "full_text": full_text,
+                "language": (language or "ru")[:10],
                 "duration": duration_seconds,
                 "now": datetime.now(timezone.utc),
             })

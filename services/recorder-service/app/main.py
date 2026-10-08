@@ -8,7 +8,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.config import settings
-from app.routers import chunks, recordings, telephony, upload
+from app.routers import chunks, recordings, telephony, upload, mobile
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,14 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Could not start stitch worker: {e}")
         worker_task = None
 
+    mobile_task = asyncio.create_task(mobile.process_mobile_queue())
     yield
+
+    mobile_task.cancel()
+    try:
+        await mobile_task
+    except asyncio.CancelledError:
+        pass
 
     if worker_task and not worker_task.done():
         worker_task.cancel()
@@ -55,6 +62,7 @@ app.include_router(chunks.router)
 app.include_router(recordings.router)
 app.include_router(telephony.router)
 app.include_router(upload.router)
+app.include_router(mobile.router)
 
 
 @app.get("/health")
