@@ -134,7 +134,6 @@ async def test_script_on_recording(
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.0,
-            max_tokens=settings.LLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=settings.LLM_TIMEOUT,
         )

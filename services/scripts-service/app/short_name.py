@@ -67,7 +67,6 @@ async def llm_short_name(name: str, description: str | None = None) -> str | Non
                 {"role": "system", "content": "Ты помощник для категоризации скриптов продаж."},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=20,
             temperature=0.0,
             timeout=8.0,
         )

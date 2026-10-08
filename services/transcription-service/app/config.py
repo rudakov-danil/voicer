@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     LLM_EXTRA_HEADER_NAME: str = ""
     LLM_EXTRA_HEADER_VALUE: str = ""
     LLM_MODEL_NAME: str = "qwen2.5:14b"
+    # Рассуждения (thinking) выключены — см. app/llm_client.py
+    LLM_DISABLE_THINKING: bool = True
     ADMIN_SERVICE_URL: str = "http://admin-service:8007"
     INTERNAL_SERVICE_KEY: str = ""
     RECORDER_SERVICE_URL: str = "http://recorder-service:8002"

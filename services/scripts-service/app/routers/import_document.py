@@ -110,7 +110,6 @@ async def _structure_with_llm(full_text: str) -> tuple[list[DraftBlock], str, st
                 {"role": "user", "content": f"Текст документа скрипта:\n\n{full_text}"},
             ],
             temperature=0.0,
-            max_tokens=8000,
             response_format={"type": "json_object"},
             timeout=settings.LLM_TIMEOUT,
         )

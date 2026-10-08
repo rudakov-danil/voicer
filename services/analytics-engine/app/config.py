@@ -17,11 +17,9 @@ class Settings(BaseSettings):
     # При любом сбое объединённого вызова код прозрачно откатывается на раздельные вызовы.
     LLM_MERGE_ANALYSIS: bool = True
     LLM_TEMPERATURE: float = 0.0
-    LLM_MAX_TOKENS: int = 2000
-    # Потолок для скоринга полнотекстовых скриптов: ответ = по объекту на блок,
-    # 18+ блоков с цитатами не влезают в 2000 → JSON обрывается. Реальный лимит
-    # масштабируется по числу блоков, но не выше этого значения.
-    LLM_FULLTEXT_MAX_TOKENS: int = 8000
+    # Лимит токенов в запросах к модели не ставим. Рассуждения (thinking) выключены:
+    # они съедают ответ и замедляют анализ. См. app/llm_client.py
+    LLM_DISABLE_THINKING: bool = True
     LLM_SCRIPT_TIMEOUT: int = 120
     LLM_GENERAL_TIMEOUT: int = 60
     LLM_MAX_PARALLEL_SCRIPTS: int = 3

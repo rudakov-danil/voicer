@@ -167,7 +167,6 @@ async def segment_conversations(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
-            max_tokens=16384,
         )
         raw = response.choices[0].message.content
 
@@ -266,11 +265,6 @@ async def _diarize_batch(
         f"Верни строку из {len(batch)} букв (S/C/U) через запятую:"
     )
 
-    # max_tokens: ответ ≈ 1.8 токена на реплику (буква + запятая), плюс крупный запас на
-    # «размышление» reasoning-моделей (qwen3.6 тратит ~700 токенов до видимого ответа).
-    # Без этого запаса ответ обрезается по длине и приходит пустым.
-    max_out = int(len(batch) * 1.8) + 800
-
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -286,7 +280,6 @@ async def _diarize_batch(
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.0,
-                max_tokens=max_out,
                 timeout=600,
             )
             raw = response.choices[0].message.content
@@ -483,8 +476,6 @@ async def identify_speaker_roles(
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.0,
-                # Запас на случай фолбэка (reasoning не отключился у другого провайдера).
-                max_tokens=1024,
                 timeout=120,
             )
             raw = (response.choices[0].message.content or "").strip()
