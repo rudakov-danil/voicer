@@ -101,6 +101,8 @@ case $MODE in
           | diff -u --label "a/$d/$f" --label "b/$d/$f" "$d/$f" - \
           | sed -E 's/(sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_+=]{40,})/[скрыто]/g' || true
       done
+      echo "== Есть только на сервере в $d"
+      rsync "${SYNC[@]}" --delete -n -i "$d/" prod:"$APP_DIR/$d/" | awk '$1 == "*deleting" {print $2}' || true
     done
     ;;
   reanalyze)
