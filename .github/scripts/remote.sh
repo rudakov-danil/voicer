@@ -3,6 +3,7 @@
 #   backup  — pg_dump в ~/deploy-backups, хранятся последние 10
 #   apply   — сборка сервисов, миграции analytics-engine, перезапуск
 #   verify  — новые эндпоинты отвечают через nginx (без изменений на сервере)
+#   reanalyze — повторный анализ записей ($REANALYZE) и ошибки воркера
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -93,6 +94,15 @@ verify)
     $DC logs --tail=60 dashboard-service
     exit 1
   fi
+  ;;
+reanalyze)
+  # REANALYZE: «--latest N» или id записей через пробел; ждём результат до 5 минут
+  need_dc
+  # shellcheck disable=SC2086
+  $DC exec -T analytics-engine python -m worker.reanalyze $REANALYZE --wait 300 || true
+  echo "== analytics-worker за 10 минут: ошибки и вызовы модели"
+  $DC logs --since 10m --no-log-prefix analytics-worker 2>&1 \
+    | grep -iE 'error|exception|traceback|failed|warn|llm|status code|analy[sz]ed' | tail -40 || true
   ;;
 *)
   echo "Неизвестный этап: $1"

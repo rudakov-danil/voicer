@@ -4,6 +4,7 @@
 #   deploy.sh check   — ничего не меняет на сервере
 #   deploy.sh deploy  — бэкап, файлы, сборка, миграции, перезапуск, фронтенд
 #   deploy.sh verify  — только проверка, что выкаченное отвечает
+#   deploy.sh reanalyze — повторный анализ записей ($REANALYZE)
 set -euo pipefail
 
 MODE=${1:?check или deploy}
@@ -14,7 +15,7 @@ cd "$(dirname "$0")/../.."
 
 # Скрипт remote.sh выполняется на сервере с одним аргументом — этапом
 remote() {
-  ssh prod "APP_DIR=$(printf %q "$APP_DIR") SERVICES=$(printf %q "$SERVICES") bash -s -- $1" < .github/scripts/remote.sh
+  ssh prod "APP_DIR=$(printf %q "$APP_DIR") SERVICES=$(printf %q "$SERVICES") REANALYZE=$(printf %q "${REANALYZE:-}") bash -s -- $1" < .github/scripts/remote.sh
 }
 
 # Каталог сборки сервиса из docker-compose.yml (строка «build: ./services/…»)
@@ -86,6 +87,11 @@ case $MODE in
     ;;
   verify)
     remote verify
+    ;;
+  reanalyze)
+    [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
+      || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }
+    remote reanalyze
     ;;
   *)
     echo "::error::Неизвестный режим: $MODE"
