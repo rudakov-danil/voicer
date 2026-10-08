@@ -12,6 +12,7 @@
 #   reupload — копии записей ($REANALYZE) как новые загрузки, исходные не меняются
 #   roles-compare — роли по репликам: сохранённые, по Deepgram и от LLM
 #   deepgram-words — сырой ответ Deepgram по записи: абзацы, utterances, слова (лог удалить после чтения)
+#   deepgram-compare — запись в вариантах nova-3 / whisper / whisper-large (лог удалить после чтения)
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -509,6 +510,72 @@ async def main():
     for w in alt.get("words", []):
         if 15 <= w["start"] <= 30:
             print(f"  {w['start']:6.2f}-{w['end']:6.2f}  {w.get('speaker')}  {w.get('speaker_confidence', 0):.2f}  {w.get('punctuated_word') or w['word']}")
+
+asyncio.run(main())
+PY
+  ;;
+deepgram-compare)
+  # Одна запись в нескольких вариантах Deepgram: nova-3 с автоопределением и whisper с ru.
+  # В логе слова записи — лог запуска удалить после чтения. REANALYZE: id записи или «--latest 1»
+  need_dc
+  $DC exec -T -e REANALYZE="$REANALYZE" recorder-service python - <<'PY' || true
+import asyncio, os, re, time, uuid
+from pathlib import Path
+import httpx
+from sqlalchemy import text
+from app.config import settings
+from app.database import async_session_maker
+from app.minio_client import download_bytes
+from app.routers.mobile import MIME_TYPES
+from app.routers.upload import BUCKET, CONTENT_TYPE_MAP
+
+BASE = {"smart_format": "true", "paragraphs": "true", "utterances": "true"}
+VARIANTS = [
+    ("nova-3, автоопределение", {"model": "nova-3", "detect_language": "true", "diarize_model": "latest"}),
+    ("whisper, ru", {"model": "whisper", "language": "ru", "diarize_model": "latest"}),
+    ("whisper-large, ru", {"model": "whisper-large", "language": "ru", "diarize_model": "latest"}),
+]
+
+async def call(c, audio, ctype, params):
+    return await c.post(settings.DEEPGRAM_API_URL, params=params, content=audio,
+                        headers={"Authorization": f"Token {settings.DEEPGRAM_API_KEY}", "Content-Type": ctype})
+
+async def main():
+    ids = [uuid.UUID(x) for x in re.findall(r"[0-9a-f-]{36}", os.environ.get("REANALYZE", ""))]
+    async with async_session_maker() as db:
+        q = "SELECT id, audio_path FROM recorder.recordings " + ("WHERE id = :id" if ids else "ORDER BY created_at DESC LIMIT 1")
+        r = (await db.execute(text(q), {"id": ids[0]} if ids else {})).first()
+    obj = r.audio_path[len(BUCKET) + 1:]
+    ext = Path(obj).suffix
+    ctype = MIME_TYPES.get(ext) or CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
+    audio = await asyncio.to_thread(download_bytes, BUCKET, obj)
+    print(f"Запись {r.id}, {len(audio)} байт, {ext}")
+    async with httpx.AsyncClient(timeout=600) as c:
+        for name, extra in VARIANTS:
+            params = {**BASE, **extra}
+            t = time.monotonic()
+            resp = await call(c, audio, ctype, params)
+            if resp.status_code == 400 and "diarize" in resp.text:
+                print(f"\n#### {name}: diarize_model не принят ({resp.text[:160]}), пробую diarize=true")
+                params = {**BASE, **{k: v for k, v in extra.items() if k != "diarize_model"}, "diarize": "true"}
+                resp = await call(c, audio, ctype, params)
+            print(f"\n#### {name}: {params}")
+            if resp.status_code != 200:
+                print(f"Ошибка {resp.status_code}: {resp.text[:300]}")
+                continue
+            res = resp.json()["results"]
+            ch = res["channels"][0]
+            alt = ch["alternatives"][0]
+            words = alt.get("words", [])
+            print(f"За {time.monotonic() - t:.1f} с; язык {ch.get('detected_language') or params.get('language')}; "
+                  f"спикеров {len({w.get('speaker') for w in words if w.get('speaker') is not None})}")
+            print("Абзацы:")
+            for p in (alt.get("paragraphs") or {}).get("paragraphs", []):
+                print(f"  {p['start']:6.2f}-{p['end']:6.2f}  спикер {p.get('speaker')}")
+            print("Слова 15–31 с:")
+            for w in words:
+                if 15 <= w["start"] <= 31:
+                    print(f"  {w['start']:6.2f}-{w['end']:6.2f}  {w.get('speaker')}  {w.get('speaker_confidence', 0):.2f}  {w.get('punctuated_word') or w['word']}")
 
 asyncio.run(main())
 PY
