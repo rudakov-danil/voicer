@@ -134,6 +134,24 @@ export function SummaryMarkdown({ text }) {
     flushBullets();
     return _jsx("div", { style: { fontSize: 13.5, color: 'var(--text-secondary)' }, children: out });
 }
+// ─── Резюме по секциям ───────────────────────────────────────────────────────
+/* Резюме приходит Markdown-абзацами с заголовками (промпт analytics-engine, SUMMARY_SYSTEM_PROMPT):
+   «Итог», «Риск претензии», «Что сработало», «Что поправить». Старые резюме другого вида
+   показываем как есть. */
+const SUMMARY_SECTIONS = ['Итог', 'Риск претензии', 'Что сработало', 'Что поправить'];
+const SUMMARY_HEAD = /\*\*\s*(Итог|Риск претензии|Что сработало|Что поправить)\s*:?\s*\*\*\s*:?/gi;
+export function parseSummary(text) {
+    const parts = {};
+    const heads = [...text.matchAll(SUMMARY_HEAD)];
+    heads.forEach((m, i) => {
+        const key = SUMMARY_SECTIONS.find((k) => k.toLowerCase() === m[1].toLowerCase());
+        const body = text.slice((m.index ?? 0) + m[0].length, i + 1 < heads.length ? heads[i + 1].index : undefined).trim();
+        if (key && body)
+            parts[key] = body;
+    });
+    return Object.keys(parts).length >= 2 ? parts : null;
+}
+export const isNoneSection = (s) => !s || /^нет\.?$/i.test(s.trim());
 // ─── История обращений с того же номера клиента ──────────────────────────────
 export function ClientHistory({ conversationId, onSelect }) {
     const [open, setOpen] = useState(false);

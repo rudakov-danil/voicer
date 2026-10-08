@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { DashboardOverview, Conversation, Seller, ConversationView, FingerprintData } from '@/types'
+import type { DashboardOverview, Conversation, Seller, ConversationView, FingerprintData, CoachingItem, SellerDay } from '@/types'
 
 export const dashboardApi = {
   getOverview: async (params: {
@@ -102,6 +102,37 @@ export const dashboardApi = {
       total: number
     }>(`/api/v1/dashboard/conversations/${conversationId}/history`)
     return response.data
+  },
+
+  /** «День продавца»: разговоры продавца за ту же дату, бейдж и запись смены. */
+  getSellerDay: async (conversationId: string) => {
+    const response = await apiClient.get<SellerDay>(`/api/v1/dashboard/conversations/${conversationId}/day`)
+    return response.data
+  },
+
+  /** План разбора с продавцом и комментарии руководителя к разговору. */
+  getCoaching: async (conversationId: string) => {
+    const response = await apiClient.get<{ items: CoachingItem[] }>(`/api/v1/dashboard/conversations/${conversationId}/coaching`)
+    return response.data.items
+  },
+
+  addCoaching: async (conversationId: string, body: { comment?: string; moment_seconds?: number | null } = {}) => {
+    const response = await apiClient.post<CoachingItem>(`/api/v1/dashboard/conversations/${conversationId}/coaching`, body)
+    return response.data
+  },
+
+  setCoachingStatus: async (itemId: string, status: 'open' | 'done') => {
+    const response = await apiClient.patch<CoachingItem>(`/api/v1/dashboard/coaching/${itemId}`, { status })
+    return response.data
+  },
+
+  deleteCoaching: async (itemId: string) => {
+    await apiClient.delete(`/api/v1/dashboard/coaching/${itemId}`)
+  },
+
+  listCoaching: async (params: { seller_id?: string; status?: 'open' | 'done'; limit?: number } = {}) => {
+    const response = await apiClient.get<{ items: CoachingItem[] }>('/api/v1/dashboard/coaching', { params })
+    return response.data.items
   },
 
   getSellers: async (params?: { store_id?: string; period?: number; date_from?: string; date_to?: string }) => {

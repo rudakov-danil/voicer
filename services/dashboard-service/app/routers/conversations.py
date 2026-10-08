@@ -552,6 +552,91 @@ async def get_client_history(
     return {"client_phone": phone, "items": items, "total": len(items)}
 
 
+@router.get("/conversations/{conversation_id}/day")
+async def get_seller_day(
+    conversation_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """«День продавца»: все разговоры продавца за ту же дату, бейдж и запись смены.
+
+    Смену и выгрузку берём из кусков записи бейджа (recorder.audio_chunks). Если
+    кусков нет (запись загрузили вручную), shift и uploaded_at будут пустыми.
+    """
+    org_id, forced_store_id = org_store_conditions(user)
+    base_sql = """
+        SELECT c.id, c.seller_id, c.session_date, r.device_id, r.source, r.created_at AS uploaded_at,
+               s.first_name, s.last_name
+        FROM analytics.conversations c
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
+        LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
+        WHERE c.id = :conv_id AND c.organization_id = :org_id
+    """
+    params: dict = {"conv_id": conversation_id, "org_id": uuid.UUID(org_id)}
+    if forced_store_id:
+        base_sql += " AND c.store_id = :store_id"
+        params["store_id"] = forced_store_id
+    base = (await db.execute(text(base_sql), params)).fetchone()
+    if not base:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    rows = (await db.execute(text("""
+        SELECT c.id, c.outcome, c.overall_score, c.is_scorable, c.topic,
+               COALESCE(r.started_at, c.analyzed_at) AS started_at, r.duration_seconds
+        FROM analytics.conversations c
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
+        WHERE c.organization_id = :org_id AND c.seller_id = :seller_id AND c.session_date = :day
+        ORDER BY 6
+    """), {"org_id": uuid.UUID(org_id), "seller_id": base.seller_id, "day": base.session_date})).fetchall()
+
+    badge = None
+    shift = None
+    uploaded_at = base.uploaded_at if base.source == "badge" else None
+    if base.device_id:
+        dev = (await db.execute(text("""
+            SELECT serial_number, model FROM admin_schema.devices
+            WHERE id = :id AND organization_id = :org_id
+        """), {"id": base.device_id, "org_id": uuid.UUID(org_id)})).fetchone()
+        if dev:
+            badge = {"serial_number": dev.serial_number, "model": dev.model}
+            chunks = (await db.execute(text("""
+                SELECT MIN(timestamp_start) AS start, MAX(timestamp_end) AS end,
+                       MAX(received_at) AS uploaded_at, SUM(duration_ms) AS recorded_ms
+                FROM recorder.audio_chunks
+                WHERE device_id = :device_id AND session_date = :day
+            """), {"device_id": base.device_id, "day": base.session_date})).fetchone()
+            if chunks and chunks.start:
+                shift = {
+                    "start": chunks.start,
+                    "end": chunks.end,
+                    "recorded_seconds": round((chunks.recorded_ms or 0) / 1000),
+                }
+                uploaded_at = chunks.uploaded_at
+
+    return {
+        "date": str(base.session_date),
+        "seller_id": base.seller_id,
+        "seller_name": f"{base.first_name or ''} {base.last_name or ''}".strip() or None,
+        "source": base.source,
+        "badge": badge,
+        "shift": shift,
+        "uploaded_at": uploaded_at,
+        "items": [
+            {
+                "id": r.id,
+                "started_at": r.started_at,
+                "duration_seconds": r.duration_seconds,
+                "outcome": r.outcome,
+                "overall_score": float(r.overall_score) if r.overall_score is not None else None,
+                "is_scorable": r.is_scorable,
+                "topic": r.topic,
+                "is_current": r.id == conversation_id,
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/conversations/{conversation_id}")
 async def get_conversation_detail(
     conversation_id: uuid.UUID,

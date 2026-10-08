@@ -53,6 +53,31 @@ export const dashboardApi = {
         const response = await apiClient.get(`/api/v1/dashboard/conversations/${conversationId}/history`);
         return response.data;
     },
+    /** «День продавца»: разговоры продавца за ту же дату, бейдж и запись смены. */
+    getSellerDay: async (conversationId) => {
+        const response = await apiClient.get(`/api/v1/dashboard/conversations/${conversationId}/day`);
+        return response.data;
+    },
+    /** План разбора с продавцом и комментарии руководителя к разговору. */
+    getCoaching: async (conversationId) => {
+        const response = await apiClient.get(`/api/v1/dashboard/conversations/${conversationId}/coaching`);
+        return response.data.items;
+    },
+    addCoaching: async (conversationId, body = {}) => {
+        const response = await apiClient.post(`/api/v1/dashboard/conversations/${conversationId}/coaching`, body);
+        return response.data;
+    },
+    setCoachingStatus: async (itemId, status) => {
+        const response = await apiClient.patch(`/api/v1/dashboard/coaching/${itemId}`, { status });
+        return response.data;
+    },
+    deleteCoaching: async (itemId) => {
+        await apiClient.delete(`/api/v1/dashboard/coaching/${itemId}`);
+    },
+    listCoaching: async (params = {}) => {
+        const response = await apiClient.get('/api/v1/dashboard/coaching', { params });
+        return response.data.items;
+    },
     getSellers: async (params) => {
         const apiParams = {};
         if (params?.store_id)

@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { Toaster } from '@/components/ui/Toast'
 import { useState } from 'react'
 
 const PAGES_WITH_PERIOD = new Set<string>([
@@ -49,6 +50,7 @@ export function AppLayout() {
           <Outlet context={{ period }} />
         </div>
       </div>
+      <Toaster />
     </>
   )
 }

@@ -384,3 +384,44 @@ export interface FingerprintData {
   talk: number | null
   marks: FingerprintMark[]
 }
+
+/** Пункт плана разбора с продавцом: без comment — «разговор в плане», с comment — заметка руководителя. */
+export interface CoachingItem {
+  id: string
+  conversation_id: string
+  seller_id: string | null
+  comment: string | null
+  moment_seconds: number | null
+  status: 'open' | 'done'
+  created_at: string
+  resolved_at: string | null
+  author_id: string
+  author_name: string | null
+  // В общем списке (GET /coaching) — данные разговора
+  topic?: string | null
+  outcome?: string | null
+  overall_score?: number | null
+  session_date?: string
+  seller_name?: string | null
+}
+
+/** «День продавца» для карточки разговора. */
+export interface SellerDay {
+  date: string
+  seller_id: string | null
+  seller_name: string | null
+  source: string | null
+  badge: { serial_number: string; model: string | null } | null
+  shift: { start: string; end: string; recorded_seconds: number } | null
+  uploaded_at: string | null
+  items: Array<{
+    id: string
+    started_at: string
+    duration_seconds: number | null
+    outcome: string | null
+    overall_score: number | null
+    is_scorable: boolean | null
+    topic: string | null
+    is_current: boolean
+  }>
+}

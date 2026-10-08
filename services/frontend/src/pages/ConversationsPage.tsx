@@ -27,6 +27,7 @@ import { Meter, UpsellDots } from '@/components/ui/Meter'
 import type { ConversationView, FingerprintMark } from '@/types'
 import { t, L, locale } from '@/i18n'
 import { MultiSelect } from '@/components/scripts/MultiSelect'
+import { QuickView } from '@/components/conversation/QuickView'
 import {
   avatarColorFor,
   highlightSegmentText,
@@ -292,6 +293,16 @@ export function ConversationsPage() {
   const navigate = useNavigate()
   const openConversation = useCallback((id: string) => navigate(`/conversations/${id}`), [navigate])
   const [selectedRec, setSelectedRec] = useState<any | null>(null)
+  // Быстрый просмотр: ?open=<id> — на него можно сослаться
+  const quickId = searchParams.get('open')
+  const setQuick = useCallback((id: string | null) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (id) next.set('open', id); else next.delete('open')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+  const closeQuick = useCallback(() => setQuick(null), [setQuick])
 
   // Подборка и фраза живут в адресе: на них ссылаются «Обзор» и оповещения
   const view = (searchParams.get('view') || '') as '' | ConversationView
@@ -685,7 +696,18 @@ export function ConversationsPage() {
                 return (
                   <Fragment key={row.id}>
                   <tr
-                    onClick={() => openConversation(row.id)}
+                    tabIndex={0}
+                    className={quickId === row.id ? 'is-selected' : undefined}
+                    aria-label={L(`${row.topic || 'Разговор'}, ${row.seller_name || ''}. Открыть быстрый просмотр`, `${row.topic || 'Conversation'}, ${row.seller_name || ''}. Open quick view`)}
+                    onClick={(e) => {
+                      // Ctrl/⌘-клик — сразу полная карточка, обычный — быстрый просмотр
+                      if (e.metaKey || e.ctrlKey) { window.open(`/conversations/${row.id}`, '_blank'); return }
+                      setQuick(row.id)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setQuick(row.id) }
+                    }}
                   >
                     <td className="c-when">
                       <span style={{ display:'inline-flex', alignItems:'flex-start', gap:6 }}
@@ -792,6 +814,14 @@ export function ConversationsPage() {
           </nav>
         </div>
       </div>
+
+      <QuickView
+        id={quickId}
+        row={(conversations?.items || []).find((c: any) => c.id === quickId)}
+        fingerprint={quickId ? fingerprints?.[quickId] : null}
+        markTitle={markTitle}
+        onClose={closeQuick}
+      />
 
       {/* Запись ещё обрабатывается — короткая карточка статуса */}
       <Drawer isOpen={!!selectedRec} onClose={() => setSelectedRec(null)} title={drawerTitle}>

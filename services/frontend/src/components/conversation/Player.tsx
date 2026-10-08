@@ -28,7 +28,6 @@ interface PlayerProps {
 }
 
 const SPEEDS = [1, 1.5, 2]
-const LABEL_W = 96
 // Длинные записи не декодируем целиком — это дорого по памяти; рисуем реплики полосами
 const MAX_WAVE_SEC = 20 * 60
 
@@ -75,9 +74,10 @@ function useAudioPeaks(src: string | undefined, duration: number, buckets = 1200
   return peaks
 }
 
-function rulerStep(duration: number): number {
+/** Шаг линейки: не больше 9 отметок и не теснее 56 px между подписями. */
+function rulerStep(duration: number, width: number): number {
   const steps = [10, 15, 30, 60, 120, 300, 600, 900, 1800]
-  return steps.find((s) => duration / s <= 9) ?? 3600
+  return steps.find((s) => duration / s <= 9 && (width <= 0 || (width * s) / duration >= 56)) ?? 3600
 }
 
 export const ConversationPlayer = forwardRef<PlayerHandle, PlayerProps>(function ConversationPlayer(
@@ -177,7 +177,7 @@ export const ConversationPlayer = forwardRef<PlayerHandle, PlayerProps>(function
     return out
   }, [w, dur, segments, peaks])
 
-  const step = rulerStep(dur)
+  const step = rulerStep(dur, w)
   const ticks: number[] = []
   for (let s = 0; s <= dur; s += step) ticks.push(s)
 
@@ -236,7 +236,6 @@ export const ConversationPlayer = forwardRef<PlayerHandle, PlayerProps>(function
 
       <div
         className="cv-tracks"
-        style={{ ['--label-w' as any]: `${LABEL_W}px` }}
         onClick={(e) => { const px = areaX(e); if (px != null) seek((px / Math.max(1, w)) * dur) }}
         onMouseMove={(e) => setHoverX(areaX(e))}
         onMouseLeave={() => setHoverX(null)}

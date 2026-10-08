@@ -2,6 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { Toaster } from '@/components/ui/Toast';
 import { useState } from 'react';
 const PAGES_WITH_PERIOD = new Set([
     '/dashboard',
@@ -29,5 +30,5 @@ export function AppLayout() {
     const showPeriod = PAGES_WITH_PERIOD.has(location.pathname);
     // У страницы разговора своя шапка: крошки, тема, вердикт
     const ownHeader = location.pathname.startsWith('/conversations/');
-    return (_jsxs(_Fragment, { children: [_jsx(Sidebar, {}), _jsxs("div", { className: "main", children: [!ownHeader && (_jsx(Topbar, { title: currentTitle, onPeriodChange: setPeriod, period: period, showPeriod: showPeriod })), _jsx("div", { className: "content", children: _jsx(Outlet, { context: { period } }) })] })] }));
+    return (_jsxs(_Fragment, { children: [_jsx(Sidebar, {}), _jsxs("div", { className: "main", children: [!ownHeader && (_jsx(Topbar, { title: currentTitle, onPeriodChange: setPeriod, period: period, showPeriod: showPeriod })), _jsx("div", { className: "content", children: _jsx(Outlet, { context: { period } }) })] }), _jsx(Toaster, {})] }));
 }

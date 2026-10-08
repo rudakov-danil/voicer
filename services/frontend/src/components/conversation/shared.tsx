@@ -213,6 +213,29 @@ export function SummaryMarkdown({ text }: { text: string }) {
   return <div style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>{out}</div>
 }
 
+// ─── Резюме по секциям ───────────────────────────────────────────────────────
+/* Резюме приходит Markdown-абзацами с заголовками (промпт analytics-engine, SUMMARY_SYSTEM_PROMPT):
+   «Итог», «Риск претензии», «Что сработало», «Что поправить». Старые резюме другого вида
+   показываем как есть. */
+const SUMMARY_SECTIONS = ['Итог', 'Риск претензии', 'Что сработало', 'Что поправить'] as const
+type SummarySection = (typeof SUMMARY_SECTIONS)[number]
+const SUMMARY_HEAD = /\*\*\s*(Итог|Риск претензии|Что сработало|Что поправить)\s*:?\s*\*\*\s*:?/gi
+
+export type SummaryParts = Partial<Record<SummarySection, string>>
+
+export function parseSummary(text: string): SummaryParts | null {
+  const parts: SummaryParts = {}
+  const heads = [...text.matchAll(SUMMARY_HEAD)]
+  heads.forEach((m, i) => {
+    const key = SUMMARY_SECTIONS.find((k) => k.toLowerCase() === m[1].toLowerCase())
+    const body = text.slice((m.index ?? 0) + m[0].length, i + 1 < heads.length ? heads[i + 1].index : undefined).trim()
+    if (key && body) parts[key] = body
+  })
+  return Object.keys(parts).length >= 2 ? parts : null
+}
+
+export const isNoneSection = (s?: string) => !s || /^нет\.?$/i.test(s.trim())
+
 // ─── История обращений с того же номера клиента ──────────────────────────────
 export function ClientHistory({ conversationId, onSelect }: {
   conversationId: string

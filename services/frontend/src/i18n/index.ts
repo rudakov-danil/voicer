@@ -43,6 +43,16 @@ export function L(ru: string, en: string): string {
   return isEn ? en : ru
 }
 
+/** Форма слова при числе: plural(5, ['разговор', 'разговора', 'разговоров'], ['conversation', 'conversations']). */
+export function plural(n: number, ru: [string, string, string], en: [string, string]): string {
+  const abs = Math.abs(n)
+  if (isEn) return abs === 1 ? en[0] : en[1]
+  const m10 = abs % 10, m100 = abs % 100
+  if (m10 === 1 && m100 !== 11) return ru[0]
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return ru[1]
+  return ru[2]
+}
+
 /** Смена языка: сохраняем выбор и перезагружаем страницу без ?lang. */
 export function setLang(next: Lang) {
   try { localStorage.setItem(STORAGE_KEY, next) } catch { /* без сохранения */ }

@@ -4,7 +4,6 @@ import { Pause, Play, RotateCcw, RotateCw } from 'lucide-react';
 import { clock } from '@/components/ui/Fingerprint';
 import { L, t } from '@/i18n';
 const SPEEDS = [1, 1.5, 2];
-const LABEL_W = 96;
 // Длинные записи не декодируем целиком — это дорого по памяти; рисуем реплики полосами
 const MAX_WAVE_SEC = 20 * 60;
 /** Пики громкости по корзинам (0..1) из аудио — для волны на дорожках. */
@@ -54,9 +53,10 @@ function useAudioPeaks(src, duration, buckets = 1200) {
     }, [src, duration, buckets]);
     return peaks;
 }
-function rulerStep(duration) {
+/** Шаг линейки: не больше 9 отметок и не теснее 56 px между подписями. */
+function rulerStep(duration, width) {
     const steps = [10, 15, 30, 60, 120, 300, 600, 900, 1800];
-    return steps.find((s) => duration / s <= 9) ?? 3600;
+    return steps.find((s) => duration / s <= 9 && (width <= 0 || (width * s) / duration >= 56)) ?? 3600;
 }
 export const ConversationPlayer = forwardRef(function ConversationPlayer({ src, duration, segments, stages, events, sourceLabel, audioNote, onTime }, ref) {
     const audioRef = useRef(null);
@@ -161,7 +161,7 @@ export const ConversationPlayer = forwardRef(function ConversationPlayer({ src, 
         }
         return out;
     }, [w, dur, segments, peaks]);
-    const step = rulerStep(dur);
+    const step = rulerStep(dur, w);
     const ticks = [];
     for (let s = 0; s <= dur; s += step)
         ticks.push(s);
@@ -180,7 +180,7 @@ export const ConversationPlayer = forwardRef(function ConversationPlayer({ src, 
         const px = e.clientX - r.left;
         return px >= 0 && px <= r.width ? px : null;
     };
-    return (_jsxs("section", { className: "console cv-player", "aria-label": t('Плеер'), children: [_jsx("audio", { ref: audioRef, src: src, preload: "metadata", onTimeUpdate: onTimeUpdate, onPlay: () => setPlaying(true), onPause: () => setPlaying(false), onEnded: () => setPlaying(false) }), _jsxs("div", { className: "cv-transport", children: [_jsx("button", { type: "button", className: "cv-play", onClick: toggle, disabled: !src, "aria-label": playing ? t('Пауза') : t('Слушать'), children: playing ? _jsx(Pause, { "aria-hidden": "true" }) : _jsx(Play, { "aria-hidden": "true" }) }), _jsx("button", { type: "button", className: "btn-icon", onClick: () => seek(time - 10), "aria-label": t('Назад на 10 секунд'), title: t('Назад на 10 секунд'), children: _jsx(RotateCcw, { size: 16, "aria-hidden": "true" }) }), _jsx("button", { type: "button", className: "btn-icon", onClick: () => seek(time + 10), "aria-label": t('Вперёд на 10 секунд'), title: t('Вперёд на 10 секунд'), children: _jsx(RotateCw, { size: 16, "aria-hidden": "true" }) }), _jsxs("div", { className: "cv-clock", "aria-live": "off", children: [clock(time), " ", _jsxs("span", { children: ["/ ", clock(dur)] })] }), _jsx("div", { className: "seg", role: "group", "aria-label": t('Скорость'), children: SPEEDS.map((s) => (_jsx("button", { type: "button", "aria-pressed": speed === s, onClick: () => setSpeed(s), children: L(`${String(s).replace('.', ',')}×`, `${s}×`) }, s))) }), _jsxs("button", { type: "button", role: "switch", "aria-checked": skipPauses, className: "cv-switch", onClick: () => setSkipPauses((v) => !v), children: [_jsx("span", { className: "cv-switch-track", "aria-hidden": "true" }), t('Пропускать паузы')] }), _jsxs("div", { className: "cv-transport-right", children: [audioNote && _jsx("span", { children: audioNote }), sourceLabel && _jsx("span", { className: "cv-src", children: sourceLabel })] })] }), _jsxs("div", { className: "cv-tracks", style: { ['--label-w']: `${LABEL_W}px` }, onClick: (e) => { const px = areaX(e); if (px != null)
+    return (_jsxs("section", { className: "console cv-player", "aria-label": t('Плеер'), children: [_jsx("audio", { ref: audioRef, src: src, preload: "metadata", onTimeUpdate: onTimeUpdate, onPlay: () => setPlaying(true), onPause: () => setPlaying(false), onEnded: () => setPlaying(false) }), _jsxs("div", { className: "cv-transport", children: [_jsx("button", { type: "button", className: "cv-play", onClick: toggle, disabled: !src, "aria-label": playing ? t('Пауза') : t('Слушать'), children: playing ? _jsx(Pause, { "aria-hidden": "true" }) : _jsx(Play, { "aria-hidden": "true" }) }), _jsx("button", { type: "button", className: "btn-icon", onClick: () => seek(time - 10), "aria-label": t('Назад на 10 секунд'), title: t('Назад на 10 секунд'), children: _jsx(RotateCcw, { size: 16, "aria-hidden": "true" }) }), _jsx("button", { type: "button", className: "btn-icon", onClick: () => seek(time + 10), "aria-label": t('Вперёд на 10 секунд'), title: t('Вперёд на 10 секунд'), children: _jsx(RotateCw, { size: 16, "aria-hidden": "true" }) }), _jsxs("div", { className: "cv-clock", "aria-live": "off", children: [clock(time), " ", _jsxs("span", { children: ["/ ", clock(dur)] })] }), _jsx("div", { className: "seg", role: "group", "aria-label": t('Скорость'), children: SPEEDS.map((s) => (_jsx("button", { type: "button", "aria-pressed": speed === s, onClick: () => setSpeed(s), children: L(`${String(s).replace('.', ',')}×`, `${s}×`) }, s))) }), _jsxs("button", { type: "button", role: "switch", "aria-checked": skipPauses, className: "cv-switch", onClick: () => setSkipPauses((v) => !v), children: [_jsx("span", { className: "cv-switch-track", "aria-hidden": "true" }), t('Пропускать паузы')] }), _jsxs("div", { className: "cv-transport-right", children: [audioNote && _jsx("span", { children: audioNote }), sourceLabel && _jsx("span", { className: "cv-src", children: sourceLabel })] })] }), _jsxs("div", { className: "cv-tracks", onClick: (e) => { const px = areaX(e); if (px != null)
                     seek((px / Math.max(1, w)) * dur); }, onMouseMove: (e) => setHoverX(areaX(e)), onMouseLeave: () => setHoverX(null), children: [_jsx("div", { className: "cv-track-label", children: t('Этапы') }), _jsx("div", { className: "cv-lane cv-lane-steps", children: _jsx("svg", { "aria-hidden": stages.length ? undefined : true, children: stages.map((st) => {
                                 const x0 = x(st.start);
                                 const sw = Math.max(18, x(st.end) - x0 - 3);

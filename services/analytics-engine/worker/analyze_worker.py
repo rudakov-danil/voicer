@@ -911,11 +911,34 @@ async def process_analyze_message(
             longest_monologue_seconds=dynamics["longest_monologue_seconds"],
             silence_ratio=dynamics["silence_ratio"],
         )
+        # План разбора с продавцом привязан к разговору. Повторный анализ создаёт разговор
+        # заново, поэтому пункты разбора запоминаем и переносим на новый результат.
+        kept_coaching = (await db.execute(text("""
+            SELECT ci.organization_id, ci.author_id, ci.comment, ci.moment_seconds,
+                   ci.status, ci.created_at, ci.resolved_at
+            FROM analytics.coaching_items ci
+            JOIN analytics.conversations c ON c.id = ci.conversation_id
+            WHERE c.recording_id = :rec_id
+        """), {"rec_id": uuid.UUID(recording_id)})).fetchall()
+
         # Идемпотентность: при повторном анализе сносим прежний результат по этой записи.
         # FK с ondelete=CASCADE убирают дочерние script_results / scores / objections / violations.
         await db.execute(delete(Conversation).where(Conversation.recording_id == uuid.UUID(recording_id)))
         db.add(conv)
         await db.flush()
+
+        for ci in kept_coaching:
+            await db.execute(text("""
+                INSERT INTO analytics.coaching_items
+                    (organization_id, conversation_id, seller_id, author_id, comment,
+                     moment_seconds, status, created_at, resolved_at)
+                VALUES (:org_id, :conv_id, :seller_id, :author_id, :comment,
+                        :moment_seconds, :status, :created_at, :resolved_at)
+            """), {
+                "org_id": ci.organization_id, "conv_id": conv.id, "seller_id": conv.seller_id,
+                "author_id": ci.author_id, "comment": ci.comment, "moment_seconds": ci.moment_seconds,
+                "status": ci.status, "created_at": ci.created_at, "resolved_at": ci.resolved_at,
+            })
 
         # Applied script results — сохраняем ТОЛЬКО для оцениваемых звонков. Для
         # нецелевых/сервисных (is_scorable=false) скоринг скрипта не имеет смысла и не
