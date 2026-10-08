@@ -81,6 +81,11 @@ VIEW_CONDITIONS: dict[str, str] = {
         OR (c.overall_score IS NOT NULL AND c.overall_score < :threshold)
     )""",
     "violations": "EXISTS(SELECT 1 FROM analytics.conversation_compliance_violations v WHERE v.conversation_id = c.id)",
+    # Требуют внимания из-за балла, без нарушений — вторая половина очереди на разбор
+    "low_score": """(
+        c.overall_score IS NOT NULL AND c.overall_score < :threshold
+        AND NOT EXISTS(SELECT 1 FROM analytics.conversation_compliance_violations v WHERE v.conversation_id = c.id)
+    )""",
     "price_open": """EXISTS(
         SELECT 1 FROM analytics.objections o
         WHERE o.conversation_id = c.id AND o.type = 'price' AND o.is_resolved IS NOT TRUE
@@ -120,9 +125,10 @@ async def list_conversations(
     source: str | None = None,          # badge | manual | transcript | call_manual | call_webhook | calls (любые звонки)
     client_phone: str | None = None,    # поиск по номеру клиента (подстрока)
     group_by_phone: bool = False,       # группировать звонки одного клиента: одна строка на номер (последний звонок), группа поднимается по свежему звонку
-    view: str | None = None,            # подборка: attention | violations | price_open | competitor | no_upsell
+    view: str | None = None,            # подборка: attention | violations | low_score | price_open | competitor | no_upsell
     q: str | None = None,               # фраза из разговора (поиск по репликам транскрипта)
     with_counts: bool = False,          # вернуть размеры подборок (для вкладок)
+    order: str = "recent",              # recent — сначала новые; risk — очередь на разбор: нарушения, потом низкий балл
     limit: int = Query(default=20),
     offset: int = Query(default=0),
     user: dict = Depends(get_current_user),
@@ -265,11 +271,29 @@ async def list_conversations(
                 LIMIT 1
             ) AS top_violation_severity,
             (
+                SELECT ccv.evidence FROM analytics.conversation_compliance_violations ccv
+                WHERE ccv.conversation_id = c.id
+                ORDER BY (ccv.severity = 'high') DESC, ccv.sort_order
+                LIMIT 1
+            ) AS top_violation_evidence,
+            (
                 SELECT o.type FROM analytics.objections o
                 WHERE o.conversation_id = c.id AND o.is_resolved IS NOT TRUE
                 ORDER BY o.sort_order
                 LIMIT 1
-            ) AS open_objection
+            ) AS open_objection,
+            (
+                SELECT o.raw_text FROM analytics.objections o
+                WHERE o.conversation_id = c.id AND o.is_resolved IS NOT TRUE
+                ORDER BY o.sort_order
+                LIMIT 1
+            ) AS open_objection_text,
+            (
+                SELECT cs.step_name FROM analytics.conversation_scores cs
+                WHERE cs.conversation_id = c.id
+                ORDER BY cs.score, cs.step_weight DESC
+                LIMIT 1
+            ) AS weakest_step
     """
     base_from = f"""
         FROM analytics.conversations c
@@ -311,10 +335,22 @@ async def list_conversations(
             LEFT JOIN recorder.recordings r ON r.id = c.recording_id
             WHERE {where}
         """)
+        order_sql = "c.session_date DESC, c.analyzed_at DESC"
+        if order == "risk":
+            # Сначала риски для сети (серьёзные нарушения), потом остальные нарушения,
+            # потом низкий балл — от худшего; внутри — свежие выше
+            order_sql = """
+                EXISTS(SELECT 1 FROM analytics.conversation_compliance_violations v
+                       WHERE v.conversation_id = c.id AND v.severity = 'high') DESC,
+                EXISTS(SELECT 1 FROM analytics.conversation_compliance_violations v
+                       WHERE v.conversation_id = c.id) DESC,
+                c.overall_score ASC NULLS LAST,
+                c.session_date DESC, c.analyzed_at DESC
+            """
         list_sql = text(f"""
             SELECT {select_cols}
             {base_from}
-            ORDER BY c.session_date DESC, c.analyzed_at DESC
+            ORDER BY {order_sql}
             LIMIT :limit OFFSET :offset
         """)
 
@@ -369,7 +405,10 @@ async def list_conversations(
             "upsell": list(u) if (u := fp.upsell_score(r.upsell_results, r.crosssell_results)) else None,
             "top_violation": r.top_violation,
             "top_violation_severity": r.top_violation_severity,
+            "top_violation_evidence": r.top_violation_evidence,
             "open_objection": r.open_objection,
+            "open_objection_text": r.open_objection_text,
+            "weakest_step": r.weakest_step,
             "hit": hits.get(r.id),
             "analyzed_at": r.analyzed_at,
             # Сколько всего звонков в группе этого клиента (1 = без группы). Только при group_by_phone.
@@ -550,6 +589,59 @@ async def get_client_history(
         for r in rows
     ]
     return {"client_phone": phone, "items": items, "total": len(items)}
+
+
+@router.get("/conversations/{conversation_id}/day")
+async def get_seller_day(
+    conversation_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """«День продавца»: все разговоры продавца за ту же дату."""
+    org_id, forced_store_id = org_store_conditions(user)
+    base_sql = """
+        SELECT c.id, c.seller_id, c.session_date, r.source, s.first_name, s.last_name
+        FROM analytics.conversations c
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
+        LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
+        WHERE c.id = :conv_id AND c.organization_id = :org_id
+    """
+    params: dict = {"conv_id": conversation_id, "org_id": uuid.UUID(org_id)}
+    if forced_store_id:
+        base_sql += " AND c.store_id = :store_id"
+        params["store_id"] = forced_store_id
+    base = (await db.execute(text(base_sql), params)).fetchone()
+    if not base:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    rows = (await db.execute(text("""
+        SELECT c.id, c.outcome, c.overall_score, c.is_scorable, c.topic,
+               COALESCE(r.started_at, c.analyzed_at) AS started_at, r.duration_seconds
+        FROM analytics.conversations c
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
+        WHERE c.organization_id = :org_id AND c.seller_id = :seller_id AND c.session_date = :day
+        ORDER BY 6
+    """), {"org_id": uuid.UUID(org_id), "seller_id": base.seller_id, "day": base.session_date})).fetchall()
+
+    return {
+        "date": str(base.session_date),
+        "seller_id": base.seller_id,
+        "seller_name": f"{base.first_name or ''} {base.last_name or ''}".strip() or None,
+        "source": base.source,
+        "items": [
+            {
+                "id": r.id,
+                "started_at": r.started_at,
+                "duration_seconds": r.duration_seconds,
+                "outcome": r.outcome,
+                "overall_score": float(r.overall_score) if r.overall_score is not None else None,
+                "is_scorable": r.is_scorable,
+                "topic": r.topic,
+                "is_current": r.id == conversation_id,
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.get("/conversations/{conversation_id}")

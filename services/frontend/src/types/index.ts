@@ -28,6 +28,10 @@ export interface Seller {
   weakest_step?: string
   score_trend?: 'up' | 'down' | 'stable'
   trend?: number
+  /** Оценённые разговоры, покупки среди них и разговоры с нарушениями за период */
+  scorable?: number
+  purchases?: number
+  with_violations?: number
 }
 
 export interface Conversation {
@@ -91,6 +95,12 @@ export interface DashboardOverview {
   score_by_store?: { store_name: string; avg_score: number }[]
   outcomes?: { outcome: string; count: number }[]
   alerts?: { severity: 'danger' | 'warning' | 'info'; message: string }[]
+  purchases?: number
+  /** Допродажа: разговоров, где сработало правило, и где продавец что-то предложил */
+  sell_need?: number
+  sell_done?: number
+  objections_total?: number
+  objections_resolved?: number
 }
 
 export interface ScriptTemplate {
@@ -367,7 +377,7 @@ export interface SellerDetail {
 }
 
 /** Подборки списка разговоров (вкладки над таблицей). */
-export type ConversationView = 'attention' | 'violations' | 'price_open' | 'competitor' | 'no_upsell'
+export type ConversationView = 'attention' | 'violations' | 'low_score' | 'price_open' | 'competitor' | 'no_upsell'
 
 /** Метка на «отпечатке»: crit / crit-mid — нарушение, warn / warn-ok — возражение
  *  (не отработано / отработано), ok — предложение допродажи. t — позиция 0..1. */
@@ -383,4 +393,164 @@ export interface FingerprintData {
   segs: Array<[number, number, 's' | 'c' | 'u']>
   talk: number | null
   marks: FingerprintMark[]
+}
+
+/** Пункт плана разбора с продавцом: без comment — «разговор в плане», с comment — заметка руководителя. */
+export interface CoachingItem {
+  id: string
+  conversation_id: string
+  seller_id: string | null
+  comment: string | null
+  moment_seconds: number | null
+  status: 'open' | 'done'
+  created_at: string
+  resolved_at: string | null
+  author_id: string
+  author_name: string | null
+  // В общем списке (GET /coaching) — данные разговора
+  topic?: string | null
+  outcome?: string | null
+  overall_score?: number | null
+  session_date?: string
+  seller_name?: string | null
+}
+
+/** «День продавца» для карточки разговора. */
+export interface SellerDay {
+  date: string
+  seller_id: string | null
+  seller_name: string | null
+  source: string | null
+  items: Array<{
+    id: string
+    started_at: string
+    duration_seconds: number | null
+    outcome: string | null
+    overall_score: number | null
+    is_scorable: boolean | null
+    topic: string | null
+    is_current: boolean
+  }>
+}
+
+/** Пульс недели: разговоры по дням и получасам (bin = номер получаса от полуночи). */
+export interface PulseData {
+  date_from: string
+  date_to: string
+  timezone: string
+  days: Array<{ date: string; total: number; flagged: number; bins: Array<[number, number, number]> }>
+  totals: {
+    conversations: number
+    attention: number
+    violations: number
+    low_score: number
+    talk_seconds: number
+  }
+}
+
+/** Недельные ряды (12 недель, неделя с понедельника). null — нет данных за неделю. */
+export interface TrendsData {
+  weeks: string[]
+  network: Record<'total' | 'scorable' | 'purchases' | 'sell_need' | 'sell_done' | 'objections' | 'objections_resolved', number[]> & {
+    avg_score: Array<number | null>
+  }
+  stores: Array<{
+    store_id: string
+    store_name: string | null
+    total: number[]
+    scorable: number[]
+    purchases: number[]
+    avg_score: Array<number | null>
+  }>
+  sellers: Array<{
+    seller_id: string
+    seller_name: string | null
+    store_name: string | null
+    total: number[]
+    avg_score: Array<number | null>
+  }>
+}
+
+export interface ViolationsByRule {
+  conversations: number
+  items: Array<{
+    rule_id: string
+    rule_title: string
+    severity: 'high' | 'medium' | 'low'
+    count: number
+    prev: number
+    sellers_count: number
+    sellers: string[]
+  }>
+}
+
+export interface StepLosses {
+  script: { id: string; name: string } | null
+  conversations: number
+  steps: Array<{
+    name: string
+    order: number | null
+    required: boolean
+    weight: number | null
+    total: number
+    weak: number
+    weak_share: number
+    avg_score: number | null
+    hint: string | null
+  }>
+}
+
+/** Продавец против сети по этапам основного скрипта. */
+export interface SellerBenchmark {
+  seller_since: string
+  script: { id: string; name: string } | null
+  steps: Array<{
+    name: string
+    order: number | null
+    hint: string | null
+    seller: number
+    samples: number
+    median: number | null
+    best: { seller_id: string; name: string | null; score: number }
+    example?: { conversation_id: string; seller_name: string | null; score: number; evidence: string; t: number | null }
+  }>
+  zones?: string[]
+}
+
+/** Разбор этапного скрипта: этапы с медианой и лучшим примером, продавцы × этапы. */
+export interface ScriptBreakdownData {
+  script: { id: string; name: string }
+  steps: Array<{
+    name: string
+    order: number | null
+    weight: number | null
+    required: boolean
+    hint: string | null
+    median: number | null
+    example: { conversation_id: string; seller_name: string | null; score: number; evidence: string; t: number | null } | null
+  }>
+  sellers: Array<{
+    seller_id: string
+    seller_name: string | null
+    store_name: string | null
+    conversations: number
+    script_score: number | null
+    steps: Record<string, number>
+  }>
+}
+
+/** «Аналитика»: что влияет на покупку, воронка по этапам, нагрузка по часам, ответы на «дорого», доля речи. */
+export interface InsightsData {
+  period: number
+  timezone: string
+  drivers: Array<{ key: string; label: string; with: number; without: number; diff: number; share: number; n: number }>
+  funnel: {
+    total: number
+    steps: Array<{ step: string; count: number; lost: number; hint: string | null }>
+    purchases: number
+    purchases_after_all_steps: number
+  } | null
+  hourly: Array<{ dow: number; hour: number; count: number; per_week: number; conversion: number | null }>
+  price_answers: Array<{ label: string; times: number; conversations: number; conversion: number | null }>
+  talk: Array<{ seller_id: string; name: string | null; talk_share: number; conversations: number; conversion: number | null }>
 }

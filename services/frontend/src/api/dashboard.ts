@@ -1,15 +1,30 @@
 import apiClient from './client'
-import type { DashboardOverview, Conversation, Seller, ConversationView, FingerprintData } from '@/types'
+import type {
+  DashboardOverview, Conversation, Seller, ConversationView, FingerprintData, CoachingItem, SellerDay,
+  PulseData, TrendsData, ViolationsByRule, StepLosses, SellerBenchmark, ScriptBreakdownData, InsightsData,
+} from '@/types'
+
+/** Период «последние N дней» → date_from / date_to для API. */
+export function periodRange(days: number) {
+  const to = new Date()
+  const from = new Date()
+  from.setDate(from.getDate() - days)
+  const iso = (d: Date) => d.toISOString().split('T')[0]
+  return { date_from: iso(from), date_to: iso(to) }
+}
 
 export const dashboardApi = {
   getOverview: async (params: {
     period?: number
     store_id?: string
+    /** Сдвиг назад на столько же дней — предыдущий период для сравнения */
+    previous?: boolean
   }) => {
     // Backend expects date_from/date_to, not period
     const days = params.period || 30
     const dateTo = new Date()
-    const dateFrom = new Date()
+    if (params.previous) dateTo.setDate(dateTo.getDate() - days - 1)
+    const dateFrom = new Date(dateTo)
     dateFrom.setDate(dateFrom.getDate() - days)
     const apiParams: Record<string, string> = {
       date_from: dateFrom.toISOString().split('T')[0],
@@ -38,6 +53,7 @@ export const dashboardApi = {
     view?: ConversationView
     q?: string
     with_counts?: boolean
+    order?: 'recent' | 'risk'
   }) => {
     const apiParams: Record<string, any> = { ...params }
     if (params.period && !params.date_from && !params.date_to) {
@@ -104,6 +120,63 @@ export const dashboardApi = {
     return response.data
   },
 
+  /** «День продавца»: разговоры продавца за ту же дату, бейдж и запись смены. */
+  getSellerDay: async (conversationId: string) => {
+    const response = await apiClient.get<SellerDay>(`/api/v1/dashboard/conversations/${conversationId}/day`)
+    return response.data
+  },
+
+  /** План разбора с продавцом и комментарии руководителя к разговору. */
+  getCoaching: async (conversationId: string) => {
+    const response = await apiClient.get<{ items: CoachingItem[] }>(`/api/v1/dashboard/conversations/${conversationId}/coaching`)
+    return response.data.items
+  },
+
+  addCoaching: async (conversationId: string, body: { comment?: string; moment_seconds?: number | null } = {}) => {
+    const response = await apiClient.post<CoachingItem>(`/api/v1/dashboard/conversations/${conversationId}/coaching`, body)
+    return response.data
+  },
+
+  setCoachingStatus: async (itemId: string, status: 'open' | 'done') => {
+    const response = await apiClient.patch<CoachingItem>(`/api/v1/dashboard/coaching/${itemId}`, { status })
+    return response.data
+  },
+
+  deleteCoaching: async (itemId: string) => {
+    await apiClient.delete(`/api/v1/dashboard/coaching/${itemId}`)
+  },
+
+  listCoaching: async (params: { seller_id?: string; status?: 'open' | 'done'; limit?: number } = {}) => {
+    const response = await apiClient.get<{ items: CoachingItem[] }>('/api/v1/dashboard/coaching', { params })
+    return response.data.items
+  },
+
+  /** Пульс недели для «Обзора»: последние `days` дней по получасам. */
+  getPulse: async (params: { store_id?: string; days?: number } = {}) => {
+    const response = await apiClient.get<PulseData>('/api/v1/dashboard/overview/pulse', { params })
+    return response.data
+  },
+
+  /** Недельные ряды за 12 недель: сеть, магазины, продавцы. */
+  getTrends: async (params: { store_id?: string; weeks?: number } = {}) => {
+    const response = await apiClient.get<TrendsData>('/api/v1/dashboard/overview/trends', { params })
+    return response.data
+  },
+
+  getViolationsByRule: async (params: { period: number; store_id?: string }) => {
+    const response = await apiClient.get<ViolationsByRule>('/api/v1/dashboard/overview/violations', {
+      params: { ...periodRange(params.period), store_id: params.store_id },
+    })
+    return response.data
+  },
+
+  getStepLosses: async (params: { period: number; store_id?: string }) => {
+    const response = await apiClient.get<StepLosses>('/api/v1/dashboard/overview/step-losses', {
+      params: { ...periodRange(params.period), store_id: params.store_id },
+    })
+    return response.data
+  },
+
   getSellers: async (params?: { store_id?: string; period?: number; date_from?: string; date_to?: string }) => {
     const apiParams: Record<string, string> = {}
     if (params?.store_id) apiParams.store_id = params.store_id
@@ -128,8 +201,29 @@ export const dashboardApi = {
       conversion_rate: s.conversion_rate,
       conversations_count: s.total_conversations,
       weakest_step: s.weakest_step,
-      score_trend: s.score_trend
+      score_trend: s.score_trend,
+      scorable: s.scorable,
+      purchases: s.purchases,
+      with_violations: s.with_violations,
     })) as Seller[]
+  },
+
+  /** Продавец против сети: этапы, медиана, лучший в сети и пример. */
+  getSellerBenchmark: async (sellerId: string, period: number) => {
+    const response = await apiClient.get<SellerBenchmark>(`/api/v1/dashboard/sellers/${sellerId}/benchmark`, { params: periodRange(period) })
+    return response.data
+  },
+
+  /** Разбор скрипта: тепловая карта продавец × этап и лучшие примеры. */
+  getScriptBreakdown: async (templateId: string, days: number) => {
+    const response = await apiClient.get<ScriptBreakdownData>(`/api/v1/dashboard/scripts/${templateId}/breakdown`, { params: periodRange(days) })
+    return response.data
+  },
+
+  /** Данные экрана «Аналитика» по концепту. */
+  getInsights: async (period: number, store_id?: string) => {
+    const response = await apiClient.get<InsightsData>('/api/v1/dashboard/insights', { params: { period, store_id } })
+    return response.data
   },
 
   getSellerDetail: async (sellerId: string, params?: { period?: number; date_from?: string; date_to?: string }) => {

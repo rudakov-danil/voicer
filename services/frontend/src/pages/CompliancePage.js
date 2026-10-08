@@ -1,8 +1,10 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useMemo, useState } from 'react';
+import { ComplianceKpis, ViolationJournal, RulesOverview, useComplianceSummary } from '@/components/compliance/Journal';
+import { t } from '@/i18n';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useOutletContext } from 'react-router-dom';
-import { Shield, Plus, Trash2, Edit3, Check, X, AlertTriangle, MessageSquareOff, Smile, UserCheck, Lock, Sparkles, BookOpen, HandMetal, Scale, ShieldAlert, Megaphone, Clock, Heart, ExternalLink, ChevronDown, ChevronRight, } from 'lucide-react';
+import { useOutletContext } from 'react-router-dom';
+import { Shield, Plus, Trash2, Edit3, Check, X, AlertTriangle, MessageSquareOff, Smile, UserCheck, Lock, Sparkles, BookOpen, HandMetal, Scale, ShieldAlert, Megaphone, Clock, Heart, } from 'lucide-react';
 import { complianceApi, } from '@/api/compliance';
 const PRESET_RULES = [
     {
@@ -201,167 +203,6 @@ function PresetCard({ preset, onAdd, busy }) {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }, children: _jsx(Icon, { size: 16 }) }), _jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [_jsx("h4", { style: { fontSize: 13, fontWeight: 600, margin: 0, marginBottom: 3, lineHeight: 1.3 }, children: preset.title }), _jsx("p", { style: { fontSize: 11.5, color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }, children: preset.description }), _jsxs("div", { style: { marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }, children: [_jsxs("span", { style: { fontSize: 10, color: sev.color, fontWeight: 500 }, children: [sev.label, " \u0432\u0430\u0436\u043D\u043E\u0441\u0442\u044C"] }), _jsxs("span", { style: { fontSize: 11, color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: 3 }, children: [_jsx(Plus, { size: 12 }), " \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C"] })] })] })] }) }));
 }
-// ─── Аналитика ─────────────────────────────────────────────────────────────
-const severityRank = { high: 3, medium: 2, low: 1 };
-const OBJECTION_TYPE_LABELS = {
-    price: 'Цена',
-    quality: 'Качество',
-    competitors: 'Конкуренты',
-    timing: 'Время',
-    trust: 'Доверие',
-    not_ready: 'Не готов',
-    functionality: 'Функциональность',
-};
-function objectionTypeLabel(type) {
-    if (!type)
-        return '';
-    return OBJECTION_TYPE_LABELS[type] || type;
-}
-function groupCompliance(items) {
-    const byConv = new Map();
-    for (const v of items) {
-        let g = byConv.get(v.conversation_id);
-        if (!g) {
-            g = {
-                conversation_id: v.conversation_id, session_date: v.session_date,
-                seller_name: v.seller_name, store_name: v.store_name,
-                topic: v.topic, outcome: v.outcome,
-                facts: [], worst_severity: v.severity,
-            };
-            byConv.set(v.conversation_id, g);
-        }
-        g.facts.push({
-            key: v.id, severity: v.severity, title: v.rule_title,
-            evidence: v.evidence, explanation: v.explanation,
-        });
-        if (severityRank[v.severity] > severityRank[g.worst_severity])
-            g.worst_severity = v.severity;
-    }
-    return Array.from(byConv.values());
-}
-function groupScriptIssues(items) {
-    const byConv = new Map();
-    let counter = 0;
-    for (const it of items) {
-        let g = byConv.get(it.conversation_id);
-        if (!g) {
-            g = {
-                conversation_id: it.conversation_id, session_date: it.session_date,
-                seller_name: it.seller_name, store_name: it.store_name,
-                topic: it.topic, outcome: it.outcome,
-                // Все script-issues визуально показываем как warning-severity (оранжевый).
-                facts: [], worst_severity: 'medium',
-            };
-            byConv.set(it.conversation_id, g);
-        }
-        const isObjection = it.kind === 'objection';
-        g.facts.push({
-            key: `${it.conversation_id}-${counter++}`,
-            severity: 'medium',
-            title: isObjection
-                ? (() => {
-                    const ru = objectionTypeLabel(it.objection_type);
-                    return `Неотработанное возражение${ru ? ` · ${ru}` : ''}`;
-                })()
-                : (it.script_name || 'Скрипт продаж'),
-            badge: isObjection
-                ? { label: 'Возражение', color: 'var(--warning)', bg: 'var(--warning-light)' }
-                : { label: 'Скрипт', color: 'var(--text-muted)', bg: 'var(--bg)' },
-            evidence: it.text,
-        });
-    }
-    return Array.from(byConv.values());
-}
-function GroupedConversationCard({ g, onOpen, expanded, onToggle }) {
-    const worstColor = severityMeta[g.worst_severity].color;
-    return (_jsxs("div", { style: {
-            border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-            borderLeft: `3px solid ${worstColor}`,
-            background: 'var(--bg-card)', overflow: 'hidden',
-        }, children: [_jsxs("div", { onClick: onToggle, style: { padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', userSelect: 'none' }, children: [_jsx("div", { style: { color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }, children: expanded ? _jsx(ChevronDown, { size: 16 }) : _jsx(ChevronRight, { size: 16 }) }), _jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: 88 }, children: new Date(g.session_date).toLocaleDateString('ru-RU') }), _jsxs("div", { style: { fontSize: 13, fontWeight: 500, flex: 1, minWidth: 0 }, children: [_jsxs("div", { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: [g.seller_name || '—', g.store_name && _jsxs("span", { style: { color: 'var(--text-muted)', fontWeight: 400 }, children: [" \u00B7 ", g.store_name] })] }), g.topic && (_jsxs("div", { style: { fontSize: 11.5, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: ["\u0422\u0435\u043C\u0430: ", g.topic] }))] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }, children: [_jsxs("span", { title: g.facts.length === 1 ? '1 нарушение' : `${g.facts.length} нарушений`, style: {
-                                    minWidth: 24, height: 22, padding: '0 8px',
-                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 12, fontWeight: 700, color: worstColor,
-                                    background: severityMeta[g.worst_severity].bg,
-                                    borderRadius: 999,
-                                }, children: ["\u00D7", g.facts.length] }), _jsx("button", { className: "btn-icon", title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440", onClick: (e) => { e.stopPropagation(); onOpen(); }, style: { color: 'var(--primary)' }, children: _jsx(ExternalLink, { size: 14 }) })] })] }), expanded && (_jsx("div", { style: { padding: '4px 14px 14px 42px', borderTop: '1px dashed var(--border-light)' }, children: _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }, children: g.facts.map((f) => (_jsxs("div", { style: {
-                            padding: 10, background: 'var(--bg)',
-                            borderRadius: 'var(--radius)',
-                            borderLeft: `2px solid ${severityMeta[f.severity].color}`,
-                        }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }, children: [f.badge ? (_jsx(TagPill, { color: f.badge.color, bg: f.badge.bg, children: f.badge.label })) : (_jsx(SeverityPill, { severity: f.severity })), _jsx("span", { style: { fontSize: 13, fontWeight: 500 }, children: f.title })] }), f.evidence && (_jsxs("div", { style: { fontSize: 12.5, fontStyle: 'italic', color: 'var(--text)', marginBottom: 3 }, children: ["\u00AB", f.evidence, "\u00BB"] })), f.explanation && (_jsx("div", { style: { fontSize: 11.5, color: 'var(--text-muted)' }, children: f.explanation }))] }, f.key))) }) }))] }));
-}
-function ComplianceAnalytics({ period }) {
-    const navigate = useNavigate();
-    const [expanded, setExpanded] = useState(new Set());
-    const [violationsTab, setViolationsTab] = useState('compliance');
-    const { data: compData, isLoading: compLoading } = useQuery({
-        queryKey: ['compliance-summary', period],
-        queryFn: () => complianceApi.getSummary({ recent_limit: 100, period }),
-        staleTime: 30000,
-    });
-    const { data: scriptData, isLoading: scriptLoading } = useQuery({
-        queryKey: ['script-issues-summary', period],
-        queryFn: () => complianceApi.getScriptIssuesSummary({ recent_limit: 150, period }),
-        staleTime: 30000,
-    });
-    const complianceGroups = useMemo(() => compData ? groupCompliance(compData.recent) : [], [compData]);
-    const scriptGroups = useMemo(() => scriptData ? groupScriptIssues(scriptData.recent) : [], [scriptData]);
-    const toggleExpanded = (id) => {
-        setExpanded((prev) => {
-            const next = new Set(prev);
-            if (next.has(id))
-                next.delete(id);
-            else
-                next.add(id);
-            return next;
-        });
-    };
-    if (compLoading || scriptLoading || !compData || !scriptData) {
-        return (_jsx("div", { style: { display: 'flex', justifyContent: 'center', padding: '60px 0' }, children: _jsx("div", { className: "spinner" }) }));
-    }
-    const data = compData;
-    const totalConv = data.totals.total_conversations;
-    const convWith = data.totals.conversations_with_violations;
-    const facts = data.totals.total_violations;
-    const maxCount = Math.max(1, ...data.by_rule.map((r) => r.count));
-    const scriptIssuesTotal = scriptData.totals.script_violations_count + scriptData.totals.unresolved_objections_count;
-    const visibleGroups = violationsTab === 'compliance' ? complianceGroups : scriptGroups;
-    return (_jsxs("div", { children: [_jsxs("div", { className: "metrics-grid fade-in", style: { marginBottom: 20 }, children: [_jsxs("div", { className: "metric-card", children: [_jsx("div", { className: "metric-label", children: "\u041F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u043E \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432" }), _jsx("div", { className: "metric-value", children: totalConv }), convWith > 0 && (_jsxs("div", { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }, children: [convWith, " \u0441 \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F\u043C\u0438 \u043A\u043E\u043C\u043F\u043B\u0430\u0435\u043D\u0441\u0430"] }))] }), _jsxs("div", { className: "metric-card", children: [_jsx("div", { className: "metric-label", children: "\u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u043A\u043E\u043C\u043F\u043B\u0430\u0435\u043D\u0441\u0430" }), _jsx("div", { className: "metric-value", style: { color: 'var(--danger)' }, children: facts }), _jsxs("div", { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }, children: ["\u0432 ", convWith, " \u0440\u0430\u0437\u0433. \u00B7 ", data.by_rule.length, " \u043F\u0440\u0430\u0432\u0438\u043B"] })] }), _jsxs("div", { className: "metric-card", children: [_jsx("div", { className: "metric-label", children: "\u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u0441\u043A\u0440\u0438\u043F\u0442\u043E\u0432 \u0438 \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }), _jsx("div", { className: "metric-value", style: { color: 'var(--warning)' }, children: scriptIssuesTotal }), _jsxs("div", { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }, children: [scriptData.totals.script_violations_count, " \u043F\u043E \u0441\u043A\u0440\u0438\u043F\u0442\u0430\u043C \u00B7 ", scriptData.totals.unresolved_objections_count, " \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u0439"] })] })] }), _jsxs("div", { className: "card fade-in", style: { marginBottom: 20 }, children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u041A\u0430\u043A\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0430\u0440\u0443\u0448\u0430\u044E\u0442\u0441\u044F \u0447\u0430\u0449\u0435" }), _jsx("div", { className: "card-subtitle", children: data.by_rule.length === 0
-                                        ? 'Нарушений комплаенса пока нет — LLM ничего не зафиксировал по активным правилам.'
-                                        : 'LLM проверяет каждый разговор против списка ваших активных правил.' })] }) }), _jsx("div", { style: { padding: 16 }, children: data.by_rule.length === 0 ? (_jsx("div", { style: { textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, padding: 20 }, children: "\u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0439 \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E." })) : (_jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: data.by_rule.map((r) => {
-                                const sev = severityMeta[r.severity];
-                                const pct = (r.count / maxCount) * 100;
-                                return (_jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }, children: [_jsx(SeverityPill, { severity: r.severity }), _jsx("span", { style: { fontSize: 13, fontWeight: 500, color: 'var(--text)' }, children: r.rule_title })] }), _jsxs("div", { style: { fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', marginLeft: 12 }, children: [_jsx("b", { style: { color: sev.color }, children: r.count }), " \u0432 ", r.affected_conversations, " \u0440\u0430\u0437\u0433."] })] }), _jsx("div", { style: { height: 6, background: 'var(--bg)', borderRadius: 3, overflow: 'hidden' }, children: _jsx("div", { style: {
-                                                    height: '100%', width: `${pct}%`, background: sev.color, borderRadius: 3,
-                                                    transition: 'width 0.3s',
-                                                } }) })] }, r.rule_id));
-                            }) })) })] }), _jsxs("div", { className: "card fade-in", children: [_jsxs("div", { className: "card-header", style: { flexWrap: 'wrap', gap: 12 }, children: [_jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0435 \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u043F\u043E \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0430\u043C" }), _jsx("div", { className: "card-subtitle", children: violationsTab === 'compliance'
-                                            ? 'Факты, помеченные LLM как нарушения ваших правил коммуникации. Кликните на строку для деталей.'
-                                            : 'Замечания LLM по скриптам продаж и неотработанные возражения — то, что не относится к комплаенсу.' })] }), _jsxs("div", { style: { display: 'flex', background: 'var(--bg)', borderRadius: 8, padding: 2 }, children: [_jsxs("button", { onClick: () => setViolationsTab('compliance'), style: {
-                                            background: violationsTab === 'compliance' ? 'var(--bg-card)' : 'transparent',
-                                            border: 'none', padding: '5px 12px', fontSize: 12, borderRadius: 6,
-                                            cursor: 'pointer', fontWeight: violationsTab === 'compliance' ? 500 : 400,
-                                            color: violationsTab === 'compliance' ? 'var(--text)' : 'var(--text-muted)',
-                                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                                        }, children: ["\u041A\u043E\u043C\u043F\u043B\u0430\u0435\u043D\u0441", _jsx("span", { style: {
-                                                    background: violationsTab === 'compliance' ? 'var(--danger-light)' : 'var(--bg)',
-                                                    color: 'var(--danger)', borderRadius: 999, padding: '0 6px',
-                                                    fontSize: 10, fontWeight: 600,
-                                                }, children: facts })] }), _jsxs("button", { onClick: () => setViolationsTab('scripts'), style: {
-                                            background: violationsTab === 'scripts' ? 'var(--bg-card)' : 'transparent',
-                                            border: 'none', padding: '5px 12px', fontSize: 12, borderRadius: 6,
-                                            cursor: 'pointer', fontWeight: violationsTab === 'scripts' ? 500 : 400,
-                                            color: violationsTab === 'scripts' ? 'var(--text)' : 'var(--text-muted)',
-                                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                                        }, children: ["\u0421\u043A\u0440\u0438\u043F\u0442\u044B \u0438 \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F", _jsx("span", { style: {
-                                                    background: violationsTab === 'scripts' ? 'var(--warning-light)' : 'var(--bg)',
-                                                    color: 'var(--warning)', borderRadius: 999, padding: '0 6px',
-                                                    fontSize: 10, fontWeight: 600,
-                                                }, children: scriptIssuesTotal })] })] })] }), visibleGroups.length === 0 ? (_jsx("div", { style: { padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }, children: violationsTab === 'compliance'
-                            ? 'Нарушений комплаенса за период не зафиксировано.'
-                            : 'Замечаний по скриптам и неотработанных возражений за период не зафиксировано.' })) : (_jsx("div", { style: { padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }, children: visibleGroups.map((g) => (_jsx(GroupedConversationCard, { g: g, expanded: expanded.has(`${violationsTab}-${g.conversation_id}`), onToggle: () => toggleExpanded(`${violationsTab}-${g.conversation_id}`), onOpen: () => navigate(`/conversations?conv=${g.conversation_id}`) }, `${violationsTab}-${g.conversation_id}`))) }))] })] }));
-}
-// ─── Вкладка «Правила» ─────────────────────────────────────────────────────
 function RulesTab() {
     const qc = useQueryClient();
     const [addingCustom, setAddingCustom] = useState(false);
@@ -419,19 +260,8 @@ function RulesTab() {
 }
 export function CompliancePage() {
     const { period } = useOutletContext();
-    const [tab, setTab] = useState('rules');
-    return (_jsxs("div", { children: [_jsxs("div", { className: "fade-in", style: { marginBottom: 16 }, children: [_jsxs("h2", { style: { fontSize: 20, fontWeight: 700, margin: 0, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }, children: [_jsx(Shield, { size: 20, style: { color: 'var(--primary)' } }), "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043A\u043E\u043C\u043C\u0443\u043D\u0438\u043A\u0430\u0446\u0438\u0438"] }), _jsx("p", { style: { fontSize: 13, color: 'var(--text-muted)', margin: 0 }, children: "\u041E\u0431\u0449\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u043E\u0432\u0435\u0434\u0435\u043D\u0438\u044F \u043F\u0440\u043E\u0434\u0430\u0432\u0446\u0430 \u0432 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0435 \u0441 \u043A\u043B\u0438\u0435\u043D\u0442\u043E\u043C. LLM \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442 \u043A\u0430\u0436\u0434\u044B\u0439 \u0434\u0438\u0430\u043B\u043E\u0433 \u0438 \u043F\u043E\u043C\u0435\u0447\u0430\u0435\u0442 \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u0441 \u043F\u0440\u0438\u0432\u044F\u0437\u043A\u043E\u0439 \u043A \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u043C\u0443 \u043F\u0440\u0430\u0432\u0438\u043B\u0443." })] }), _jsx("div", { style: { display: 'flex', gap: 0, marginBottom: 20, borderBottom: '1px solid var(--border)' }, children: [
-                    { id: 'rules', label: 'Правила' },
-                    { id: 'analytics', label: 'Аналитика нарушений' },
-                ].map((t) => {
-                    const active = tab === t.id;
-                    return (_jsx("button", { onClick: () => setTab(t.id), style: {
-                            background: 'transparent', border: 'none',
-                            padding: '10px 16px', fontSize: 13,
-                            fontWeight: active ? 600 : 500,
-                            color: active ? 'var(--primary)' : 'var(--text-muted)',
-                            borderBottom: `2px solid ${active ? 'var(--primary)' : 'transparent'}`,
-                            marginBottom: -1, cursor: 'pointer',
-                        }, children: t.label }, t.id));
-                }) }), tab === 'rules' && _jsx(RulesTab, {}), tab === 'analytics' && _jsx(ComplianceAnalytics, { period: period })] }));
+    const { data: summary } = useComplianceSummary(period);
+    const { data: rules = [] } = useQuery({ queryKey: ['compliance-rules'], queryFn: () => complianceApi.listRules() });
+    const manage = () => document.getElementById('cp-manage')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return (_jsxs("div", { children: [_jsx(ComplianceKpis, { period: period, summary: summary, rules: rules }), _jsxs("div", { className: "cp-grid", children: [_jsx(ViolationJournal, { summary: summary }), _jsx(RulesOverview, { rules: rules, summary: summary, onManage: manage })] }), _jsxs("section", { id: "cp-manage", className: "cp-manage", children: [_jsx("h2", { className: "an-section", children: t('Управление правилами') }), _jsx("p", { className: "muted", style: { fontSize: 13, marginBottom: 14 }, children: t('ИИ проверяет каждый разговор по активным правилам и помечает нарушения с цитатой.') }), _jsx(RulesTab, {})] })] }));
 }

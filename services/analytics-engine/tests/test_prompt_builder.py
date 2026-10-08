@@ -68,3 +68,13 @@ async def test_screen_llm_parse_error():
     result = await screen_contextual_script(SEGMENTS, SCRIPT, mock_llm)
     assert result[0] is False
     assert "LLM_PARSE_ERROR" in result[1]
+
+
+def test_summary_prompt_has_sections_parsed_by_card():
+    """Карточка разговора разбирает резюме по этим заголовкам (SummaryPanel во фронтенде)."""
+    from app.prompt_builder import build_summary_prompt
+    system, user = build_summary_prompt([{"speaker_role": "seller", "text": "Добрый день", "start_ms": 0}])
+    for head in ("**Итог:**", "**Риск претензии:**", "**Что сработало:**", "**Что поправить:**"):
+        assert head in system
+    assert "продавец" in system
+    assert "Добрый день" in user

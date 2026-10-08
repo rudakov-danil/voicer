@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight, Link2, Trash2, Search, X, ShieldAlert, MessageCircleWarning, CircleCheck,
-  CircleX, Sparkles, RefreshCw, Loader, ShoppingBag, AlertCircle,
+  CircleX, Sparkles, RefreshCw, Loader, ShoppingBag, AlertCircle, OctagonAlert, ThumbsUp, Target,
+  CircleDot,
 } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { analyticsApi } from '@/api/analytics'
@@ -17,8 +18,12 @@ import {
 } from '@/components/conversation/Player'
 import {
   CALL_CATEGORY_LABELS, ClientHistory, SummaryMarkdown, BLOCK_STATUS_META,
-  locateQuote, useConversationAnalysis, useObjectionTypeLabel,
+  locateQuote, useConversationAnalysis, useObjectionTypeLabel, parseSummary, isNoneSection,
+  type SummaryParts,
 } from '@/components/conversation/shared'
+import { ReviewButton, CoachingComments } from '@/components/conversation/Coaching'
+import { SellerDayPanel } from '@/components/conversation/SellerDay'
+import { outcomeLabel } from '@/lib/outcomes'
 import { t, L, locale } from '@/i18n'
 
 /* Карточка разговора по концепту (ui-concept/conversation.html): шапка с вердиктом,
@@ -313,6 +318,7 @@ export function ConversationPage() {
             <button type="button" className="btn" onClick={copyMoment}>
               <Link2 size={15} aria-hidden="true" />{copied ? t('Ссылка скопирована') : t('Ссылка на момент')}
             </button>
+            <ReviewButton conversationId={id} sellerName={c.seller_name} />
             <button type="button" className="btn btn-ghost cv-danger" onClick={handleDelete} disabled={deleting}>
               <Trash2 size={15} aria-hidden="true" />{deleting ? t('Удаление…') : t('Удалить')}
             </button>
@@ -353,7 +359,7 @@ export function ConversationPage() {
                 <div className="panel-sub">{L(`${segments.length} реплик · роли размечены автоматически`, `${segments.length} turns · roles detected automatically`)}</div>
               </div>
               <div className="cv-tr-tools">
-                <label className="input" style={{ height: 30, width: 210 }}>
+                <label className="input cv-tr-search">
                   <Search size={14} aria-hidden="true" />
                   <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('Найти в разговоре…')} aria-label={t('Найти в разговоре…')} />
                   {query && <button type="button" onClick={() => setQuery('')} aria-label={t('Очистить')}><X size={13} /></button>}
@@ -410,11 +416,21 @@ export function ConversationPage() {
             </div>
           </section>
 
-          <DynamicsPanel c={c} segments={segments} />
+          <div className="cv-pair">
+            <DynamicsPanel c={c} segments={segments} />
+            <SellerDayPanel conversationId={id} />
+          </div>
+
+          <CoachingComments
+            conversationId={id}
+            sellerName={c.seller_name}
+            now={now}
+            onSeek={(sec) => playerRef.current?.seek(sec, true)}
+          />
         </div>
 
         <aside className="cv-side">
-          <SummaryPanel conversationId={id} cached={c.summary} />
+          <SummaryPanel conversationId={id} cached={c.summary} outcome={c.outcome} />
 
           {scriptResult && !notScored && (
             <section className="panel">
@@ -552,11 +568,33 @@ function SearchMark({ text, q }: { text: string; q: string }) {
   return <>{text.slice(0, i)}<mark className="cv-search-hit">{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>
 }
 
-/** Итог разговора — резюме LLM. Готовое приходит в карточке; составляем по кнопке. */
-function SummaryPanel({ conversationId, cached }: { conversationId: string; cached?: string | null }) {
+function StructuredSummary({ parts, outcome }: { parts: SummaryParts; outcome?: string | null }) {
+  const won = outcome === 'purchase'
+  const outcomeTitle = outcome && outcome !== 'unknown' ? outcomeLabel(outcome) : 'Итог'
+  const rows: Array<{ key: string; tone: string; icon: JSX.Element; title: string; body?: string }> = [
+    { key: 'res', tone: won ? 'is-good' : 'is-plain', icon: won ? <ShoppingBag aria-hidden="true" /> : <CircleDot aria-hidden="true" />, title: outcomeTitle, body: parts['Итог'] },
+    { key: 'risk', tone: 'is-crit', icon: <OctagonAlert aria-hidden="true" />, title: 'Риск претензии', body: isNoneSection(parts['Риск претензии']) ? undefined : parts['Риск претензии'] },
+    { key: 'good', tone: 'is-accent', icon: <ThumbsUp aria-hidden="true" />, title: 'Что сработало', body: isNoneSection(parts['Что сработало']) ? undefined : parts['Что сработало'] },
+    { key: 'fix', tone: 'is-plain', icon: <Target aria-hidden="true" />, title: 'Что поправить', body: isNoneSection(parts['Что поправить']) ? undefined : parts['Что поправить'] },
+  ]
+  return (
+    <div className="cv-sum-list">
+      {rows.filter((r) => r.body).map((r) => (
+        <div key={r.key} className={`cv-sum-item ${r.tone}`}>
+          {r.icon}
+          <div><b>{t(r.title)}</b><span translate="no">{r.body!.replace(/\*\*/g, '')}</span></div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Резюме разговора от ИИ. Готовое приходит в карточке; составляем по кнопке. */
+function SummaryPanel({ conversationId, cached, outcome }: { conversationId: string; cached?: string | null; outcome?: string | null }) {
   const [summary, setSummary] = useState<string | null>(cached || null)
   const [state, setState] = useState<'idle' | 'loading' | 'error' | 'no-transcript'>('idle')
   useEffect(() => { setSummary(cached || null); setState('idle') }, [conversationId, cached])
+  const parts = useMemo(() => (summary ? parseSummary(summary) : null), [summary])
 
   const generate = async (force: boolean) => {
     setState('loading')
@@ -573,7 +611,7 @@ function SummaryPanel({ conversationId, cached }: { conversationId: string; cach
     <section className="panel">
       <div className="panel-head">
         <h2 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <Sparkles size={15} aria-hidden="true" style={{ color: 'var(--accent)' }} />{t('Итог разговора')}
+          {t('Резюме')}<span className="tag tag-primary">{t('ИИ')}</span>
         </h2>
         {summary && (
           <button type="button" className="btn-icon" onClick={() => generate(true)} disabled={state === 'loading'} title={t('Сгенерировать резюме заново')} aria-label={t('Сгенерировать резюме заново')}>
@@ -585,17 +623,21 @@ function SummaryPanel({ conversationId, cached }: { conversationId: string; cach
         {state === 'loading' ? (
           <div className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Loader size={14} aria-hidden="true" />{t('ИИ составляет резюме диалога...')}</div>
         ) : summary ? (
-          <div translate="no"><SummaryMarkdown text={summary} /></div>
+          parts ? <StructuredSummary parts={parts} outcome={outcome} /> : <div translate="no"><SummaryMarkdown text={summary} /></div>
         ) : state === 'no-transcript' ? (
           <div className="muted">{t('Для этого разговора нет транскрипта — резюме недоступно.')}</div>
         ) : (
           <>
-            <p className="muted" style={{ marginBottom: 10 }}>{t('Короткий разбор: что произошло, что сработало и что поправить.')}</p>
+            <p className="muted" style={{ marginBottom: 10 }}>{t('Короткий разбор: чем закончился разговор, где риск претензии, что сработало и что поправить.')}</p>
             {state === 'error' && <p style={{ color: 'var(--crit-ink)', marginBottom: 10 }}>{t('Не удалось сгенерировать резюме. Попробуйте ещё раз позже.')}</p>}
             <button type="button" className="btn btn-sm" onClick={() => generate(false)}><Sparkles size={13} aria-hidden="true" />{t('Составить резюме')}</button>
           </>
         )}
-        {summary && <div className="cv-step-note" style={{ marginTop: 10 }}>{t('Резюме составлено ИИ на основе транскрипта. Может содержать неточности.')}</div>}
+        {summary && state !== 'loading' && (
+          <div className="cv-step-note" style={{ marginTop: 12 }}>
+            {parts ? t('Резюме составлено ИИ на основе транскрипта. Может содержать неточности.') : t('Резюме старого формата. Обновите, чтобы получить разбор по пунктам.')}
+          </div>
+        )}
       </div>
     </section>
   )
