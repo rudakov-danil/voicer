@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f2f3f5"><meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="Запись разговоров и отправка на анализ в Voicer">
+  <title>Voicer · Запись</title>
+  <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-192.png"><link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+<main>
+  <header><a class="brand" href="/" aria-label="Voicer"><span class="brand-icon">ııı</span>voicer<span class="brand-dot">.</span></a><span id="network" class="pill">Онлайн</span></header>
+  <section id="login-panel" class="card login">
+    <p class="eyebrow">МОБИЛЬНЫЙ ДИКТОФОН</p><h1>Важное начинается<br>с разговора.</h1><p class="muted">Запишите разговор. Voicer поможет услышать больше.</p>
+    <form id="login-form"><label>Email<input id="email" type="email" autocomplete="username" inputmode="email" required placeholder="you@company.ru"></label><label>Пароль<input id="password" type="password" autocomplete="current-password" required placeholder="Ваш пароль"></label><button class="primary" id="login-button">Войти</button></form>
+    <p class="small muted">Используйте данные от личного кабинета Voicer.</p>
+  </section>
+  <section id="recorder-panel" hidden>
+    <div class="page-heading"><div><p class="eyebrow">МОБИЛЬНЫЙ ДИКТОФОН</p><h1>Новая запись</h1></div><button id="logout" class="text-button">Выйти</button></div>
+    <p id="account" class="small muted"></p>
+    <div class="card context"><label>Магазин<select id="store" aria-label="Магазин"></select></label><label>Сотрудник<select id="seller" aria-label="Сотрудник"></select></label><button id="reload-options" class="text-button" hidden>Обновить список</button></div>
+    <div class="card recorder">
+      <p id="record-state" class="state" role="status">Готово к записи</p>
+      <div id="timer" class="timer" aria-label="Время с начала записи">00:00</div>
+      <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <button id="record" class="record-button" aria-label="Начать запись"><svg id="mic-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span class="stop-icon" hidden></span></button>
+      <p id="record-label">Нажмите, чтобы начать</p><p id="saved-state" class="small muted">После остановки запись отправится на анализ</p>
+      <label class="switch-row"><input id="keep-awake" type="checkbox" checked>Не гасить экран во время записи</label>
+    </div>
+    <p class="notice" id="background-notice">При блокировке экрана браузер может прервать запись. Для важного разговора оставьте экран включённым.</p>
+    <section class="recordings-section"><div class="section-heading"><h2>На этом телефоне</h2><button id="retry-all" class="text-button">Отправить очередь</button></div><div id="recordings"></div><p class="small muted">Неотправленные записи хранятся в этом браузере. Не очищайте его данные до отправки.</p></section>
+    <a class="dashboard-link" href="https://lk.voicer-ai.pro" target="_blank" rel="noopener">Результаты анализа в личном кабинете ↗</a>
+  </section>
+  <div id="message" role="alert" hidden></div>
+  <footer>VOICER <span>Каждый разговор имеет значение</span></footer>
+</main>
+<noscript>Для записи аудио включите JavaScript в браузере.</noscript>
+</body>
+</html>

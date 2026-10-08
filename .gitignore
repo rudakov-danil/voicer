@@ -34,3 +34,7 @@ redis_data/
 node_modules/
 dist/
 .next/
+
+# Mobile browser test artifacts
+tests/mobile/test-results/
+tests/mobile/playwright-report/

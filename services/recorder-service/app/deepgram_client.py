@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import httpx
 
@@ -38,7 +39,10 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> d
     }
     headers = {
         "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
-        "Content-Type": "audio/wav",
+        "Content-Type": {
+            ".webm": "audio/webm", ".mp4": "audio/mp4", ".m4a": "audio/mp4",
+            ".ogg": "audio/ogg", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+        }.get(Path(filename).suffix.lower(), "application/octet-stream"),
     }
 
     async with httpx.AsyncClient(timeout=1800.0) as client:
