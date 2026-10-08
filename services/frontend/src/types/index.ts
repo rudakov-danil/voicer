@@ -28,6 +28,10 @@ export interface Seller {
   weakest_step?: string
   score_trend?: 'up' | 'down' | 'stable'
   trend?: number
+  /** Оценённые разговоры, покупки среди них и разговоры с нарушениями за период */
+  scorable?: number
+  purchases?: number
+  with_violations?: number
 }
 
 export interface Conversation {
@@ -494,4 +498,59 @@ export interface StepLosses {
     avg_score: number | null
     hint: string | null
   }>
+}
+
+/** Продавец против сети по этапам основного скрипта. */
+export interface SellerBenchmark {
+  seller_since: string
+  script: { id: string; name: string } | null
+  steps: Array<{
+    name: string
+    order: number | null
+    hint: string | null
+    seller: number
+    samples: number
+    median: number | null
+    best: { seller_id: string; name: string | null; score: number }
+    example?: { conversation_id: string; seller_name: string | null; score: number; evidence: string; t: number | null }
+  }>
+  zones?: string[]
+}
+
+/** Разбор этапного скрипта: этапы с медианой и лучшим примером, продавцы × этапы. */
+export interface ScriptBreakdownData {
+  script: { id: string; name: string }
+  steps: Array<{
+    name: string
+    order: number | null
+    weight: number | null
+    required: boolean
+    hint: string | null
+    median: number | null
+    example: { conversation_id: string; seller_name: string | null; score: number; evidence: string; t: number | null } | null
+  }>
+  sellers: Array<{
+    seller_id: string
+    seller_name: string | null
+    store_name: string | null
+    conversations: number
+    script_score: number | null
+    steps: Record<string, number>
+  }>
+}
+
+/** «Аналитика»: что влияет на покупку, воронка по этапам, нагрузка по часам, ответы на «дорого», доля речи. */
+export interface InsightsData {
+  period: number
+  timezone: string
+  drivers: Array<{ key: string; label: string; with: number; without: number; diff: number; share: number; n: number }>
+  funnel: {
+    total: number
+    steps: Array<{ step: string; count: number; lost: number; hint: string | null }>
+    purchases: number
+    purchases_after_all_steps: number
+  } | null
+  hourly: Array<{ dow: number; hour: number; count: number; per_week: number; conversion: number | null }>
+  price_answers: Array<{ label: string; times: number; conversations: number; conversion: number | null }>
+  talk: Array<{ seller_id: string; name: string | null; talk_share: number; conversations: number; conversion: number | null }>
 }

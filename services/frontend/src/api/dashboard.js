@@ -137,8 +137,26 @@ export const dashboardApi = {
             conversion_rate: s.conversion_rate,
             conversations_count: s.total_conversations,
             weakest_step: s.weakest_step,
-            score_trend: s.score_trend
+            score_trend: s.score_trend,
+            scorable: s.scorable,
+            purchases: s.purchases,
+            with_violations: s.with_violations,
         }));
+    },
+    /** Продавец против сети: этапы, медиана, лучший в сети и пример. */
+    getSellerBenchmark: async (sellerId, period) => {
+        const response = await apiClient.get(`/api/v1/dashboard/sellers/${sellerId}/benchmark`, { params: periodRange(period) });
+        return response.data;
+    },
+    /** Разбор скрипта: тепловая карта продавец × этап и лучшие примеры. */
+    getScriptBreakdown: async (templateId, days) => {
+        const response = await apiClient.get(`/api/v1/dashboard/scripts/${templateId}/breakdown`, { params: periodRange(days) });
+        return response.data;
+    },
+    /** Данные экрана «Аналитика» по концепту. */
+    getInsights: async (period, store_id) => {
+        const response = await apiClient.get('/api/v1/dashboard/insights', { params: { period, store_id } });
+        return response.data;
     },
     getSellerDetail: async (sellerId, params) => {
         const apiParams = {};

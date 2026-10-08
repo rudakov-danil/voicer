@@ -7,6 +7,11 @@ import { useQuery } from '@tanstack/react-query'
 import { analyticsApi } from '@/api/analytics'
 import { DonutChartWidget } from '@/components/charts/DonutChartWidget'
 import { BarChartWidget } from '@/components/charts/BarChartWidget'
+import { dashboardApi } from '@/api/dashboard'
+import {
+  useInsights, StoreConversion, Drivers, Funnel, HourlyLoad, PriceAnswers, TalkScatter,
+} from '@/components/analytics/Insights'
+import { t } from '@/i18n'
 
 interface OutletContext { period: number }
 
@@ -96,9 +101,27 @@ const FUNNEL_COLORS = ['#5873EC', '#7890F6', '#97ADFC', '#B4C4FF', '#D2DCFF', '#
 export function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState('objections')
   const { period } = useOutletContext<OutletContext>()
+  const { data: insights } = useInsights(period)
+  const { data: trends } = useQuery({ queryKey: ['trends'], queryFn: () => dashboardApi.getTrends({ weeks: 12 }) })
 
   return (
     <div>
+      {/* Раскладка концепта (ui-concept/analytics.html) */}
+      <div className="an-a">
+        <StoreConversion trends={trends} />
+        <Drivers data={insights} />
+      </div>
+      <div className="an-b">
+        <Funnel data={insights} />
+        <HourlyLoad data={insights} />
+      </div>
+      <div className="an-c">
+        <PriceAnswers data={insights} />
+        <TalkScatter data={insights} />
+      </div>
+
+      {/* Подробные отчёты прежнего экрана */}
+      <h2 className="an-section">{t('Подробные отчёты')}</h2>
       <div className="tabs fade-in">
         {['objections', 'conversion', 'sentiment'].map((tab) => (
           <button key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`}

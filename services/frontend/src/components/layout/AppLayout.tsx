@@ -36,7 +36,7 @@ export function AppLayout() {
 
   return (
     <>
-      <Sidebar />
+      <Sidebar period={period} />
       <div className="main">
         {!ownHeader && (
           <Topbar

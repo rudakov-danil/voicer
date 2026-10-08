@@ -8,6 +8,9 @@ import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '@/api/analytics';
 import { DonutChartWidget } from '@/components/charts/DonutChartWidget';
 import { BarChartWidget } from '@/components/charts/BarChartWidget';
+import { dashboardApi } from '@/api/dashboard';
+import { useInsights, StoreConversion, Drivers, Funnel, HourlyLoad, PriceAnswers, TalkScatter, } from '@/components/analytics/Insights';
+import { t } from '@/i18n';
 function InfoTooltip({ children }) {
     const triggerRef = useRef(null);
     const [coords, setCoords] = useState(null);
@@ -69,7 +72,9 @@ const FUNNEL_COLORS = ['#5873EC', '#7890F6', '#97ADFC', '#B4C4FF', '#D2DCFF', '#
 export function AnalyticsPage() {
     const [activeTab, setActiveTab] = useState('objections');
     const { period } = useOutletContext();
-    return (_jsxs("div", { children: [_jsx("div", { className: "tabs fade-in", children: ['objections', 'conversion', 'sentiment'].map((tab) => (_jsx("button", { className: `tab ${activeTab === tab ? 'active' : ''}`, onClick: () => setActiveTab(tab), children: tab === 'objections' ? 'Возражения' : tab === 'conversion' ? 'Конверсия' : 'Сентимент' }, tab))) }), activeTab === 'objections' && _jsx(ObjectionsTab, { period: period }), activeTab === 'conversion' && _jsx(ConversionTab, { period: period }), activeTab === 'sentiment' && _jsx(SentimentTab, {})] }));
+    const { data: insights } = useInsights(period);
+    const { data: trends } = useQuery({ queryKey: ['trends'], queryFn: () => dashboardApi.getTrends({ weeks: 12 }) });
+    return (_jsxs("div", { children: [_jsxs("div", { className: "an-a", children: [_jsx(StoreConversion, { trends: trends }), _jsx(Drivers, { data: insights })] }), _jsxs("div", { className: "an-b", children: [_jsx(Funnel, { data: insights }), _jsx(HourlyLoad, { data: insights })] }), _jsxs("div", { className: "an-c", children: [_jsx(PriceAnswers, { data: insights }), _jsx(TalkScatter, { data: insights })] }), _jsx("h2", { className: "an-section", children: t('Подробные отчёты') }), _jsx("div", { className: "tabs fade-in", children: ['objections', 'conversion', 'sentiment'].map((tab) => (_jsx("button", { className: `tab ${activeTab === tab ? 'active' : ''}`, onClick: () => setActiveTab(tab), children: tab === 'objections' ? 'Возражения' : tab === 'conversion' ? 'Конверсия' : 'Сентимент' }, tab))) }), activeTab === 'objections' && _jsx(ObjectionsTab, { period: period }), activeTab === 'conversion' && _jsx(ConversionTab, { period: period }), activeTab === 'sentiment' && _jsx(SentimentTab, {})] }));
 }
 function ObjectionsTab({ period }) {
     const { data: distribution } = useQuery({

@@ -14,7 +14,7 @@ import {
 import { MultiSelect } from '@/components/scripts/MultiSelect'
 import { HelpTooltip } from '@/components/scripts/HelpTooltip'
 import { HelpModal } from '@/components/scripts/HelpModal'
-import { HeatmapStrip } from '@/components/scripts/HeatmapStrip'
+import { ScriptBreakdown } from '@/components/scripts/ScriptBreakdown'
 import { StructuralDiff } from '@/components/scripts/StructuralDiff'
 import { CommandPalette } from '@/components/scripts/CommandPalette'
 import { SkeletonScriptCard, SkeletonAnalyticsRow } from '@/components/scripts/Skeleton'
@@ -1560,8 +1560,9 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
             </div>
           </div>
 
-          <HeatmapStrip rows={data.per_step} />
-
+          {(data as any).script_type !== 'fulltext' ? (
+            <ScriptBreakdown templateId={templateId} days={days} perStep={data.per_step} />
+          ) : (<>
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
             {(data as any).script_type === 'fulltext' ? 'Детально по блокам' : 'Детально по этапам'}
             <HelpTooltip content={
@@ -1619,6 +1620,7 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
               )
             })}
           </div>
+          </>)}
         </>
       )}
     </div>

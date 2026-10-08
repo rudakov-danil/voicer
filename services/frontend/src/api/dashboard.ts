@@ -1,7 +1,7 @@
 import apiClient from './client'
 import type {
   DashboardOverview, Conversation, Seller, ConversationView, FingerprintData, CoachingItem, SellerDay,
-  PulseData, TrendsData, ViolationsByRule, StepLosses,
+  PulseData, TrendsData, ViolationsByRule, StepLosses, SellerBenchmark, ScriptBreakdownData, InsightsData,
 } from '@/types'
 
 /** Период «последние N дней» → date_from / date_to для API. */
@@ -201,8 +201,29 @@ export const dashboardApi = {
       conversion_rate: s.conversion_rate,
       conversations_count: s.total_conversations,
       weakest_step: s.weakest_step,
-      score_trend: s.score_trend
+      score_trend: s.score_trend,
+      scorable: s.scorable,
+      purchases: s.purchases,
+      with_violations: s.with_violations,
     })) as Seller[]
+  },
+
+  /** Продавец против сети: этапы, медиана, лучший в сети и пример. */
+  getSellerBenchmark: async (sellerId: string, period: number) => {
+    const response = await apiClient.get<SellerBenchmark>(`/api/v1/dashboard/sellers/${sellerId}/benchmark`, { params: periodRange(period) })
+    return response.data
+  },
+
+  /** Разбор скрипта: тепловая карта продавец × этап и лучшие примеры. */
+  getScriptBreakdown: async (templateId: string, days: number) => {
+    const response = await apiClient.get<ScriptBreakdownData>(`/api/v1/dashboard/scripts/${templateId}/breakdown`, { params: periodRange(days) })
+    return response.data
+  },
+
+  /** Данные экрана «Аналитика» по концепту. */
+  getInsights: async (period: number, store_id?: string) => {
+    const response = await apiClient.get<InsightsData>('/api/v1/dashboard/insights', { params: { period, store_id } })
+    return response.data
   },
 
   getSellerDetail: async (sellerId: string, params?: { period?: number; date_from?: string; date_to?: string }) => {

@@ -43,6 +43,9 @@ export interface ComplianceViolation {
   outcome?: string | null
   seller_name?: string | null
   store_name?: string | null
+  recorded_at?: string | null
+  /** Разбор с продавцом: open — в плане, done — разобран, null — ещё не брали */
+  review?: 'open' | 'done' | null
 }
 
 export interface ComplianceByRule {
