@@ -133,9 +133,10 @@ async def ask(**kw):
 
 def key_format(k: str) -> str:
     # Только признаки формата, сам ключ не печатаем
+    stray = any(ch in k for ch in " \t\"'")
+    clean = k[9:].replace("-", "").isalnum() and k[9:].isascii()
     return (f"длина {len(k)}, начинается с sk-or-v1-: {k.startswith('sk-or-v1-')}, "
-            f"пробелы или кавычки: {any(ch in k for ch in ' \t\"' + chr(39))}, "
-            f"только латиница, цифры и дефис после префикса: {k[9:].replace('-', '').isalnum() and k[9:].isascii()}")
+            f"пробелы или кавычки: {stray}, только латиница, цифры и дефис после префикса: {clean}")
 
 async def main():
     print(f"Ключ: {key_format(settings.LLM_API_KEY)}")
