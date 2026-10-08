@@ -131,7 +131,14 @@ async def ask(**kw):
     print(f"  ответ: {c.message.content!r}")
     print(f"  токены: {r.usage.prompt_tokens if r.usage else '?'} на входе, {r.usage.completion_tokens if r.usage else '?'} на выходе")
 
+def key_format(k: str) -> str:
+    # Только признаки формата, сам ключ не печатаем
+    return (f"длина {len(k)}, начинается с sk-or-v1-: {k.startswith('sk-or-v1-')}, "
+            f"пробелы или кавычки: {any(ch in k for ch in ' \t\"' + chr(39))}, "
+            f"только латиница, цифры и дефис после префикса: {k[9:].replace('-', '').isalnum() and k[9:].isascii()}")
+
 async def main():
+    print(f"Ключ: {key_format(settings.LLM_API_KEY)}")
     print(f"Сервер: {settings.LLM_SERVER_URL}, модель: {settings.LLM_MODEL_NAME}, "
           f"ключ задан: {bool(settings.LLM_API_KEY) and settings.LLM_API_KEY != 'ollama'}, folder задан: {bool(settings.LLM_FOLDER_ID)}")
     print("Обычный запрос:")
