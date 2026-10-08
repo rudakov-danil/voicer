@@ -94,6 +94,9 @@ case $MODE in
   deepgram-test)
     remote deepgram-test
     ;;
+  logs)
+    remote logs
+    ;;
   server-diff)
     # Чем код сервисов на сервере отличается от репозитория (repo → сервер).
     # Похожее на ключи и токены заменяем на [скрыто].

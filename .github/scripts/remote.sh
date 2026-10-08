@@ -6,6 +6,7 @@
 #   reanalyze — повторный анализ записей ($REANALYZE) и ошибки воркера
 #   llm-test — тестовый запрос к модели с текущими настройками .env
 #   deepgram-test — распознавание примера Deepgram кодом recorder-service
+#   logs    — ошибки сервисов $SERVICES за 30 минут, очереди, последние записи
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -178,6 +179,20 @@ async def main():
 
 asyncio.run(main())
 PY
+  ;;
+logs)
+  # Ошибки сервисов за 30 минут, очереди и последние записи. Строки обрезаем: в логах бывает текст разговоров
+  need_dc
+  for svc in $SERVICES; do
+    echo "== $svc: ошибки за 30 минут"
+    $DC logs --since 30m --no-log-prefix "$svc" 2>&1 \
+      | grep -iE 'error|exception|traceback|denied|forbidden|40[13]|failed|retry|requeue|timeout' | cut -c1-240 | tail -30 || true
+  done
+  echo "== Очереди RabbitMQ"
+  $DC exec -T rabbitmq rabbitmqctl -q list_queues name messages messages_unacknowledged consumers 2>&1 | tail -20 || true
+  echo "== Последние записи"
+  $DC exec -T postgres psql -U voiceiq -d voiceiq -c \
+    "SELECT id, status, created_at FROM recorder.recordings ORDER BY created_at DESC LIMIT 5" 2>&1 || true
   ;;
 *)
   echo "Неизвестный этап: $1"
