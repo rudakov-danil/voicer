@@ -37,6 +37,24 @@ SYNC=(-rlc --exclude=node_modules/ --exclude=__pycache__/ --exclude='*.pyc' --ex
 # Старые чанки фронтенда оставляем: открытые вкладки ещё могут их запросить
 DIST=(-rlc)
 
+# Куда смотрит домен и отвечает ли на него сервер (с раннера, у него открытый интернет)
+check_domain() {
+  local d=$1 ip a
+  [[ $d =~ ^[a-z0-9.-]+$ ]] || { echo "Странный домен: $d"; return; }
+  ip=$(ssh -G prod | awk '$1 == "hostname" {print $2}')
+  a=$(dig +short A "$d" | grep -E '^[0-9.]+$' | sort -u | tr '\n' ' ' || true)
+  echo "== Домен $d"
+  echo "A-записи: ${a:-нет}"
+  echo "CNAME: $(dig +short CNAME "$d" | tr '\n' ' ')"
+  echo "NS зоны ${d#*.}: $(dig +short NS "${d#*.}" | tr '\n' ' ')"
+  if [[ " $a " == *" $ip "* ]]; then echo "Указывает на этот сервер: да"; else echo "Указывает на этот сервер: нет"; fi
+  echo "https://$d по DNS: $(curl -sS -o /dev/null -m 15 -w '%{http_code}' "https://$d/" 2>&1)"
+  echo "https://$d напрямую на этом сервере: $(curl -sSk -o /dev/null -m 15 -w '%{http_code}' --resolve "$d:443:$ip" "https://$d/" 2>&1)"
+  echo "Сертификат, который этот сервер отдаёт для $d:"
+  openssl s_client -connect "$ip:443" -servername "$d" </dev/null 2>/dev/null \
+    | openssl x509 -noout -subject -issuer -enddate -ext subjectAltName 2>&1 | sed 's/^/  /' || true
+}
+
 case $MODE in
   check)
     remote check
@@ -53,6 +71,7 @@ case $MODE in
       echo "== Отличия $f (сервер → репозиторий, не копируется)"
       ssh prod cat "$APP_DIR/$f" 2>/dev/null | diff -u - "$f" | head -120 || true
     done
+    if [ -n "${DOMAIN:-}" ]; then check_domain "$DOMAIN"; fi
     ;;
   deploy)
     remote backup

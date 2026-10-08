@@ -47,6 +47,10 @@ check)
   fi
   echo "== Фронтенд"
   ls -la --time-style=long-iso services/frontend/dist 2>&1 | head -6
+  echo "== Веб-сервер машины (80/443)"
+  for c in nginx caddy apache2 haproxy traefik; do command -v "$c" >/dev/null && echo "$c: $(command -v "$c")"; done
+  grep -rhoE '^[[:space:]]*server_name[^;]+' /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | sed 's/^[[:space:]]*//' | sort -u
+  [ -r /etc/caddy/Caddyfile ] && grep -vE '^[[:space:]]*(#|$)' /etc/caddy/Caddyfile | head -30
   ;;
 backup)
   need_dc

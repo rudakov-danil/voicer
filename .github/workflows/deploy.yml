@@ -18,6 +18,10 @@ on:
         description: "Сервисы для пересборки и перезапуска"
         type: string
         default: "dashboard-service dashboard-worker analytics-engine analytics-worker"
+      domain:
+        description: "Домен, который check проверяет: DNS, сертификат, ответ сервера"
+        type: string
+        default: "lk.voicer-ai.pro"
 
 concurrency:
   group: deploy-prod
@@ -33,6 +37,7 @@ jobs:
     env:
       APP_DIR: ${{ vars.DEPLOY_PATH || '/home/voicer/voiceiq' }}
       SERVICES: ${{ inputs.services }}
+      DOMAIN: ${{ inputs.domain }}
     steps:
       - uses: actions/checkout@v4
 
