@@ -2,7 +2,7 @@
 #   check   — состояние сервера, ничего не меняет
 #   backup  — pg_dump в ~/deploy-backups, хранятся последние 10
 #   apply   — сборка сервисов, миграции analytics-engine, перезапуск
-#   verify  — новые эндпоинты отвечают через nginx
+#   verify  — новые эндпоинты отвечают через nginx (без изменений на сервере)
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -14,8 +14,9 @@ elif [ -n "$D" ] && command -v docker-compose >/dev/null; then DC="${D%docker}do
 else DC=""; fi
 need_dc() { [ -n "$DC" ] || { echo "::error::У $(whoami) нет доступа к docker compose"; exit 1; }; }
 
-# Код ответа nginx на путь (busybox wget пишет заголовки в stderr)
-status() { $DC exec -T nginx wget -S -O /dev/null "http://localhost$1" 2>&1 | awk '/HTTP\//{print $2; exit}'; }
+# Код ответа nginx на путь (busybox wget пишет заголовки в stderr).
+# 127.0.0.1, а не localhost: в alpine localhost — это ещё и ::1, а nginx слушает только IPv4.
+status() { $DC exec -T nginx wget -S -O /dev/null "http://127.0.0.1$1" 2>&1 | awk '/HTTP\//{print $2; exit}'; }
 
 case $1 in
 check)

@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "check — только посмотреть, deploy — выкатить"
+        description: "check — только посмотреть, deploy — выкатить, verify — проверить выкаченное"
         type: choice
-        options: [check, deploy]
+        options: [check, deploy, verify]
         default: check
       services:
         description: "Сервисы для пересборки и перезапуска"

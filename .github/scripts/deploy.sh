@@ -3,6 +3,7 @@
 # Ждёт Host prod в ~/.ssh/config и собранный services/frontend/dist.
 #   deploy.sh check   — ничего не меняет на сервере
 #   deploy.sh deploy  — бэкап, файлы, сборка, миграции, перезапуск, фронтенд
+#   deploy.sh verify  — только проверка, что выкаченное отвечает
 set -euo pipefail
 
 MODE=${1:?check или deploy}
@@ -81,6 +82,9 @@ case $MODE in
     done
     remote apply
     rsync "${DIST[@]}" -i services/frontend/dist/ prod:"$APP_DIR/services/frontend/dist/"
+    remote verify
+    ;;
+  verify)
     remote verify
     ;;
   *)
