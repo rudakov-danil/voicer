@@ -49,8 +49,7 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> d
         "smart_format": "true",
         **_language_params(),
         "model": settings.DEEPGRAM_MODEL,
-        "diarize": "true",       # разделение на спикеров
-        "diarize_model": "latest",
+        "diarize_model": "latest",  # разделение на спикеров; вместе с diarize Deepgram отвечает 400
         "paragraphs": "true",    # группировка подряд идущих реплик одного спикера в крупные блоки
         "utterances": "true",    # сегментация на смысловые реплики (по паузам ≥0.8с) — fallback
     }
