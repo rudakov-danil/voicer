@@ -8,7 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.diarization import diarize_segments, identify_speaker_roles, roles_by_talk_time
+from app.diarization import (
+    diarize_segments, identify_speaker_roles, recheck_uncertain_speakers, roles_by_talk_time,
+)
 from app.llm_client import get_llm_client
 from app.models import Transcript, TranscriptSegment
 from app.rabbitmq import publish
@@ -74,9 +76,16 @@ async def process_diarize_message(
                     "start_ms": s.start_ms,
                     "end_ms": s.end_ms,
                     "speaker_id": s.speaker_id,
+                    "speaker_confidence": s.speaker_confidence,
                 }
                 for s in segments
             ]
+            # Где Deepgram не уверен в спикере (перебивания), LLM по смыслу решает, кто говорил.
+            # Исправленный спикер сохраняем: по нему считаются роли и строится диалог.
+            checked = await recheck_uncertain_speakers(seg_dicts, llm_client)
+            for seg, d, sid in zip(segments, seg_dicts, checked):
+                if sid != d["speaker_id"]:
+                    seg.speaker_id = d["speaker_id"] = sid
             unique_speaker_ids = {s["speaker_id"] for s in seg_dicts if s["speaker_id"] is not None}
             use_cluster = len(unique_speaker_ids) >= 2
             logger.info(

@@ -239,6 +239,119 @@ def roles_by_talk_time(segments: list[dict]) -> list[str]:
     ]
 
 
+# ─── Проверка спикера там, где Deepgram не уверен ────────────────────────────
+# Когда люди перебивают друг друга, Deepgram часто отдаёт реплику одного другому.
+# Такие абзацы парсер режет на предложения с низкой speaker_confidence; LLM по смыслу
+# решает, кто из уже найденных спикеров их сказал. Остальные реплики не трогаем.
+
+RECHECK_CONTEXT = 4  # соседних реплик с каждой стороны от сомнительной
+
+SPEAKER_RECHECK_SYSTEM_PROMPT = """Ты проверяешь, кто из участников разговора произнёс фразы в расшифровке.
+Голоса разделила система распознавания речи и пронумеровала спикеров. В строках с пометкой «?» она не уверена:
+так бывает, когда люди перебивают друг друга, и тогда фраза одного человека часто приписана другому.
+Начало ответа может оказаться в конце чужой реплики.
+
+Для каждой строки с «?» определи по смыслу, кто её сказал:
+- кто задал вопрос, а кто отвечает;
+- кто реагирует на ответ («ладно», «хорошо», «понятно»);
+- к кому обращаются по имени — это не тот, кто говорит;
+- кто продолжает свою мысль.
+Строки без «?» размечены надёжнее, опирайся на них. Выбирай только из перечисленных номеров спикеров.
+
+ФОРМАТ ОТВЕТА: только строки вида «номер строки: номер спикера», по одной на каждую строку с «?».
+Пример:
+5: 1
+6: 0
+БЕЗ комментариев и пояснений."""
+
+
+def uncertain_speaker_indexes(segments: list[dict]) -> list[int]:
+    """Реплики, в спикере которых Deepgram не уверен."""
+    return [
+        i for i, s in enumerate(segments)
+        if s.get("speaker_id") is not None and s.get("speaker_confidence") is not None
+        and float(s["speaker_confidence"]) < settings.SPEAKER_CONFIDENCE_MIN
+    ]
+
+
+def build_speaker_recheck_prompt(segments: list[dict], uncertain: list[int]) -> str:
+    """Сомнительные реплики с соседями; далёкие куски разговора заменяются на «…»."""
+    shown = sorted({
+        j for i in uncertain
+        for j in range(max(0, i - RECHECK_CONTEXT), min(len(segments), i + RECHECK_CONTEXT + 1))
+    })
+    marked = set(uncertain)
+    speakers = sorted({s["speaker_id"] for s in segments if s.get("speaker_id") is not None})
+    lines = []
+    prev = -1
+    for j in shown:
+        if j != prev + 1:
+            lines.append("…")
+        s = segments[j]
+        who = "?" if s.get("speaker_id") is None else f"спикер {s['speaker_id']}"
+        lines.append(f"[{j}] {who}{' ?' if j in marked else ''}: {(s.get('text') or '').strip()}")
+        prev = j
+    if prev != len(segments) - 1:
+        lines.append("…")
+    return (
+        f"Спикеры: {', '.join(map(str, speakers))}\n\n"
+        + "\n".join(lines)
+        + f"\n\nСтроки с «?»: {', '.join(map(str, uncertain))}. Кто их сказал?"
+    )
+
+
+def parse_speaker_recheck(raw: str, uncertain: list[int], speakers: set[int]) -> dict[int, int]:
+    """«5: 1» → {5: 1}. Только сомнительные строки и только известные спикеры."""
+    allowed = set(uncertain)
+    out: dict[int, int] = {}
+    for line_no, sid in re.findall(r"\[?(\d+)\]?\s*[:=—–-]+\s*(?:спикер\s*)?(\d+)", raw or "", re.IGNORECASE):
+        i, s = int(line_no), int(sid)
+        if i in allowed and s in speakers:
+            out[i] = s
+    return out
+
+
+async def recheck_uncertain_speakers(segments: list[dict], llm_client) -> list[int | None]:
+    """Спикер каждой реплики после проверки сомнительных через LLM.
+    Если сомнительных нет, спикер один или LLM не ответил — спикеры Deepgram как есть."""
+    current = [s.get("speaker_id") for s in segments]
+    speakers = {sid for sid in current if sid is not None}
+    uncertain = uncertain_speaker_indexes(segments)
+    if not uncertain or len(speakers) < 2:
+        return current
+
+    user_prompt = build_speaker_recheck_prompt(segments, uncertain)
+    for attempt in range(2):
+        try:
+            response = await _create_no_reasoning(
+                llm_client,
+                model=settings.LLM_MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SPEAKER_RECHECK_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+                timeout=120,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+            logger.info(f"Speaker recheck response: {raw[:200]!r}")
+            answer = parse_speaker_recheck(raw, uncertain, speakers)
+            if answer:
+                break
+        except Exception as e:
+            logger.warning(f"Speaker recheck error (attempt {attempt + 1}/2): {e}")
+    else:
+        logger.warning(f"Speaker recheck gave no usable answer for {len(uncertain)} segments, keeping Deepgram speakers")
+        return current
+
+    changed = {i: (current[i], sid) for i, sid in answer.items() if current[i] != sid}
+    logger.info(
+        f"Speaker recheck: uncertain={len(uncertain)}, answered={len(answer)}, changed={len(changed)} "
+        + " ".join(f"#{i}:{a}->{b}" for i, (a, b) in sorted(changed.items()))
+    )
+    return [answer.get(i, sid) for i, sid in enumerate(current)]
+
+
 # Если разговор длиннее этого — фолбэк на чанкинг (страховка от переполнения контекста LLM).
 # 250 сегментов это примерно 15-25 минут непрерывного диалога.
 DIARIZE_SINGLE_PASS_LIMIT = 250

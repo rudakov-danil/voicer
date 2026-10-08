@@ -38,6 +38,7 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> d
         "text": str,
         "avg_logprob": float | None,
         "speaker": int | None,    # ID акустического кластера говорящего (0, 1, 2, ...)
+        "speaker_confidence": float | None,  # уверенность Deepgram в спикере (0..1)
     }
     Таймаут: 1800 секунд (для длинных файлов).
     """
@@ -94,25 +95,38 @@ def _parse_deepgram_response(payload: dict) -> dict:
     segments: list[dict] = []
 
     # 1. paragraphs — приоритет. Каждый параграф = один speaker + цельный блок текста.
+    #    Если Deepgram не уверен в спикере абзаца (обычно люди перебивают друг друга),
+    #    абзац режется на предложения: diarize-worker проверит их через LLM.
     paragraphs_obj = alt.get("paragraphs") or {}
+    words = alt.get("words") or []
     for paragraph in paragraphs_obj.get("paragraphs") or []:
         par_speaker = paragraph.get("speaker")
-        # Склеиваем все sentences параграфа в один текст
-        sents = paragraph.get("sentences") or []
+        speaker = int(par_speaker) if par_speaker is not None else None
+        sents = [s for s in paragraph.get("sentences") or [] if (s.get("text") or "").strip()]
         if not sents:
             continue
-        text = " ".join((s.get("text") or "").strip() for s in sents).strip()
-        if not text:
+        par_words = _paragraph_words(paragraph, sents, words)
+        confidence = _speaker_confidence(par_words)
+        if confidence is not None and confidence < settings.SPEAKER_CONFIDENCE_MIN:
+            for sent, sent_words in zip(sents, _split_by_sentences(sents, par_words)):
+                segments.append({
+                    "start": float(sent.get("start", 0.0)),
+                    "end": float(sent.get("end", 0.0)),
+                    "text": sent["text"].strip(),
+                    "avg_logprob": None,
+                    "speaker": speaker,
+                    "speaker_confidence": _speaker_confidence(sent_words),
+                })
             continue
-        # Берём start/end либо из самого параграфа, либо из крайних sentences
         start = paragraph.get("start", sents[0].get("start", 0.0))
         end = paragraph.get("end", sents[-1].get("end", 0.0))
         segments.append({
             "start": float(start),
             "end": float(end),
-            "text": text,
+            "text": " ".join(s["text"].strip() for s in sents),
             "avg_logprob": None,
-            "speaker": int(par_speaker) if par_speaker is not None else None,
+            "speaker": speaker,
+            "speaker_confidence": confidence,
         })
 
     # 2. utterances — fallback если paragraphs пуст
@@ -143,9 +157,11 @@ def _parse_deepgram_response(payload: dict) -> dict:
         })
 
     speakers = sorted({s["speaker"] for s in segments if s.get("speaker") is not None})
+    uncertain = sum(1 for s in segments
+                    if s.get("speaker_confidence") is not None and s["speaker_confidence"] < settings.SPEAKER_CONFIDENCE_MIN)
     logger.info(
         f"Deepgram parsed: {len(segments)} segments, speakers={speakers if speakers else 'none'}, "
-        f"language={language}, total_text={len(full_text)}ch"
+        f"uncertain_speaker={uncertain}, language={language}, total_text={len(full_text)}ch"
     )
 
     return {
@@ -153,3 +169,35 @@ def _parse_deepgram_response(payload: dict) -> dict:
         "language": language,
         "segments": segments,
     }
+
+
+def _paragraph_words(paragraph: dict, sents: list[dict], words: list[dict]) -> list[dict]:
+    """Слова абзаца: тот же спикер и начало внутри абзаца.
+    Абзацы разных спикеров могут пересекаться по времени, поэтому сверяем и спикера."""
+    start = float(paragraph.get("start", sents[0].get("start", 0.0)))
+    end = float(paragraph.get("end", sents[-1].get("end", 0.0)))
+    speaker = paragraph.get("speaker")
+    return [
+        w for w in words
+        if w.get("speaker") == speaker and start - 0.01 <= float(w.get("start", 0.0)) <= end + 0.01
+    ]
+
+
+def _split_by_sentences(sents: list[dict], words: list[dict]) -> list[list[dict]]:
+    """Слова по предложениям: слово относится к предложению, если началось раньше следующего."""
+    out: list[list[dict]] = []
+    i = 0
+    for k in range(len(sents)):
+        next_start = float(sents[k + 1].get("start", 0.0)) if k + 1 < len(sents) else float("inf")
+        chunk = []
+        while i < len(words) and float(words[i].get("start", 0.0)) < next_start:
+            chunk.append(words[i])
+            i += 1
+        out.append(chunk)
+    return out
+
+
+def _speaker_confidence(words: list[dict]) -> float | None:
+    """Средняя уверенность Deepgram в спикере по словам; None, если Deepgram её не прислал."""
+    values = [float(w["speaker_confidence"]) for w in words if w.get("speaker_confidence") is not None]
+    return round(sum(values) / len(values), 3) if values else None

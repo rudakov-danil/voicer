@@ -169,6 +169,7 @@ async def _transcribe_and_enqueue(
                     "start_ms": start_ms,
                     "end_ms": end_ms,
                     "speaker": seg.get("speaker"),  # ID кластера говорящего от Deepgram
+                    "speaker_confidence": seg.get("speaker_confidence"),
                 })
 
         if not segments and full_text:
@@ -206,9 +207,11 @@ async def _transcribe_and_enqueue(
                 seg_id = uuid.uuid4()
                 await db.execute(text("""
                     INSERT INTO transcription.transcript_segments
-                        (id, transcript_id, speaker_role, speaker_id, text, start_ms, end_ms, segment_index)
+                        (id, transcript_id, speaker_role, speaker_id, speaker_confidence,
+                         text, start_ms, end_ms, segment_index)
                     VALUES
-                        (:id, :t_id, :role, :speaker_id, :text, :start_ms, :end_ms, :idx)
+                        (:id, :t_id, :role, :speaker_id, :speaker_confidence,
+                         :text, :start_ms, :end_ms, :idx)
                 """), {
                     "id": seg_id,
                     "t_id": transcript_id,
@@ -218,6 +221,7 @@ async def _transcribe_and_enqueue(
                     "idx": idx,
                     "role": "unknown",
                     "speaker_id": seg.get("speaker"),
+                    "speaker_confidence": seg.get("speaker_confidence"),
                 })
 
             await db.execute(text("""

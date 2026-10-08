@@ -1,4 +1,5 @@
 import logging
+import sys
 
 from openai import AsyncOpenAI, BadRequestError
 
@@ -30,20 +31,46 @@ def get_llm_client() -> AsyncOpenAI:
 
 def _without_thinking(create):
     """Все запросы к модели — без рассуждений (thinking): reasoning.enabled=false для OpenRouter.
-    Если провайдер этот параметр не принимает, один раз запоминаем и дальше шлём без него."""
+    Если провайдер этот параметр не принимает, один раз запоминаем и дальше шлём без него.
+    Расход токенов каждого запроса пишется в лог строкой «LLM usage»."""
     supported = True
 
     async def wrapper(*args, **kwargs):
         nonlocal supported
+        step = _caller()
         if settings.LLM_DISABLE_THINKING and supported:
             extra = {**(kwargs.get("extra_body") or {}), "reasoning": {"enabled": False}}
             try:
-                return await create(*args, **{**kwargs, "extra_body": extra})
+                return _log_usage(step, await create(*args, **{**kwargs, "extra_body": extra}))
             except BadRequestError as e:
                 if "reasoning" not in str(e):
                     raise
                 supported = False
                 logger.warning("Provider rejected reasoning=disabled; sending requests without it")
-        return await create(*args, **kwargs)
+        return _log_usage(step, await create(*args, **kwargs))
 
     return wrapper
+
+
+def _caller() -> str:
+    """Функция, из которой пришёл запрос к модели, — чтобы считать токены по этапам."""
+    try:
+        f = sys._getframe(2)
+    except ValueError:
+        return "?"
+    while f is not None and f.f_code.co_name.startswith("_create"):
+        f = f.f_back
+    return f.f_code.co_name if f is not None else "?"
+
+
+def _log_usage(step: str, response):
+    u = getattr(response, "usage", None)
+    if u is not None:
+        details = getattr(u, "completion_tokens_details", None)
+        logger.info(
+            "LLM usage: step=%s model=%s prompt=%s completion=%s reasoning=%s total=%s cost=%s",
+            step, getattr(response, "model", "?"), getattr(u, "prompt_tokens", None),
+            getattr(u, "completion_tokens", None), getattr(details, "reasoning_tokens", None),
+            getattr(u, "total_tokens", None), getattr(u, "cost", None),
+        )
+    return response

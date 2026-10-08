@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.diarization import diarize_segments, roles_by_talk_time, segment_conversations
+from app.diarization import (
+    build_speaker_recheck_prompt, diarize_segments, parse_speaker_recheck, recheck_uncertain_speakers,
+    roles_by_talk_time, segment_conversations, uncertain_speaker_indexes,
+)
 
 
 def make_mock_llm(response_content: str):
@@ -115,3 +118,62 @@ def test_roles_by_talk_time_single_or_no_speaker():
     assert roles_by_talk_time(one) == ["seller"]
     none = [{"text": "а", "start_ms": 0, "end_ms": 500, "speaker_id": None}]
     assert roles_by_talk_time(none) == ["unknown"]
+
+
+# Перебивание: «Я думаю…» и «Ладно, хорошо…» Deepgram отдал одному спикеру с низкой уверенностью
+INTERRUPTED = [
+    {"text": "Здравствуйте, проверяем запись.", "speaker_id": 0, "speaker_confidence": 1.0},
+    {"text": "А если они будут перебивать друг друга? Не,", "speaker_id": 1, "speaker_confidence": 1.0},
+    {"text": "Я думаю, вообще без проблем будет.", "speaker_id": 2, "speaker_confidence": 0.77},
+    {"text": "Ладно, хорошо, мы сейчас проверим эту гипотезу.", "speaker_id": 2, "speaker_confidence": 0.75},
+    {"text": "Хорошо.", "speaker_id": 2, "speaker_confidence": 0.99},
+]
+
+
+def test_uncertain_speaker_indexes_below_threshold_only():
+    segs = INTERRUPTED + [{"text": "шум", "speaker_id": None, "speaker_confidence": 0.1},
+                          {"text": "старая запись", "speaker_id": 1, "speaker_confidence": None}]
+    assert uncertain_speaker_indexes(segs) == [2, 3]
+
+
+def test_speaker_recheck_prompt_marks_uncertain_lines():
+    prompt = build_speaker_recheck_prompt(INTERRUPTED, [2, 3])
+    assert "Спикеры: 0, 1, 2" in prompt
+    assert "[2] спикер 2 ?: Я думаю" in prompt
+    assert "[1] спикер 1: А если" in prompt
+    assert "Строки с «?»: 2, 3" in prompt
+
+
+def test_speaker_recheck_prompt_skips_far_lines():
+    segs = [{"text": f"реплика {i}", "speaker_id": i % 2, "speaker_confidence": 1.0} for i in range(20)]
+    segs[10]["speaker_confidence"] = 0.5
+    prompt = build_speaker_recheck_prompt(segs, [10])
+    assert "[5]" not in prompt and "[6] " in prompt and "[14] " in prompt and "[15]" not in prompt
+    assert prompt.count("…") == 2
+
+
+def test_parse_speaker_recheck_ignores_unknown_lines_and_speakers():
+    raw = "2: 2\n3: спикер 1\n4: 0\n3 - 7"
+    assert parse_speaker_recheck(raw, [2, 3], {0, 1, 2}) == {2: 2, 3: 1}
+
+
+@pytest.mark.asyncio
+async def test_recheck_uncertain_speakers_moves_reply_to_other_speaker():
+    llm = make_mock_llm("2: 2\n3: 1")
+    assert await recheck_uncertain_speakers(INTERRUPTED, llm) == [0, 1, 2, 1, 2]
+    llm.chat.completions.create.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_recheck_uncertain_speakers_keeps_deepgram_on_bad_answer():
+    llm = make_mock_llm("не знаю")
+    assert await recheck_uncertain_speakers(INTERRUPTED, llm) == [0, 1, 2, 2, 2]
+    assert llm.chat.completions.create.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_recheck_uncertain_speakers_no_llm_when_confident():
+    llm = make_mock_llm("")
+    confident = [dict(s, speaker_confidence=1.0) for s in INTERRUPTED]
+    assert await recheck_uncertain_speakers(confident, llm) == [0, 1, 2, 2, 2]
+    llm.chat.completions.create.assert_not_called()

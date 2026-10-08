@@ -13,6 +13,7 @@
 #   roles-compare — роли по репликам: сохранённые, по Deepgram и от LLM
 #   deepgram-words — сырой ответ Deepgram по записи: абзацы, utterances, слова (лог удалить после чтения)
 #   deepgram-compare — запись в вариантах nova-3 / whisper / whisper-large (лог удалить после чтения)
+#   llm-usage — расход токенов LLM по строкам «LLM usage» за 30 минут
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -27,6 +28,31 @@ need_dc() { [ -n "$DC" ] || { echo "::error::У $(whoami) нет доступа 
 # Код ответа nginx на путь (busybox wget пишет заголовки в stderr).
 # 127.0.0.1, а не localhost: в alpine localhost — это ещё и ::1, а nginx слушает только IPv4.
 status() { $DC exec -T nginx wget -S -O /dev/null "http://127.0.0.1$1" 2>&1 | awk '/HTTP\//{print $2; exit}'; }
+
+# Расход токенов по строкам «LLM usage» воркеров с момента $1 (время или длительность для docker logs --since)
+llm_usage() {
+  local svc
+  for svc in diarize-worker analytics-worker analytics-engine transcription-worker; do
+    $DC logs --since "$1" --no-log-prefix "$svc" 2>/dev/null | grep -F "LLM usage:" | sed "s/^/$svc /" || true
+  done | awk '
+    { svc = $1; step = "?"; p = c = t = 0; cost = ""
+      for (i = 2; i <= NF; i++) {
+        split($i, kv, "=")
+        if (kv[1] == "step") step = kv[2]
+        else if (kv[1] == "prompt") p = kv[2]
+        else if (kv[1] == "completion") c = kv[2]
+        else if (kv[1] == "total") t = kv[2]
+        else if (kv[1] == "cost" && kv[2] != "None") cost = kv[2]
+      }
+      printf "  %-17s %-28s вход %6d  выход %5d  всего %6d  %s\n", svc, step, p, c, t, (cost == "" ? "" : "$" cost)
+      P += p; C += c; T += t; n++
+      if (cost != "") { S += cost; priced = 1 }
+    }
+    END {
+      if (!n) { print "  Строк «LLM usage» нет"; exit }
+      printf "Итого: запросов %d, вход %d, выход %d, всего %d токенов%s\n", n, P, C, T, (priced ? sprintf(", $%.5f", S) : "")
+    }'
+}
 
 case $1 in
 check)
@@ -55,6 +81,8 @@ check)
     $DC ps
     echo "== Миграция analytics-engine"
     $DC exec -T analytics-engine alembic current 2>&1 | tail -2
+    echo "== Миграция transcription"
+    $DC exec -T transcription-service alembic current 2>&1 | tail -2
   fi
   echo "== Фронтенд"
   ls -la --time-style=long-iso services/frontend/dist 2>&1 | head -6
@@ -83,6 +111,15 @@ apply)
   need_dc
   $DC build $SERVICES
   $DC run --rm -T analytics-engine alembic upgrade head
+  # Схема transcription — из образа первого выкатываемого сервиса services/transcription-service.
+  # Её колонки пишет и recorder-service, поэтому его выкатываем вместе с ними.
+  for s in $SERVICES; do
+    case $s in
+      transcription-service|transcription-worker|diarize-worker)
+        $DC run --rm -T "$s" alembic upgrade head
+        break ;;
+    esac
+  done
   $DC up -d $SERVICES
   # nginx запоминает адреса контейнеров при старте: после пересоздания перезапускаем
   $DC restart nginx
@@ -343,7 +380,9 @@ PY
 reupload)
   # Копия записи как новая загрузка: новый id, аудио копируется в MinIO, время — сейчас.
   # Исходная запись не меняется. REANALYZE: id записей или «--latest N».
+  # В конце — реплики без текста (спикер, уверенность, роль) и расход токенов LLM за прогон.
   need_dc
+  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   $DC exec -T -e REANALYZE="$REANALYZE" recorder-service python - <<'PY' || true
 import asyncio, os, re, time, uuid
 from datetime import date, datetime, timezone
@@ -419,11 +458,58 @@ async def main():
             print(f"Готово: новая запись {d.recording_id} (копия {copies[d.recording_id]}): язык {d.language}, "
                   f"спикеров Deepgram {d.speakers}, роли {d.roles}; исход {d.outcome}, балл {score}, тема «{d.topic or '—'}»")
             pending.discard(d.recording_id)
+            async with async_session_maker() as db:
+                segs = (await db.execute(text("""
+                    SELECT s.segment_index, s.start_ms, s.end_ms, s.speaker_id, s.speaker_confidence, s.speaker_role
+                    FROM transcription.transcript_segments s JOIN transcription.transcripts t ON t.id = s.transcript_id
+                    WHERE t.recording_id = :id ORDER BY 1"""), {"id": d.recording_id})).all()
+            for g in segs:
+                conf = f"{float(g.speaker_confidence):.2f}" if g.speaker_confidence is not None else "—"
+                print(f"  #{g.segment_index:<2} {g.start_ms / 1000:6.2f}-{g.end_ms / 1000:6.2f} с  спикер {g.speaker_id}  "
+                      f"уверенность {conf:>4}  {g.speaker_role}")
     for rid in pending:
         print(f"Не дождался анализа за 5 минут: новая запись {rid}")
 
 asyncio.run(main())
 PY
+  echo "== Резюме по кнопке на последнем разговоре: только подсчёт, не сохраняется"
+  $DC exec -T analytics-engine python - <<'PY' 2>&1 | grep -v Warning || true
+import asyncio, logging
+from sqlalchemy import text
+from app.config import settings
+from app.database import async_session_maker
+from app.llm_client import get_llm_client
+from app.prompt_builder import build_summary_prompt
+
+async def summary_on_click():
+    async with async_session_maker() as db:
+        c = (await db.execute(text("SELECT id, recording_id FROM analytics.conversations ORDER BY analyzed_at DESC LIMIT 1"))).first()
+        rows = (await db.execute(text("""
+            SELECT ts.speaker_role, ts.text, ts.start_ms FROM transcription.transcripts t
+            JOIN transcription.transcript_segments ts ON ts.transcript_id = t.id
+            WHERE t.recording_id = :r ORDER BY ts.segment_index"""), {"r": c.recording_id})).all()
+        ctx = (await db.execute(text("SELECT source, call_direction FROM recorder.recordings WHERE id = :r"),
+                                {"r": c.recording_id})).first()
+    system, user = build_summary_prompt(
+        [{"speaker_role": r.speaker_role, "text": r.text, "start_ms": r.start_ms or 0} for r in rows],
+        {"source": ctx.source, "call_direction": ctx.call_direction} if ctx else None)
+    r = await get_llm_client().chat.completions.create(
+        model=settings.LLM_MODEL_NAME, temperature=0.2, timeout=settings.LLM_GENERAL_TIMEOUT,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+    print(f"Разговор {c.id}: резюме {len(r.choices[0].message.content or '')} символов")
+
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("app.llm_client").setLevel(logging.INFO)
+asyncio.run(summary_on_click())
+PY
+  echo "== Расход токенов LLM за прогон (с $since UTC)"
+  llm_usage "$since"
+  echo "== Проверка спикеров в diarize-worker"
+  $DC logs --since "$since" --no-log-prefix diarize-worker 2>&1 | grep -E "Speaker recheck|Roles by|error" | cut -c1-200 || true
+  ;;
+llm-usage)
+  need_dc
+  llm_usage 30m
   ;;
 roles-compare)
   # Роли по репликам: сохранённые, по правилу Deepgram (дольше всех говорит — продавец) и от LLM. Без текста
