@@ -71,7 +71,7 @@ export function StoreConversion({ trends }: { trends?: TrendsData }) {
           {w > 0 && trends && (
             <svg width={w} height={H} viewBox={`0 0 ${w} ${H}`} role="img" aria-label={L('Конверсия магазинов по неделям', 'Store conversion by week')}>
               {grid.map((v) => (
-                <g key={v}><line x1={34} x2={w - right} y1={Y(v)} y2={Y(v)} className="lc-grid" /><text x={0} y={Y(v) + 4} className="lc-lbl">{Math.round(v)} %</text></g>
+                <g key={v}><line x1={34} x2={w - right} y1={Y(v)} y2={Y(v)} className="lc-grid" /><text x={0} y={Y(v) + 4} className="lc-lbl">{L(`${Math.round(v)} %`, `${Math.round(v)}%`)}</text></g>
               ))}
               {stores.map((s) => {
                 const d = s.conv.map((v, i) => (v != null ? [X(i), Y(v)] : null)).filter(Boolean)
@@ -326,15 +326,18 @@ export function TalkScatter({ data }: { data?: InsightsData }) {
               <rect x={X(Math.max(40, x0))} y={top} width={X(Math.min(60, x1)) - X(Math.max(40, x0))} height={H - top - bottom} className="ts-norm" />
               <text x={X(Math.max(40, x0)) + 6} y={top + 14} className="ts-norm-lbl">{t('Норма 40–60 %')}</text>
               {[y0, (y0 + y1) / 2, y1].map((v) => (
-                <g key={v}><line x1={left} x2={w - right} y1={Y(v)} y2={Y(v)} className="lc-grid" /><text x={0} y={Y(v) + 4} className="lc-lbl">{Math.round(v)} %</text></g>
+                <g key={v}><line x1={left} x2={w - right} y1={Y(v)} y2={Y(v)} className="lc-grid" /><text x={0} y={Y(v) + 4} className="lc-lbl">{L(`${Math.round(v)} %`, `${Math.round(v)}%`)}</text></g>
               ))}
               {[x0, (x0 + x1) / 2, x1].map((v) => (
-                <text key={v} x={X(v)} y={H - 6} textAnchor="middle" className="lc-lbl">{Math.round(v)} %</text>
+                <text key={v} x={X(v)} y={H - 6} textAnchor="middle" className="lc-lbl">{L(`${Math.round(v)} %`, `${Math.round(v)}%`)}</text>
               ))}
               {trend && <line x1={X(x0)} y1={Y(Math.max(y0, Math.min(y1, trend.k * x0 + trend.b)))} x2={X(x1)} y2={Y(Math.max(y0, Math.min(y1, trend.k * x1 + trend.b)))} className="ts-trend" />}
               {pts.map((p) => (
                 <g key={p.seller_id}>
-                  <title>{`${p.name}: ${L('говорит', 'talks')} ${Math.round(p.talk_share)} %, ${L('конверсия', 'conversion')} ${Math.round(p.conversion!)} %, ${p.conversations} ${plural(p.conversations, ['разговор', 'разговора', 'разговоров'], ['conversation', 'conversations'])}`}</title>
+                  <title>{L(
+                    `${p.name}: говорит ${Math.round(p.talk_share)} %, конверсия ${Math.round(p.conversion!)} %, ${p.conversations} ${plural(p.conversations, ['разговор', 'разговора', 'разговоров'], ['', ''])}`,
+                    `${p.name}: talks ${Math.round(p.talk_share)}%, conversion ${Math.round(p.conversion!)}%, ${p.conversations} conversation${p.conversations === 1 ? '' : 's'}`,
+                  )}</title>
                   <circle cx={X(p.talk_share)} cy={Y(p.conversion!)} r={4.5} className="ts-dot" />
                   <text x={X(p.talk_share) + 8} y={Y(p.conversion!) + 4} className="ts-lbl" {...NO_TR}>{short(p.name)}</text>
                 </g>
