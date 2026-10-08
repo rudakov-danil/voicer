@@ -8,6 +8,7 @@
 #   deepgram-test — распознавание примера Deepgram кодом recorder-service
 #   logs    — ошибки сервисов $SERVICES за 30 минут, очереди, последние записи
 #   rediarize — записи ($REANALYZE) или застрявшие за сутки снова в диаризацию и анализ
+#   reprocess — записи ($REANALYZE) с нуля: Deepgram, диаризация, анализ
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -258,6 +259,81 @@ conv-info)
            (SELECT count(*) FROM analytics.conversation_script_results r WHERE r.conversation_id = c.id) AS scripts,
            (SELECT count(*) FROM analytics.conversation_scores sc WHERE sc.conversation_id = c.id) AS step_scores
     FROM analytics.conversations c ORDER BY c.analyzed_at DESC LIMIT 4" 2>&1 || true
+  ;;
+reprocess)
+  # Запись с нуля, как новая загрузка: аудио из MinIO -> Deepgram -> диаризация -> анализ.
+  # REANALYZE: id записей или «--latest N». Старая расшифровка удаляется, разговор пересоздаёт анализ.
+  need_dc
+  $DC exec -T -e REANALYZE="$REANALYZE" recorder-service python - <<'PY' || true
+import asyncio, os, re, time, uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from sqlalchemy import text
+from app.database import async_session_maker
+from app.deepgram_client import _language_params
+from app.minio_client import download_bytes
+from app.rabbitmq import close as rabbitmq_close
+from app.routers.upload import BUCKET, _transcribe_and_enqueue
+
+COLS = "id, organization_id, store_id, seller_id, session_date, audio_path, source, created_at"
+
+async def main():
+    arg = os.environ.get("REANALYZE", "")
+    ids = [uuid.UUID(x) for x in re.findall(r"[0-9a-f-]{36}", arg)]
+    m = re.search(r"--latest (\d+)", arg)
+    async with async_session_maker() as db:
+        if ids:
+            rows = (await db.execute(text(f"SELECT {COLS} FROM recorder.recordings WHERE id = ANY(:ids)"), {"ids": ids})).all()
+        else:
+            rows = (await db.execute(text(f"SELECT {COLS} FROM recorder.recordings ORDER BY created_at DESC LIMIT :n"),
+                                     {"n": int(m.group(1)) if m else 1})).all()
+    if not rows:
+        print("Записи не найдены")
+        return
+    started = datetime.now(timezone.utc)
+    print(f"Deepgram: {_language_params()}")
+    for r in rows:
+        obj = r.audio_path[len(BUCKET) + 1:] if r.audio_path.startswith(BUCKET + "/") else r.audio_path
+        audio = await asyncio.to_thread(download_bytes, BUCKET, obj)
+        ext = Path(obj).suffix or ".wav"
+        async with async_session_maker() as db:
+            await db.execute(text("DELETE FROM transcription.transcripts WHERE recording_id = :id"), {"id": r.id})
+            await db.execute(text("UPDATE recorder.recordings SET status = 'processing', updated_at = now() WHERE id = :id"), {"id": r.id})
+            await db.commit()
+        print(f"Заново: запись {r.id} ({r.source}, загружена {r.created_at:%Y-%m-%d %H:%M} UTC, {len(audio)} байт, {ext})")
+        await _transcribe_and_enqueue(r.id, audio, ext, str(r.organization_id), str(r.store_id),
+                                      str(r.seller_id), str(r.session_date), r.audio_path)
+    await rabbitmq_close()
+
+    pending = {r.id for r in rows}
+    deadline = time.monotonic() + 300
+    while pending and time.monotonic() < deadline:
+        await asyncio.sleep(10)
+        async with async_session_maker() as db:
+            done = (await db.execute(text("""
+                SELECT c.recording_id, c.outcome, c.overall_score, c.topic, t.language,
+                       (SELECT string_agg(x.r || ':' || x.n, ' ') FROM (
+                          SELECT s.speaker_role r, count(*) n FROM transcription.transcript_segments s
+                          WHERE s.transcript_id = t.id GROUP BY 1) x) AS roles,
+                       (SELECT count(DISTINCT s.speaker_id) FROM transcription.transcript_segments s
+                          WHERE s.transcript_id = t.id) AS speakers
+                FROM analytics.conversations c JOIN transcription.transcripts t ON t.id = c.transcript_id
+                WHERE c.recording_id = ANY(:ids) AND c.analyzed_at > :t"""), {"ids": list(pending), "t": started})).all()
+        for d in done:
+            score = f"{float(d.overall_score):.0f}" if d.overall_score is not None else "—"
+            print(f"Готово: запись {d.recording_id}: язык {d.language}, спикеров Deepgram {d.speakers}, роли {d.roles}; "
+                  f"исход {d.outcome}, балл {score}, тема «{d.topic or '—'}»")
+            pending.discard(d.recording_id)
+    for rid in pending:
+        print(f"Не дождался анализа за 5 минут: запись {rid}")
+
+asyncio.run(main())
+PY
+  echo "== recorder-service, diarize-worker, analytics-worker: ошибки за 10 минут"
+  for svc in recorder-service diarize-worker analytics-worker; do
+    $DC logs --since 10m --no-log-prefix "$svc" 2>&1 \
+      | grep -iE 'error|exception|traceback|denied|forbidden|40[013]|failed' | cut -c1-240 | tail -15 || true
+  done
   ;;
 logs)
   # Ошибки сервисов за 30 минут, очереди и последние записи. Строки обрезаем: в логах бывает текст разговоров
