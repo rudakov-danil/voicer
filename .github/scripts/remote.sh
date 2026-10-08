@@ -7,7 +7,7 @@
 #   llm-test — тестовый запрос к модели с текущими настройками .env
 #   deepgram-test — распознавание примера Deepgram кодом recorder-service
 #   logs    — ошибки сервисов $SERVICES за 30 минут, очереди, последние записи
-#   rediarize — застрявшие до диаризации записи за сутки снова в очередь
+#   rediarize — записи ($REANALYZE) или застрявшие за сутки снова в диаризацию и анализ
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -182,49 +182,59 @@ asyncio.run(main())
 PY
   ;;
 rediarize)
-  # Записи, застрявшие до диаризации за последние сутки, заново в queue.diarize; ждём до 3 минут
+  # REANALYZE с id записей — эти записи; иначе застрявшие до диаризации за сутки.
+  # Диаризация сама ставит анализ; ждём новый разговор до 5 минут.
   need_dc
-  $DC exec -T diarize-worker python - <<'PY' || true
-import asyncio, time
+  $DC exec -T -e REANALYZE="$REANALYZE" diarize-worker python - <<'PY' || true
+import asyncio, os, re, time, uuid
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select
+from sqlalchemy import select, text
 from app.database import async_session_maker
 from app.models import Transcript
 from app import rabbitmq
 
 async def main():
-    since = datetime.now(timezone.utc) - timedelta(days=1)
+    ids = [uuid.UUID(x) for x in re.findall(r"[0-9a-f-]{36}", os.environ.get("REANALYZE", ""))]
+    started = datetime.now(timezone.utc)
     async with async_session_maker() as db:
-        rows = (await db.execute(
-            select(Transcript).where(Transcript.status == "transcribed", Transcript.created_at >= since)
-            .order_by(Transcript.created_at.desc())
-        )).scalars().all()
+        q = select(Transcript)
+        if ids:
+            q = q.where(Transcript.recording_id.in_(ids))
+        else:
+            q = q.where(Transcript.status == "transcribed", Transcript.created_at >= started - timedelta(days=1))
+        rows = (await db.execute(q.order_by(Transcript.created_at.desc()))).scalars().all()
     if not rows:
-        print("Застрявших записей за сутки нет")
+        print("Записей для диаризации нет")
         return
     for t in rows:
-        print(f"В очередь диаризации: запись {t.recording_id}, расшифровка от {t.created_at:%Y-%m-%d %H:%M} UTC")
+        print(f"В очередь диаризации: запись {t.recording_id} ({t.status}), расшифровка от {t.created_at:%Y-%m-%d %H:%M} UTC")
         await rabbitmq.publish("queue.diarize", {
             "recording_id": str(t.recording_id), "transcript_id": str(t.id), "seller_id": str(t.seller_id),
             "store_id": str(t.store_id), "organization_id": str(t.organization_id),
         })
     await rabbitmq.close()
-    ids = [t.id for t in rows]
-    deadline = time.monotonic() + 180
-    while time.monotonic() < deadline:
-        await asyncio.sleep(5)
+    pending = {t.recording_id for t in rows}
+    deadline = time.monotonic() + 300
+    while pending and time.monotonic() < deadline:
+        await asyncio.sleep(10)
         async with async_session_maker() as db:
-            left = (await db.execute(select(Transcript.id).where(Transcript.id.in_(ids), Transcript.status == "transcribed"))).all()
-        if not left:
-            print("Диаризация прошла, записи ушли в анализ")
-            return
-    print(f"За 3 минуты не прошли диаризацию: {len(left)}")
+            done = (await db.execute(text(
+                "SELECT recording_id, outcome, overall_score, topic FROM analytics.conversations "
+                "WHERE recording_id = ANY(:ids) AND analyzed_at > :t"), {"ids": list(pending), "t": started})).all()
+        for r in done:
+            score = f"{float(r.overall_score):.0f}" if r.overall_score is not None else "—"
+            print(f"Готово: запись {r.recording_id}: исход {r.outcome}, балл {score}, тема «{r.topic or '—'}»")
+            pending.discard(r.recording_id)
+    for rid in pending:
+        print(f"Не дождался анализа за 5 минут: запись {rid}")
 
 asyncio.run(main())
 PY
-  echo "== diarize-worker: ошибки за 5 минут"
-  $DC logs --since 5m --no-log-prefix diarize-worker 2>&1 \
-    | grep -iE 'error|exception|traceback|denied|forbidden|40[13]|failed' | cut -c1-240 | tail -20 || true
+  echo "== diarize-worker и analytics-worker: ошибки за 10 минут"
+  for svc in diarize-worker analytics-worker; do
+    $DC logs --since 10m --no-log-prefix "$svc" 2>&1 \
+      | grep -iE 'error|exception|traceback|denied|forbidden|40[13]|failed' | cut -c1-240 | tail -15 || true
+  done
   ;;
 logs)
   # Ошибки сервисов за 30 минут, очереди и последние записи. Строки обрезаем: в логах бывает текст разговоров
