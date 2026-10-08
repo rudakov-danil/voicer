@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Разговоры · Войсер</title>
+<meta name="description" content="Концепт списка разговоров, записанных бейджами: подборки, поиск по фразам, отпечаток каждого разговора, быстрый просмотр.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  .views-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+  .views-bar .tabs { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .tab .count.is-alert { color: var(--crit-ink); font-weight: 600; }
+
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .filters .input { flex: 1 1 320px; max-width: 440px; }
+  .filters .chip .i { width: 14px; height: 14px; }
+  .chip.is-set { border-color: var(--ink); color: var(--ink); }
+  .filters-reset { margin-left: 4px; font-size: 12.5px; color: var(--ink-3); }
+  .filters-reset:hover { color: var(--ink); }
+
+  .search-note {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 14px; padding: 12px 14px;
+    border-radius: 12px; background: var(--accent-soft); color: var(--ink);
+    font-size: 13px;
+  }
+  .search-note .i { color: var(--accent); }
+  .search-note b { font-weight: 600; }
+  .search-note button { margin-left: auto; }
+
+  /* Таблица */
+  .conv-table { min-width: 1040px; }
+  .conv-table td { padding-top: 11px; padding-bottom: 11px; }
+  .conv-table tbody tr { cursor: pointer; }
+  .c-check { width: 36px; padding-right: 0 !important; }
+  .c-when { white-space: nowrap; width: 90px; }
+  .c-when b { display: block; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .c-when span { font-size: 12px; color: var(--ink-3); }
+  .c-seller { width: 190px; }
+  .c-topic { min-width: 230px; }
+  .topic-title { font-weight: 500; line-height: 1.3; }
+  .topic-flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .hit { margin-top: 6px; display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+  .hit .mono { color: var(--accent); flex: none; }
+  mark { background: color-mix(in srgb, var(--warn) 32%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .c-fp { width: 250px; }
+  .c-score { width: 116px; }
+  .c-up { width: 104px; }
+  .c-out { width: 160px; }
+  .c-go { width: 36px; color: var(--ink-4); }
+  .conv-table tbody tr:hover .c-go { color: var(--ink); }
+
+  .table-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-3); }
+  .pager { display: flex; align-items: center; gap: 4px; }
+  .pager button { min-width: 30px; height: 30px; border-radius: 8px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .pager button:hover { background: var(--hover); }
+  .pager button[aria-current="page"] { background: var(--ink); color: var(--panel); }
+
+  .empty { padding: 56px 20px; text-align: center; }
+  .empty h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .empty p { color: var(--ink-3); margin-bottom: 14px; }
+
+  /* Выпадающее меню фильтра */
+  .menu {
+    position: absolute; z-index: 800; min-width: 240px; max-height: 320px; overflow-y: auto; padding: 6px;
+    border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-pop);
+  }
+  .menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; text-align: left; font-size: 13px; }
+  .menu-item:hover { background: var(--hover); }
+  .menu-box { flex: none; width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--line-2); display: grid; place-items: center; }
+  .menu-item[aria-checked="true"] .menu-box { background: var(--ink); border-color: var(--ink); color: var(--panel); }
+  .menu-item .muted { margin-left: auto; font-size: 12px; }
+
+  /* Быстрый просмотр */
+  .scrim { position: fixed; inset: 0; z-index: 890; background: rgba(11, 14, 20, .22); opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .scrim.is-on { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 900; width: min(500px, 100vw);
+    display: flex; flex-direction: column;
+    background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--shadow-pop); overscroll-behavior: contain;
+    transform: translateX(104%); transition: transform .3s var(--ease); visibility: hidden;
+  }
+  .drawer.is-open { transform: none; visibility: visible; }
+  .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .drawer-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 18px 20px 24px; }
+  .drawer-title { font-weight: 600; font-size: 20px; line-height: 1.3; letter-spacing: -.01em; margin-bottom: 10px; }
+  .drawer-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+  .drawer-fp { margin: 18px 0 6px; padding: 14px 14px 10px; border-radius: 14px; background: var(--console); }
+  .drawer-ruler { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--console-ink-2); }
+  .drawer-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11.5px; color: var(--console-ink-2); }
+  .d-sec { padding-top: 18px; }
+  .d-sec h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
+  .d-sum { font-size: 14px; line-height: 1.55; }
+  .moment { display: grid; grid-template-columns: 48px 16px 1fr; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .moment:first-child { border-top: 0; }
+  .moment .mono { color: var(--accent); }
+  .mk { width: 10px; height: 10px; }
+  .mk.is-crit { background: var(--crit); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+  .mk.is-crit-mid { background: var(--warn); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+  .mk.is-warn { background: var(--warn); transform: rotate(45deg) scale(.8); }
+  .mk.is-warn-ok { box-shadow: inset 0 0 0 1.5px var(--warn); transform: rotate(45deg) scale(.8); }
+  .mk.is-ok { background: var(--good); border-radius: 50%; }
+  .step-row { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 10px; align-items: center; padding: 6px 0; font-size: 13px; }
+  .rec-meta { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+  .rec-meta dt { color: var(--ink-3); }
+  .rec-meta dd { margin: 0; }
+  .drawer-foot { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--line); }
+  .drawer-foot .btn-primary { flex: 1; }
+
+  /* Массовые действия */
+  .selbar {
+    position: fixed; left: 50%; bottom: 22px; z-index: 850;
+    display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 16px;
+    border-radius: 14px; background: var(--ink); color: var(--panel); box-shadow: var(--shadow-pop);
+    transform: translate(-50%, 24px); opacity: 0; pointer-events: none; transition: opacity .2s, transform .25s var(--ease);
+    font-size: 13px; white-space: nowrap;
+  }
+  .selbar.is-on { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+  .selbar b { margin-right: 8px; font-weight: 600; }
+  .selbar .btn { background: transparent; color: inherit; border-color: color-mix(in srgb, var(--panel) 24%, transparent); }
+  .selbar .btn:hover { background: color-mix(in srgb, var(--panel) 12%, transparent); }
+
+  @media (max-width: 760px) {
+    /* Таблица превращается в карточки */
+    .conv-table { min-width: 0; }
+    .conv-table thead { display: none; }
+    .conv-table tbody tr {
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr) auto;
+      grid-template-areas: "check seller when" "check topic topic" "check fp fp" "check score out";
+      gap: 8px 10px; padding: 12px 14px; border-bottom: 1px solid var(--line);
+    }
+    .conv-table td { display: block; padding: 0; border: 0; width: auto; min-width: 0; }
+    .conv-table .c-check { grid-area: check; padding-top: 4px !important; }
+    .conv-table .c-seller { grid-area: seller; }
+    .conv-table .c-when { grid-area: when; text-align: right; }
+    .conv-table .c-topic { grid-area: topic; }
+    .conv-table .c-fp { grid-area: fp; }
+    .conv-table .c-score { grid-area: score; }
+    .conv-table .c-out { grid-area: out; justify-self: end; }
+    .conv-table .c-up, .conv-table .c-go { display: none; }
+    .views-bar { flex-direction: column; align-items: stretch; }
+    .filters .input { flex-basis: 100%; max-width: none; }
+    .selbar { left: 16px; right: 16px; transform: translateY(24px); overflow-x: auto; }
+    .selbar.is-on { transform: none; }
+  }
+</style>
+</head>
+<body data-page="conversations">
+<div class="app">
+  <aside class="sidebar"></aside>
+  <main class="main" id="main">
+    <div class="page">
+
+      <header class="page-head">
+        <div>
+          <h1 class="page-title">Разговоры</h1>
+          <p class="page-meta">1&nbsp;075 за неделю · три магазина · записаны бейджами и вырезаны из смен автоматически</p>
+        </div>
+        <div class="page-actions">
+          <div class="seg" role="group" aria-label="Период">
+            <button type="button" aria-pressed="false">Вчера</button>
+            <button type="button" aria-pressed="true">7 дней</button>
+            <button type="button" aria-pressed="false">30 дней</button>
+          </div>
+          <button class="btn" type="button" data-soon="1"><i data-lucide="upload" class="i"></i>Загрузить запись</button>
+        </div>
+      </header>
+
+      <div class="views-bar">
+        <div class="tabs" role="tablist" aria-label="Подборки" id="views"></div>
+        <button class="btn btn-ghost btn-s" type="button" data-soon="1"><i data-lucide="bookmark-plus" class="i i-s"></i>Сохранить подборку</button>
+      </div>
+
+      <div class="filters" id="filters">
+        <label class="input"><i data-lucide="search" class="i"></i><input id="q" name="q" type="search" autocomplete="off" placeholder="Фраза из разговора, например «заменим на новый»…" aria-label="Поиск по словам в разговорах"></label>
+        <button class="chip" type="button" data-menu="store"><i data-lucide="store" class="i"></i><span>Магазин</span><i data-lucide="chevron-down" class="i"></i></button>
+        <button class="chip" type="button" data-menu="seller"><i data-lucide="user-round" class="i"></i><span>Продавец</span><i data-lucide="chevron-down" class="i"></i></button>
+        <button class="chip" type="button" data-menu="outcome"><i data-lucide="flag" class="i"></i><span>Исход</span><i data-lucide="chevron-down" class="i"></i></button>
+        <button class="chip" type="button" data-menu="score"><i data-lucide="gauge" class="i"></i><span>Балл</span><i data-lucide="chevron-down" class="i"></i></button>
+        <button class="filters-reset" type="button" id="reset" hidden>Сбросить фильтры</button>
+      </div>
+
+      <div class="search-note" id="search-note" hidden></div>
+
+      <section class="panel" aria-label="Список разговоров">
+        <div class="table-wrap">
+          <table class="table conv-table">
+            <thead><tr>
+              <th scope="col" class="c-check"><input class="check" type="checkbox" id="check-all" aria-label="Выбрать все на странице"></th>
+              <th scope="col" class="c-when">Когда <i data-lucide="arrow-down" class="i i-s" style="display:inline;vertical-align:-2px"></i></th>
+              <th scope="col" class="c-seller">Продавец</th>
+              <th scope="col" class="c-topic">Товар и события</th>
+              <th scope="col" class="c-fp">Разговор</th>
+              <th scope="col" class="c-score">Балл</th>
+              <th scope="col" class="c-up">Допродажа</th>
+              <th scope="col" class="c-out">Исход</th>
+              <th scope="col" class="c-go"><span class="sr-only">Открыть</span></th>
+            </tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div class="table-foot">
+          <span id="shown"></span>
+          <div class="pager" aria-label="Страницы">
+            <button type="button" aria-label="Назад"><i data-lucide="chevron-left" class="i i-s" style="margin:auto"></i></button>
+            <button type="button" aria-current="page">1</button><button type="button">2</button><button type="button">3</button>
+            <span class="muted">…</span><button type="button">54</button>
+            <button type="button" aria-label="Вперёд"><i data-lucide="chevron-right" class="i i-s" style="margin:auto"></i></button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Быстрый просмотр разговора" aria-hidden="true"></aside>
+<div class="selbar" id="selbar" role="region" aria-label="Действия с выбранными">
+  <b id="sel-count"></b>
+  <button class="btn btn-s" type="button" data-bulk="review"><i data-lucide="list-checks" class="i i-s"></i>Назначить разбор</button>
+  <button class="btn btn-s" type="button" data-bulk="export"><i data-lucide="download" class="i i-s"></i>Выгрузить в Excel</button>
+  <button class="btn btn-s" type="button" data-bulk="clear" aria-label="Снять выделение"><i data-lucide="x" class="i i-s"></i></button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  V.init();
+  const D = VD, NB = V.NB;
+
+  const FLAG = {
+    promise:  { cls: 'is-crit',  icon: 'octagon-alert',  label: 'Ложное обещание' },
+    conflict: { cls: 'is-crit',  icon: 'octagon-alert',  label: 'Конфликт' },
+    critic:   { cls: 'is-warn',  icon: 'triangle-alert', label: 'Критика конкурентов' },
+    price:    { cls: 'is-warn',  icon: 'message-square-warning', label: '«Дорого» без ответа' },
+    market:   { cls: 'is-warn',  icon: 'message-square-warning', label: 'Маркетплейс дешевле' },
+    streak:   { cls: 'is-warn',  icon: 'repeat', label: 'Серия отказов' },
+    upsell:   { cls: 'is-warn',  icon: 'circle-plus', label: 'Нет допродажи' },
+    noise:    { cls: 'is-plain', icon: 'volume-2', label: 'Шумно, роли 78' + NB + '%' },
+  };
+  const VIEWS = [
+    { id: 'all', label: 'Все', count: '1' + NB + '075', test: () => true },
+    { id: 'attention', label: 'Требуют внимания', count: 14, alert: true, test: (c) => c.flags.some((f) => f !== 'noise') || c.score < 50 },
+    { id: 'violations', label: 'Нарушения', count: 7, alert: true, test: (c) => c.flags.some((f) => ['promise', 'conflict', 'critic'].includes(f)) },
+    { id: 'price', label: '«Дорого» без ответа', count: 38, test: (c) => c.flags.includes('price') },
+    { id: 'competitor', label: 'Ушли к конкурентам', count: 139, test: (c) => c.outcome === 'competitor' },
+    { id: 'upsell', label: 'Без допродажи', count: 61, test: (c) => c.flags.includes('upsell') || (c.up && c.up[0] < c.up[1]) },
+  ];
+  const HITS = {
+    'заменим': [
+      { id: 'r-0926-1412', at: 69, quote: '…а у нас если что сломается — <mark>заменим на новый</mark> в любой момент, без вопросов.' },
+      { id: 'r-0926-1722', at: 301, quote: 'Покупатель: а если сломается, <mark>заменят на новый</mark>? — По гарантии — диагностика и ремонт, а в первые 15 дней при заводском браке — обмен.' },
+      { id: 'r-0925-1215', at: 118, quote: 'Если что, <mark>заменим на новый</mark> — только сохраните коробку и чек.' },
+    ],
+    'маркетплейс': [
+      { id: 'r-0926-1412', at: 56, quote: 'Хм. На <mark>маркетплейсе</mark> я видел за восемьдесят три.' },
+      { id: 'r-0926-1505', at: 118, quote: 'Вот, на <mark>маркетплейсе</mark> на шесть тысяч дешевле. — Ну, там свои цены…' },
+      { id: 'r-0926-2134', at: 181, quote: 'На <mark>маркетплейсе</mark> дешевле, но щётки к этой модели там не найти — у нас комплект в наличии.' },
+    ],
+  };
+
+  const HITS_EN = {
+    'replace': [
+      { id: 'r-0926-1412', at: 69, quote: '…and if anything breaks, we’ll <mark>replace it with a new one</mark> any time, no questions asked.' },
+      { id: 'r-0926-1722', at: 301, quote: 'Customer: and if it breaks, will you <mark>replace it with a new one</mark>? — Under warranty it’s diagnostics and repair; a factory defect in the first 15 days means an exchange.' },
+      { id: 'r-0925-1215', at: 118, quote: 'If anything happens, we’ll <mark>replace it with a new one</mark> — just keep the box and the receipt.' },
+    ],
+    'marketplace': [
+      { id: 'r-0926-1412', at: 56, quote: 'Hmm. I saw it on a <mark>marketplace</mark> for eighty-three.' },
+      { id: 'r-0926-1505', at: 118, quote: 'Look, it’s six thousand cheaper on the <mark>marketplace</mark>. — Well, they have their own prices…' },
+      { id: 'r-0926-2134', at: 181, quote: 'It’s cheaper on the <mark>marketplace</mark>, but you won’t find brushes for this model there — we have the kit in stock.' },
+    ],
+  };
+  const HITSX = V.lang === 'en' ? HITS_EN : HITS;
+  const params = new URLSearchParams(location.search);
+  const state = {
+    view: VIEWS.some((v) => v.id === params.get('view')) ? params.get('view') : 'all',
+    q: params.get('q') || '',
+    store: new Set(), seller: new Set(), outcome: new Set(), score: 'any',
+    selected: new Set(),
+  };
+  const qInput = document.getElementById('q');
+  qInput.value = state.q;
+
+  /* ---------- Подборки ---------- */
+  const viewsEl = document.getElementById('views');
+  function drawViews() {
+    viewsEl.innerHTML = VIEWS.map((v) => `<button class="tab" role="tab" type="button" aria-selected="${v.id === state.view}" data-view="${v.id}">${v.label}<span class="count${v.alert ? ' is-alert' : ''}">${v.count}</span></button>`).join('');
+  }
+  viewsEl.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-view]');
+    if (!b) return;
+    state.view = b.dataset.view;
+    drawViews(); draw();
+  });
+
+  /* ---------- Фильтрация ---------- */
+  function hitsFor(q) {
+    const k = Object.keys(HITSX).find((key) => q.toLowerCase().includes(key) || key.includes(q.toLowerCase()));
+    return q.length >= 3 && k ? HITSX[k] : null;
+  }
+  function filtered() {
+    const view = VIEWS.find((v) => v.id === state.view);
+    const hits = state.q ? hitsFor(state.q) : null;
+    return D.convs.filter((c) => {
+      const s = D.byId[c.seller];
+      if (!view.test(c)) return false;
+      if (state.store.size && !state.store.has(s.store)) return false;
+      if (state.seller.size && !state.seller.has(c.seller)) return false;
+      if (state.outcome.size && !state.outcome.has(c.outcome)) return false;
+      if (state.score === '80' && !(c.score >= 80)) return false;
+      if (state.score === '60' && !(c.score >= 60 && c.score < 80)) return false;
+      if (state.score === '0' && !(c.score < 60)) return false;
+      if (state.q) {
+        if (hits) return hits.some((h) => h.id === c.id);
+        const hay = (c.topic + ' ' + c.sum + ' ' + s.name).toLowerCase();
+        if (!hay.includes(state.q.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }
+
+  /* ---------- Таблица ---------- */
+  const rowsEl = document.getElementById('rows');
+  function syncUrl() {
+    const u = new URLSearchParams();
+    if (state.view !== 'all') u.set('view', state.view);
+    if (state.q) u.set('q', state.q);
+    const theme = params.get('theme');
+    if (theme) u.set('theme', theme);
+    history.replaceState(null, '', u.toString() ? '?' + u : location.pathname);
+  }
+  function draw() {
+    syncUrl();
+    const list = filtered();
+    const hits = state.q ? hitsFor(state.q) : null;
+    const note = document.getElementById('search-note');
+    if (state.q) {
+      note.hidden = false;
+      note.innerHTML = hits
+        ? `<i data-lucide="quote" class="i"></i><span>${V.L(`Фраза «<b>${V.esc(state.q)}</b>» найдена в ${hits.length} ${V.plural(hits.length, 'разговоре', 'разговорах', 'разговорах')} — показываем место в записи`, `The phrase “<b>${V.esc(state.q)}</b>” was found in ${hits.length} conversation${hits.length === 1 ? '' : 's'} — here is the moment in each recording`)}</span><button class="btn btn-s" type="button" id="clear-q">Сбросить поиск</button>`
+        : `<i data-lucide="search" class="i"></i><span>${V.L(`Ищем «<b>${V.esc(state.q)}</b>» в товарах, резюме и именах продавцов`, `Searching for “<b>${V.esc(state.q)}</b>” in products, summaries and seller names`)}</span><button class="btn btn-s" type="button" id="clear-q">Сбросить поиск</button>`;
+      document.getElementById('clear-q').onclick = () => { state.q = ''; qInput.value = ''; draw(); };
+    } else {
+      note.hidden = true;
+    }
+    if (!list.length) {
+      rowsEl.innerHTML = `<tr><td colspan="9"><div class="empty"><h3>Разговоров с такими условиями нет</h3><p>Уберите часть фильтров или выберите другую подборку.</p><button class="btn" type="button" id="empty-reset">Сбросить фильтры</button></div></td></tr>`;
+      document.getElementById('empty-reset').onclick = resetAll;
+    } else {
+      rowsEl.innerHTML = list.map((c) => {
+        const s = D.byId[c.seller];
+        const hit = hits && hits.find((h) => h.id === c.id);
+        const flags = c.flags.map((f) => `<span class="flag ${FLAG[f].cls}"><i data-lucide="${FLAG[f].icon}" class="i"></i>${FLAG[f].label}</span>`).join('');
+        return `<tr data-id="${c.id}" class="${state.selected.has(c.id) ? 'is-selected' : ''}" tabindex="0" aria-label="${c.topic}, ${s.name}, ${c.date} ${c.time}. ${V.L('Открыть быстрый просмотр', 'Open quick view')}">
+          <td class="c-check"><input class="check" type="checkbox" data-check="${c.id}" ${state.selected.has(c.id) ? 'checked' : ''} aria-label="${V.L('Выбрать разговор', 'Select conversation')} ${c.date}, ${c.time}"></td>
+          <td class="c-when"><b>${c.time}</b><span>${c.date}</span></td>
+          <td class="c-seller">${V.person(s, D.storeById[s.store].short)}</td>
+          <td class="c-topic"><div class="topic-title">${c.topic}</div>${flags ? `<div class="topic-flags">${flags}</div>` : ''}${hit ? `<div class="hit"><span class="mono">${V.clock(hit.at)}</span><span>${hit.quote}</span></div>` : ''}</td>
+          <td class="c-fp"><div class="fp-row"><div data-fp="${c.id}" data-h="30"></div><span class="fp-dur">${V.clock(c.dur)}</span></div></td>
+          <td class="c-score">${V.meter(c.score)}</td>
+          <td class="c-up">${V.upsell(c.up)}</td>
+          <td class="c-out">${V.outcome(c.outcome)}</td>
+          <td class="c-go"><i data-lucide="chevron-right" class="i"></i></td>
+        </tr>`;
+      }).join('');
+    }
+    document.getElementById('shown').textContent = list.length
+      ? V.L(`Показано ${list.length} из ${VIEWS.find((v) => v.id === state.view).count}`, `Showing ${list.length} of ${V.int(+String(VIEWS.find((v) => v.id === state.view).count).replace(/\D/g, ''))}`) + (state.q || state.store.size || state.seller.size || state.outcome.size || state.score !== 'any' ? V.L(' (с фильтрами)', ' (filtered)') : '')
+      : '';
+    document.getElementById('reset').hidden = !(state.store.size || state.seller.size || state.outcome.size || state.score !== 'any' || state.q);
+    V.icons();
+    V.renderFingerprints(rowsEl);
+    syncSelection();
+  }
+
+  qInput.addEventListener('input', () => { state.q = qInput.value.trim(); draw(); });
+
+  /* ---------- Меню фильтров ---------- */
+  const MENUS = {
+    store: () => D.stores.map((s) => ({ id: s.id, label: s.short, hint: s.name.split(',')[0] })),
+    seller: () => D.sellers.filter((s) => s.conv).map((s) => ({ id: s.id, label: s.name, hint: D.storeById[s.store].short })),
+    outcome: () => Object.entries(D.OUTCOMES).map(([id, o]) => ({ id, label: o.label })),
+    score: () => [{ id: 'any', label: 'Любой балл' }, { id: '80', label: '80 и выше' }, { id: '60', label: '60–79' }, { id: '0', label: 'Ниже 60' }],
+  };
+  const LABEL = { store: 'Магазин', seller: 'Продавец', outcome: 'Исход', score: 'Балл' };
+  let menuEl = null;
+  function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+  function chipLabel(kind) {
+    const chip = document.querySelector(`[data-menu="${kind}"]`);
+    const span = chip.querySelector('span');
+    if (kind === 'score') {
+      span.textContent = state.score === 'any' ? V.t('Балл') : V.t('Балл') + ': ' + V.t(MENUS.score().find((o) => o.id === state.score).label).toLowerCase();
+      chip.classList.toggle('is-set', state.score !== 'any');
+      return;
+    }
+    const set = state[kind];
+    const items = MENUS[kind]();
+    span.textContent = !set.size ? V.t(LABEL[kind]) : set.size === 1 ? `${V.t(LABEL[kind])}: ${V.t(items.find((i) => set.has(i.id)).label)}` : `${V.t(LABEL[kind])}: ${set.size}`;
+    chip.classList.toggle('is-set', set.size > 0);
+  }
+  document.getElementById('filters').addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-menu]');
+    if (!chip) return;
+    e.stopPropagation();
+    const kind = chip.dataset.menu;
+    if (menuEl && menuEl.dataset.kind === kind) { closeMenu(); return; }
+    closeMenu();
+    menuEl = document.createElement('div');
+    menuEl.className = 'menu';
+    menuEl.dataset.kind = kind;
+    menuEl.setAttribute('role', 'menu');
+    const drawMenu = () => {
+      menuEl.innerHTML = MENUS[kind]().map((o) => {
+        const on = kind === 'score' ? state.score === o.id : state[kind].has(o.id);
+        return `<button class="menu-item" type="button" role="${kind === 'score' ? 'menuitemradio' : 'menuitemcheckbox'}" aria-checked="${on}" data-opt="${o.id}"><span class="menu-box">${on ? '<i data-lucide="check" class="i i-s"></i>' : ''}</span>${o.label}${o.hint ? `<span class="muted">${o.hint}</span>` : ''}</button>`;
+      }).join('');
+      V.icons();
+    };
+    drawMenu();
+    document.body.appendChild(menuEl);
+    const r = chip.getBoundingClientRect();
+    menuEl.style.left = Math.min(r.left, window.innerWidth - 260) + 'px';
+    menuEl.style.top = (r.bottom + window.scrollY + 6) + 'px';
+    menuEl.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const opt = ev.target.closest('[data-opt]');
+      if (!opt) return;
+      if (kind === 'score') { state.score = opt.dataset.opt; closeMenu(); }
+      else {
+        const set = state[kind];
+        set.has(opt.dataset.opt) ? set.delete(opt.dataset.opt) : set.add(opt.dataset.opt);
+        drawMenu();
+      }
+      chipLabel(kind);
+      draw();
+    });
+  });
+  document.addEventListener('click', closeMenu);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); closeDrawer(); } });
+
+  function resetAll() {
+    state.store.clear(); state.seller.clear(); state.outcome.clear(); state.score = 'any'; state.q = ''; qInput.value = '';
+    ['store', 'seller', 'outcome', 'score'].forEach(chipLabel);
+    draw();
+  }
+  document.getElementById('reset').addEventListener('click', resetAll);
+
+  /* ---------- Выбор и массовые действия ---------- */
+  const selbar = document.getElementById('selbar');
+  function syncSelection() {
+    const n = state.selected.size;
+    selbar.classList.toggle('is-on', n > 0);
+    document.getElementById('sel-count').textContent = V.L(`Выбрано ${n}`, `${n} selected`);
+    const boxes = V.$$('[data-check]');
+    const all = document.getElementById('check-all');
+    all.checked = boxes.length > 0 && boxes.every((b) => b.checked);
+    all.indeterminate = !all.checked && boxes.some((b) => b.checked);
+  }
+  rowsEl.addEventListener('change', (e) => {
+    const box = e.target.closest('[data-check]');
+    if (!box) return;
+    box.checked ? state.selected.add(box.dataset.check) : state.selected.delete(box.dataset.check);
+    box.closest('tr').classList.toggle('is-selected', box.checked);
+    syncSelection();
+  });
+  document.getElementById('check-all').addEventListener('change', (e) => {
+    V.$$('[data-check]').forEach((b) => {
+      b.checked = e.target.checked;
+      e.target.checked ? state.selected.add(b.dataset.check) : state.selected.delete(b.dataset.check);
+      b.closest('tr').classList.toggle('is-selected', e.target.checked);
+    });
+    syncSelection();
+  });
+  selbar.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-bulk]');
+    if (!b) return;
+    const n = state.selected.size;
+    if (b.dataset.bulk === 'review') V.toast(V.L(`${n} ${V.plural(n, 'разговор добавлен', 'разговора добавлены', 'разговоров добавлены')} в очередь на разбор`, `${n} conversation${n === 1 ? '' : 's'} added to the review queue`));
+    if (b.dataset.bulk === 'export') V.toast('Файл готовится — придёт в уведомления', 'download');
+    state.selected.clear();
+    V.$$('[data-check]').forEach((x) => { x.checked = false; x.closest('tr').classList.remove('is-selected'); });
+    syncSelection();
+  });
+
+  /* ---------- Быстрый просмотр ---------- */
+  const drawer = document.getElementById('drawer');
+  const scrim = document.getElementById('scrim');
+  const MOMENT = { crit: 'Нарушение', 'crit-mid': 'Нарушение', warn: 'Возражение без ответа', 'warn-ok': 'Возражение отработано', ok: 'Покупка или допродажа' };
+  let lastFocus = null;
+  function stepScores(c) {
+    if (c.featured) return D.featured.steps.map((s) => s.score);
+    const r = V.rng(c.seed * 3);
+    return D.script.steps.map((st, i) => Math.max(20, Math.min(100, Math.round(c.score + (st.avg - 77) * 0.8 + (r() - 0.5) * 24 - (i === 5 && c.up && c.up[0] < c.up[1] ? 25 : 0)))));
+  }
+  function openDrawer(id) {
+    const c = D.convs.find((x) => x.id === id);
+    if (!c) return;
+    const s = D.byId[c.seller];
+    const conv = V.findConv(id);
+    const marks = [...conv.marks].sort((a, b) => a.t - b.t);
+    if (c.featured) D.featured.events.forEach((ev, i) => { if (marks[i]) marks[i].label = ev.label; });
+    const scores = stepScores(c);
+    drawer.innerHTML = `
+      <div class="drawer-head">
+        <div class="row">${V.outcome(c.outcome)}<span class="muted">·</span>${V.meter(c.score)}</div>
+        <button class="btn-icon" type="button" id="d-close" aria-label="Закрыть"><i data-lucide="x" class="i"></i></button>
+      </div>
+      <div class="drawer-body">
+        <div class="drawer-title">${c.topic}</div>
+        <div class="drawer-meta">${V.person(s, D.storeById[s.store].name)}</div>
+        <div class="drawer-meta" style="margin-top:8px">${c.date}, ${c.time}<span class="muted">·</span><span class="mono">${V.clock(c.dur)}</span></div>
+        <div class="drawer-fp">
+          <div id="d-fp"></div>
+          <div class="drawer-ruler"><span>00:00</span><span>${V.clock(c.dur / 2)}</span><span>${V.clock(c.dur)}</span></div>
+          <div class="drawer-legend"><span class="legend-item"><span class="key-bar" style="background:var(--console-seller)"></span>Продавец</span><span class="legend-item"><span class="key-bar" style="background:var(--console-client)"></span>Покупатель</span></div>
+        </div>
+        <section class="d-sec"><h3>Коротко <span class="tag is-ai" style="margin-left:6px">ИИ</span></h3><p class="d-sum">${c.sum}</p></section>
+        ${marks.length ? `<section class="d-sec"><h3>Моменты</h3>${marks.map((m) => `<div class="moment"><span class="mono">${V.clock(m.t * c.dur)}</span><span class="mk is-${m.k}" aria-hidden="true"></span><span>${m.label || MOMENT[m.k]}</span></div>`).join('')}</section>` : ''}
+        <section class="d-sec"><h3>Этапы скрипта</h3>${D.script.steps.map((st, i) => `<div class="step-row"><span class="ellipsis">${st.name}</span>${V.meter(scores[i])}</div>`).join('')}</section>
+        <section class="d-sec"><h3>Запись</h3><dl class="rec-meta">
+          <dt>Бейдж</dt><dd class="mono">${s.badge}</dd>
+          <dt>Источник</dt><dd>${V.L(`Вырезан ИИ из записи смены ${c.date}`, `Cut by AI from the ${c.date} shift recording`)}</dd>
+          <dt>Роли</dt><dd>${c.flags.includes('noise') ? V.L('размечены с уверенностью 78' + NB + '% — в зале шумно', 'labelled with 78% confidence — the store was noisy') : V.L('размечены автоматически', 'labelled automatically')}</dd>
+        </dl></section>
+      </div>
+      <div class="drawer-foot">
+        <a class="btn btn-primary" href="conversation.html?from=${c.id}"><i data-lucide="audio-lines" class="i"></i>Открыть разговор</a>
+        <button class="btn" type="button" id="d-queue"><i data-lucide="list-checks" class="i"></i>На разбор</button>
+      </div>`;
+    V.icons();
+    drawer.classList.add('is-open');
+    drawer.setAttribute('aria-hidden', 'false');
+    scrim.classList.add('is-on');
+    requestAnimationFrame(() => V.fingerprint(document.getElementById('d-fp'), conv, { height: 56, console: true }));
+    lastFocus = document.activeElement;
+    document.getElementById('d-close').focus();
+    document.getElementById('d-close').onclick = closeDrawer;
+    document.getElementById('d-queue').onclick = () => V.toast('Добавлено в очередь на разбор');
+  }
+  function closeDrawer() {
+    if (!drawer.classList.contains('is-open')) return;
+    drawer.classList.remove('is-open');
+    drawer.setAttribute('aria-hidden', 'true');
+    scrim.classList.remove('is-on');
+    if (lastFocus) lastFocus.focus();
+  }
+  scrim.addEventListener('click', closeDrawer);
+  rowsEl.addEventListener('click', (e) => {
+    if (e.target.closest('.c-check')) return;
+    const tr = e.target.closest('tr[data-id]');
+    if (tr) openDrawer(tr.dataset.id);
+  });
+  rowsEl.addEventListener('keydown', (e) => {
+    if (e.target.closest('.c-check')) return;
+    const tr = e.target.closest('tr[data-id]');
+    if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openDrawer(tr.dataset.id); }
+  });
+
+  drawViews();
+  draw();
+  if (params.get('open')) openDrawer(params.get('open'));
+  window.addEventListener('resize', () => V.renderFingerprints(rowsEl));
+})();
+</script>
+</body>
+</html>

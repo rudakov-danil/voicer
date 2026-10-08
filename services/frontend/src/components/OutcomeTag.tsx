@@ -1,24 +1,28 @@
+import { outcomeLabel } from '@/lib/outcomes'
+
 interface OutcomeTagProps {
   outcome: string
 }
 
+/** Исход разговора: форма значка + подпись (не только цвет), как в концепте. */
+const OUTCOME_GLYPH: Record<string, string> = {
+  purchase: 'is-win',
+  deferred: 'is-pending',
+  price_refusal: 'is-lost',
+  competitor: 'is-gone',
+  // Исходы телефонии
+  appointment: 'is-win',
+  resolved: 'is-win',
+  callback: 'is-pending',
+  refusal: 'is-lost',
+}
+
 export function OutcomeTag({ outcome }: OutcomeTagProps) {
-  const outcomesMap: Record<string, { label: string; class: string }> = {
-    purchase: { label: 'Покупка', class: 'tag-success' },
-    deferred: { label: 'Отложено', class: 'tag-warning' },
-    price_refusal: { label: 'Отказ по цене', class: 'tag-danger' },
-    competitor: { label: 'Ушёл к конкурентам', class: 'tag-purple' },
-    // Исходы телефонии
-    appointment: { label: 'Встреча назначена', class: 'tag-success' },
-    callback: { label: 'Перезвон', class: 'tag-warning' },
-    refusal: { label: 'Отказ', class: 'tag-danger' },
-    transfer: { label: 'Перевод звонка', class: 'tag-neutral' },
-    non_target: { label: 'Нецелевой', class: 'tag-neutral' },
-    voicemail: { label: 'Недозвон', class: 'tag-neutral' },
-    unknown: { label: 'Не определён', class: 'tag-neutral' }
-  }
-
-  const config = outcomesMap[outcome] || outcomesMap.unknown
-
-  return <span className={`tag ${config.class}`}>{config.label}</span>
+  const glyph = OUTCOME_GLYPH[outcome] || 'is-neutral'
+  return (
+    <span className={`outcome ${glyph}`}>
+      <span className="outcome-glyph" aria-hidden="true" />
+      {outcomeLabel(outcome)}
+    </span>
+  )
 }

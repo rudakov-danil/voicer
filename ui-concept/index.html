@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Концепт интерфейса · Войсер</title>
+<meta name="description" content="Концепт нового интерфейса Войсера для магазинов с бейджами: экраны, принципы, дизайн-система.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  body { background: var(--paper); }
+  .hub { max-width: 1200px; margin: 0 auto; padding: 0 32px 72px; }
+  .hub-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--line); margin-bottom: 36px; }
+  .hub-top .brand { padding: 0; }
+  .hub-tag { font-size: 13px; color: var(--ink-3); }
+  .hub-intro { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 40px; align-items: end; margin-bottom: 36px; }
+  .hub-intro h1 { font-size: 32px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; }
+  .hub-intro p { margin-top: 12px; font-size: 15px; line-height: 1.6; color: var(--ink-2); max-width: 62ch; }
+  .q-list { display: grid; gap: 10px; }
+  .q { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+  .q .i { width: 18px; height: 18px; margin-top: 1px; color: var(--accent); }
+  .q b { display: block; font-weight: 600; }
+  .q span { font-size: 13px; color: var(--ink-2); }
+
+  .sec { margin-top: 44px; }
+  .sec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+  .sec-h h2 { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+  .sec-h p { color: var(--ink-3); font-size: 13.5px; }
+
+  /* Экраны */
+  .screens { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .screen { display: flex; flex-direction: column; border-radius: var(--r-l); background: var(--panel); border: 1px solid var(--line); overflow: hidden; transition: border-color .15s, box-shadow .15s, transform .15s; }
+  .screen:hover { border-color: var(--line-2); box-shadow: var(--shadow-pop); transform: translateY(-2px); }
+  .screen img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+  .screen-body { padding: 14px 16px 16px; }
+  .screen-body h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 15px; font-weight: 600; }
+  .screen-body h3 .i { color: var(--ink-3); }
+  .screen-body p { margin-top: 4px; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+
+  /* Отпечаток разговора */
+  .fp-demo { padding: 22px 24px 20px; }
+  .fp-demo-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: center; }
+  .fp-stage { position: relative; padding: 34px 0 30px; }
+  .fp-big { height: 96px; }
+  .fp-ann { position: absolute; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11.5px; color: var(--console-ink); white-space: nowrap; pointer-events: none; }
+  .fp-ann::after { content: ""; width: 1px; height: 12px; background: var(--console-ink-2); opacity: .6; }
+  .fp-ann.is-below { flex-direction: column-reverse; }
+  .fp-ann small { color: var(--console-ink-2); font-size: 11px; }
+  .fp-lanes { position: absolute; left: 0; top: 34px; height: 96px; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+  .fp-read { display: grid; gap: 12px; font-size: 13px; line-height: 1.5; color: var(--console-ink-2); }
+  .fp-read b { color: var(--console-ink); font-weight: 600; }
+  .fp-read .row { align-items: flex-start; }
+  .fp-read .key-bar, .fp-read .mk { margin-top: 5px; flex: none; }
+  .mk { width: 10px; height: 10px; }
+  .mk.tri { background: var(--console-signal); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+  .mk.dia { background: var(--warn); transform: rotate(45deg) scale(.8); }
+  .mk.dot { background: var(--good); border-radius: 50%; }
+
+  /* Было → стало */
+  .ba { display: grid; gap: 10px; }
+  .ba-row { display: grid; grid-template-columns: 230px minmax(0, 1fr) minmax(0, 1fr); gap: 18px; padding: 16px 18px; border-radius: var(--r-l); background: var(--panel); border: 1px solid var(--line); }
+  .ba-row h3 { font-size: 14.5px; font-weight: 600; line-height: 1.35; }
+  .ba-col { font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+  .ba-col .eyebrow { display: block; margin-bottom: 4px; }
+  .ba-col.is-new { color: var(--ink); }
+  .ba-col.is-new .eyebrow { color: var(--accent); }
+
+  /* Дизайн-система */
+  .ds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .swatches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .sw { border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--panel); }
+  .sw i { display: block; height: 52px; }
+  .sw div { padding: 8px 10px; font-size: 12px; line-height: 1.35; }
+  .sw b { display: block; font-weight: 600; font-size: 12.5px; }
+  .sw span { color: var(--ink-3); font-family: var(--font-mono); font-size: 11px; }
+  .type-row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); }
+  .type-row:first-child { border-top: 0; }
+  .type-row .muted { font-size: 12px; }
+  .comp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .comp { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--panel-2); }
+  .comp .muted { font-size: 12px; }
+  .comp-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+
+  .files { font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+  .files code { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line); }
+  .files li { margin-bottom: 6px; }
+  .hub-foot { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-3); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+  @media (max-width: 1000px) {
+    .hub-intro, .fp-demo-grid, .ds { grid-template-columns: minmax(0, 1fr); }
+    .screens { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ba-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  }
+  @media (max-width: 640px) {
+    .hub { padding: 0 16px 56px; }
+    .hub-intro h1 { font-size: 26px; }
+    .screens, .swatches, .comp-grid { grid-template-columns: minmax(0, 1fr); }
+    .hub-tag { display: none; }
+    .fp-ann { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="hub">
+
+  <header class="hub-top">
+    <a class="brand" href="index.html" id="brand"><span class="brand-name" translate="no">Войсер</span></a>
+    <span class="hub-tag">Концепт интерфейса для магазинов с бейджами · сентябрь 2026</span>
+    <div class="row">
+      <button class="lang-btn" type="button" id="lang-btn" translate="no"></button>
+      <button class="btn-icon" type="button" data-theme-icon></button>
+      <a class="btn btn-primary" href="dashboard.html">Открыть концепт<i data-lucide="arrow-right" class="i"></i></a>
+    </div>
+  </header>
+
+  <section class="hub-intro">
+    <div>
+      <h1>Интерфейс, в котором руководитель за пять минут понимает, что случилось в магазинах</h1>
+      <p>Бейджи записывают смены, Войсер вырезает разговоры с покупателями и оценивает их по скрипту. Новый интерфейс отвечает на три вопроса руководителя — и каждый ответ ведёт к моменту записи, а не к абстрактной цифре. Данные в концепте — из <code style="font-family:var(--font-mono);font-size:13px">seed_demo.sql</code>: три магазина, продавцы, бейджи и стандартный скрипт продаж бытовой техники.</p>
+    </div>
+    <div class="q-list">
+      <div class="q"><i data-lucide="octagon-alert" class="i"></i><div><b>Что требует внимания?</b><span>Очередь на разбор: нарушения и упущенные продажи с цитатой и таймкодом.</span></div></div>
+      <div class="q"><i data-lucide="audio-lines" class="i"></i><div><b>Где доказательство?</b><span>Отпечаток разговора, плеер по дорожкам, расшифровка с пометками на полях.</span></div></div>
+      <div class="q"><i data-lucide="target" class="i"></i><div><b>Что поправить?</b><span>Этапы скрипта, зоны развития продавца, лучший пример в сети, состояние бейджей.</span></div></div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="scr-h">
+    <div class="sec-h"><h2 id="scr-h">Экраны</h2><p>Все экраны интерактивные: фильтры, плеер, поиск по фразам, ⌘K, светлая и тёмная тема</p></div>
+    <div class="screens" id="screens"></div>
+  </section>
+
+  <section class="sec" aria-labelledby="fp-h">
+    <div class="sec-h"><h2 id="fp-h">Главный элемент — отпечаток разговора</h2><p>Появляется в очереди, списке, профиле продавца и превращается в плеер в карточке разговора</p></div>
+    <div class="console fp-demo">
+      <div class="fp-demo-grid">
+        <div class="fp-stage" id="fp-stage">
+          <div class="fp-big" id="fp-big"></div>
+        </div>
+        <div class="fp-read">
+          <div class="row"><span class="key-bar" style="background:var(--console-seller)"></span><span><b>Над осью — продавец.</b> Длинные блоки — монологи: здесь продавец говорил 76&nbsp;% времени.</span></div>
+          <div class="row"><span class="key-bar" style="background:var(--console-client)"></span><span><b>Под осью — покупатель.</b> Короткие ответы и паузы видны без прослушивания.</span></div>
+          <div class="row"><span class="mk tri"></span><span><b>Треугольник — нарушение</b>, ромб — возражение, круг — покупка или допродажа.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="ba-h">
+    <div class="sec-h"><h2 id="ba-h">Что меняется</h2><p>По сравнению с текущим интерфейсом</p></div>
+    <div class="ba">
+      <div class="ba-row"><h3>Главный экран</h3>
+        <div class="ba-col"><span class="eyebrow">Было</span>Четыре одинаковые карточки метрик, графики «разговоры по дням» и таблица последних разговоров.</div>
+        <div class="ba-col is-new"><span class="eyebrow">Стало</span>Пульс недели и очередь на разбор: что случилось, у кого, в какую секунду записи. Метрики — рядом, с динамикой за 12 недель.</div></div>
+      <div class="ba-row"><h3>Разговор в списке</h3>
+        <div class="ba-col"><span class="eyebrow">Было</span>Колонка «Длительность 4:12» и цветной тег исхода.</div>
+        <div class="ba-col is-new"><span class="eyebrow">Стало</span>Отпечаток: кто сколько говорил, где возражение и нарушение; допродажа «2 из 3»; поиск по фразам из разговоров.</div></div>
+      <div class="ba-row"><h3>Балл по скрипту</h3>
+        <div class="ba-col"><span class="eyebrow">Было</span>Одно число «79 %» и список этапов с процентами.</div>
+        <div class="ba-col is-new"><span class="eyebrow">Стало</span>Видно, из чего сложился балл: вес этапа × балл, где потеряны очки, и переход к моменту записи.</div></div>
+      <div class="ba-row"><h3>Бейджи</h3>
+        <div class="ba-col"><span class="eyebrow">Было</span>Вкладка «Устройства» в администрировании: номер, модель, последний выход на связь.</div>
+        <div class="ba-col is-new"><span class="eyebrow">Стало</span>Бейджи — часть работы: кто на смене, чьи записи не выгрузились, у кого сядет заряд, полнота данных по магазинам.</div></div>
+      <div class="ba-row"><h3>Визуальный язык</h3>
+        <div class="ba-col"><span class="eyebrow">Было</span>Стандартная сине-серая палитра, цветные аватары, одинаковый вес всех блоков.</div>
+        <div class="ba-col is-new"><span class="eyebrow">Стало</span>Спокойный нейтральный фон, кобальт из логотипа как единственный акцент, красный — только для рисков. Статусы всегда со значком и подписью.</div></div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="ds-h">
+    <div class="sec-h"><h2 id="ds-h">Дизайн-система</h2><p>Токены в <code style="font-family:var(--font-mono);font-size:12.5px">assets/voicer.css</code> — светлая и тёмная тема из одних переменных</p></div>
+    <div class="ds">
+      <div class="panel"><div class="panel-body">
+        <h3 class="panel-title" style="margin-bottom:12px">Цвет</h3>
+        <div class="swatches">
+          <div class="sw"><i style="background:#0B0E14"></i><div><b>Графит</b><span>#0B0E14</span></div></div>
+          <div class="sw"><i style="background:#2E5BFF"></i><div><b>Кобальт</b><span>#2E5BFF</span></div></div>
+          <div class="sw"><i style="background:#F2F3F5"></i><div><b>Фон</b><span>#F2F3F5</span></div></div>
+          <div class="sw"><i style="background:#F7F9FE"></i><div><b>Панель графиков</b><span>#F7F9FE</span></div></div>
+          <div class="sw"><i style="background:#8A93A3"></i><div><b>Покупатель</b><span>#8A93A3</span></div></div>
+          <div class="sw"><i style="background:linear-gradient(90deg,#12A150 0 25%,#E8A317 25% 50%,#E8743B 50% 75%,#E5484D 75%)"></i><div><b>Статусы</b><span>со значком</span></div></div>
+        </div>
+        <p class="muted" style="font-size:12.5px;margin-top:12px">Палитра графиков проверена валидатором dataviz на различимость при нарушениях цветовосприятия; контраст текста — не ниже 4,5:1.</p>
+      </div></div>
+      <div class="panel"><div class="panel-body">
+        <h3 class="panel-title" style="margin-bottom:6px">Шрифт — Onest</h3>
+        <div class="type-row"><span class="muted">Страница · 24</span><span style="font-size:24px;font-weight:600;letter-spacing:-.015em">Разговоры</span></div>
+        <div class="type-row"><span class="muted">Число · 28</span><span style="font-size:28px;font-weight:600;letter-spacing:-.02em">28,2<small style="font-size:.6em;color:var(--ink-3);font-weight:500">&nbsp;%</small></span></div>
+        <div class="type-row"><span class="muted">Панель · 15</span><span style="font-size:15px;font-weight:600">Очередь на разбор</span></div>
+        <div class="type-row"><span class="muted">Текст · 14</span><span>На «дорого» продавец предложил трейд-ин вместо скидки.</span></div>
+        <div class="type-row"><span class="muted">Время · моно</span><span class="mono">01:09 · VIQ-DEV-003</span></div>
+      </div></div>
+      <div class="panel" style="grid-column:1 / -1"><div class="panel-body">
+        <h3 class="panel-title" style="margin-bottom:12px">Компоненты</h3>
+        <div class="comp-grid" id="comps"></div>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="files-h">
+    <div class="sec-h"><h2 id="files-h">Как устроен концепт</h2></div>
+    <div class="panel"><div class="panel-body files">
+      <ul style="margin:0;padding-left:18px">
+        <li><code>assets/voicer.css</code> — токены и компоненты. Переменные переносятся в <code>services/frontend/src/index.css</code> почти один в один.</li>
+        <li><code>assets/voicer.js</code> — каркас, ⌘K, отпечаток разговора, спарклайны, подсказки. Каждая функция — будущий React-компонент: <code>Fingerprint</code>, <code>Meter</code>, <code>OutcomeTag</code>, <code>UpsellDots</code>, <code>Sparkline</code>.</li>
+        <li><code>assets/data.js</code> — демо-данные в форме ответов API: магазины, продавцы, бейджи, скрипт, разговоры.</li>
+        <li><code>assets/en.js</code> — английский интерфейс: словарь строк и перевод демо-данных. Язык переключается кнопкой EN/RU.</li>
+        <li>Отпечаток и плеер строятся из того, что уже есть в базе: сегменты транскрипта с таймкодами, возражения с привязкой к сегменту, результаты скоринга по этапам.</li>
+      </ul>
+    </div></div>
+  </section>
+
+  <footer class="hub-foot">
+    <span>Войсер · концепт интерфейса · сентябрь 2026</span>
+    <span>Шрифт Onest · иконки Lucide</span>
+  </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  const D = VD, NB = V.NB;
+  document.getElementById('brand').insertAdjacentHTML('afterbegin', V.logo);
+  document.querySelector('#brand .brand-name').textContent = V.L('Войсер', 'Voicer');
+  const langBtn = document.getElementById('lang-btn');
+  langBtn.textContent = V.L('EN', 'RU');
+  langBtn.setAttribute('aria-label', V.L('Switch to English', 'Переключить на русский'));
+  langBtn.addEventListener('click', () => V.setLang(V.lang === 'en' ? 'ru' : 'en'));
+
+  const SCREENS = [
+    { href: 'dashboard.html', img: 'dashboard', title: 'Обзор', text: 'Пульс недели по бейджам, очередь на разбор, магазины, нарушения, возражения.' },
+    { href: 'conversations.html', img: 'conversations', title: 'Разговоры', text: 'Подборки, поиск по фразам, отпечаток каждого разговора, быстрый просмотр сбоку.' },
+    { href: 'conversation.html', img: 'conversation', title: 'Разговор', text: 'Плеер по дорожкам, расшифровка с пометками, вклад этапов в балл, день продавца.' },
+    { href: 'team.html', img: 'team', title: 'Команда', text: 'Магазины и рейтинг продавцов, профиль с зонами развития и лучшим примером в сети.' },
+    { href: 'scripts.html', img: 'scripts', title: 'Скрипты', text: 'Этапы и веса с проверкой суммы, выполнение по продавцам, правила допродажи.' },
+    { href: 'badges.html', img: 'badges', title: 'Бейджи', text: 'Кто на смене, чьи записи не выгрузились, покрытие записью за неделю.' },
+    { href: 'analytics.html', img: 'analytics', title: 'Аналитика', text: 'Конверсия по магазинам, что влияет на покупку, где уходят покупатели, нагрузка по часам.' },
+    { href: 'compliance.html', img: 'compliance', title: 'Комплаенс', text: 'Журнал нарушений с цитатами, правила общения, запись и приватность.' },
+    { href: 'settings.html', img: 'settings', title: 'Настройки', text: 'Организация, магазины и док-станции, роли, оповещения, приватность, язык интерфейса.' },
+  ];
+  const PREV = V.lang === 'en' ? 'assets/previews/en/' : 'assets/previews/';
+  document.getElementById('screens').innerHTML = SCREENS.map((s) => `
+    <a class="screen" href="${s.href}">
+      <img src="${PREV}${s.img}.jpg" alt="${V.L(`Экран «${s.title}»`, `${V.t(s.title)} screen`)}" loading="lazy" width="960" height="600">
+      <div class="screen-body"><h3>${s.title}<i data-lucide="arrow-up-right" class="i i-s"></i></h3><p>${s.text}</p></div>
+    </a>`).join('');
+
+  /* Отпечаток разобранного разговора с подписями */
+  const F = D.featured;
+  const conv = V.findConv(F.id);
+  const stage = document.getElementById('fp-stage');
+  const ANN = [
+    { t: 20.8, text: 'Потребности', sub: '2 вопроса из 3', below: false },
+    { t: 71.8, text: 'Ложное обещание', sub: '01:09', below: false },
+    { t: 112, text: 'Пауза 25 с', sub: 'оценка трейд-ина', below: true },
+    { t: 152, text: 'Допродажа 2 из 3', sub: '02:26', below: false },
+    { t: 200, text: 'Перенос данных', sub: 'у кассы', below: true },
+  ];
+  function drawFp() {
+    const el = document.getElementById('fp-big');
+    V.fingerprint(el, conv, { height: 96, console: true });
+    V.$$('.fp-ann', stage).forEach((n) => n.remove());
+    const w = el.clientWidth;
+    if (w < 480) return;
+    ANN.forEach((a) => {
+      const n = document.createElement('div');
+      n.className = 'fp-ann' + (a.below ? ' is-below' : '');
+      n.style.left = (a.t / F.dur) * w + 'px';
+      n.style[a.below ? 'bottom' : 'top'] = '0px';
+      n.innerHTML = `<span>${a.text}</span><small>${a.sub}</small>`;
+      stage.appendChild(n);
+    });
+  }
+  drawFp();
+  window.addEventListener('resize', drawFp);
+
+  /* Компоненты — живые, из общей библиотеки */
+  document.getElementById('comps').innerHTML = `
+    <div class="comp"><span class="muted">Балл: 10 делений, красный только ниже 60</span><div class="comp-row">${V.meter(92)}${V.meter(71)}${V.meter(44)}${V.meter(null)}</div></div>
+    <div class="comp"><span class="muted">Исход: форма значка + подпись</span><div class="comp-row">${['purchase', 'deferred', 'price_refusal', 'competitor', 'unknown'].map(V.outcome).join('')}</div></div>
+    <div class="comp"><span class="muted">Допродажа по правилу</span><div class="comp-row">${V.upsell([3, 3])}${V.upsell([2, 3])}${V.upsell([0, 3])}</div></div>
+    <div class="comp"><span class="muted">Состояние бейджа</span><div class="comp-row">${['shift', 'dock', 'missed', 'never'].map(V.badgeState).join('')}</div></div>
+    <div class="comp"><span class="muted">События в разговоре</span><div class="comp-row">
+      <span class="flag is-crit"><i data-lucide="octagon-alert" class="i"></i>Ложное обещание</span>
+      <span class="flag is-warn"><i data-lucide="message-square-warning" class="i"></i>«Дорого» без ответа</span>
+      <span class="flag is-plain"><i data-lucide="volume-2" class="i"></i>Шумно, роли 78${NB}%</span></div></div>
+    <div class="comp"><span class="muted">Отпечаток в строке списка</span><div class="fp-row"><div data-fp="r-0926-1412" data-h="30" style="flex:1"></div><span class="fp-dur">04:12</span></div></div>`;
+  V.$$('[data-theme-icon]').forEach((b) => { b.addEventListener('click', V.toggleTheme); });
+  V.icons();
+  V.renderFingerprints();
+  document.querySelector('[data-theme-icon]').innerHTML = `<i data-lucide="${V.isDark() ? 'sun' : 'moon'}" class="i"></i>`;
+  document.querySelector('[data-theme-icon]').setAttribute('aria-label', V.isDark() ? 'Включить светлую тему' : 'Включить тёмную тему');
+  V.icons();
+  V.startTranslator();
+  document.addEventListener('themechange', () => {
+    const b = document.querySelector('[data-theme-icon]');
+    b.innerHTML = `<i data-lucide="${V.isDark() ? 'sun' : 'moon'}" class="i"></i>`;
+    V.icons();
+  });
+})();
+</script>
+</body>
+</html>

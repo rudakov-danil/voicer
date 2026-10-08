@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Настройки · Войсер</title>
+<meta name="description" content="Концепт раздела «Настройки»: организация, магазины и док-станции, пользователи, оповещения, приватность, интеграции.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  .st-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
+  .st-nav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; }
+  .st-nav a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--ink-2); font-weight: 500; font-size: 13.5px; }
+  .st-nav a:hover { background: var(--hover); color: var(--ink); }
+  .st-nav a[aria-current="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+  .st-sections { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .st-sections .panel { scroll-margin-top: 16px; }
+
+  .field { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line); }
+  .field:first-child { border-top: 0; padding-top: 4px; }
+  .field-label b { display: block; font-weight: 500; }
+  .field-label span { display: block; margin-top: 2px; font-size: 12.5px; color: var(--ink-3); line-height: 1.4; }
+  .field .input { max-width: 380px; }
+  .native-select {
+    height: 34px; max-width: 380px; width: 100%; padding: 0 10px; border-radius: 9px;
+    border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); font-size: 13px;
+  }
+  .num { width: 64px; height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
+  .num:focus, .native-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .alert-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+  .alert-row:first-child { border-top: 0; padding-top: 4px; }
+  .alert-text { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .alert-text b { font-weight: 500; }
+  .alert-sub { margin-top: 3px; font-size: 12.5px; color: var(--ink-3); }
+  .channels { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+  .int-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .int { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+  .int-top { display: flex; align-items: center; gap: 10px; }
+  .int-logo { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); }
+  .int b { font-weight: 600; }
+  .int p { font-size: 12.5px; color: var(--ink-2); line-height: 1.45; flex: 1; }
+  .int .btn { align-self: flex-start; }
+
+  .roles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+  .role { padding: 12px; border-radius: 10px; background: var(--panel-2); font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+  .role b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; font-size: 13px; }
+  .ok-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--good-ink); white-space: nowrap; }
+  .ok-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+
+  @media (max-width: 1100px) {
+    .st-grid { grid-template-columns: minmax(0, 1fr); }
+    .st-nav { position: static; flex-direction: row; overflow-x: auto; }
+    .st-nav a { white-space: nowrap; }
+    .int-grid, .roles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 700px) {
+    .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .int-grid, .roles { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
+</head>
+<body data-page="settings">
+<div class="app">
+  <aside class="sidebar"></aside>
+  <main class="main" id="main">
+    <div class="page">
+
+      <header class="page-head">
+        <div>
+          <h1 class="page-title">Настройки</h1>
+          <p class="page-meta">Демо-сеть · изменения действуют во всех магазинах</p>
+        </div>
+      </header>
+
+      <div class="st-grid">
+        <nav class="st-nav" aria-label="Разделы настроек" id="st-nav">
+          <a href="#org" aria-current="true"><i data-lucide="building-2" class="i"></i>Организация</a>
+          <a href="#stores"><i data-lucide="store" class="i"></i>Магазины и док-станции</a>
+          <a href="#users"><i data-lucide="users" class="i"></i>Пользователи и роли</a>
+          <a href="#alerts"><i data-lucide="bell" class="i"></i>Оповещения</a>
+          <a href="#privacy"><i data-lucide="lock" class="i"></i>Приватность и хранение</a>
+          <a href="#integrations"><i data-lucide="plug" class="i"></i>Интеграции</a>
+        </nav>
+
+        <div class="st-sections">
+          <section class="panel" id="org" aria-labelledby="org-title">
+            <div class="panel-head"><div><h2 id="org-title" class="panel-title">Организация</h2><p class="panel-sub">Общие данные и вид интерфейса</p></div></div>
+            <div class="panel-body">
+              <div class="field"><div class="field-label"><b>Название</b><span>Видно в отчётах и письмах</span></div>
+                <label class="input"><input type="text" name="org-name" value="Демо-сеть" aria-label="Название организации" autocomplete="organization"></label></div>
+              <div class="field"><div class="field-label"><b>Отрасль</b><span>Подсказывает ИИ типовые возражения</span></div>
+                <select class="native-select" name="industry" aria-label="Отрасль"><option>Бытовая техника и электроника</option><option>Мебель и товары для дома</option><option>Одежда и обувь</option><option>Автосалоны</option></select></div>
+              <div class="field"><div class="field-label"><b>Часовой пояс</b><span>Для графиков и времени выгрузки</span></div>
+                <select class="native-select" name="tz" aria-label="Часовой пояс"><option>Москва, UTC+3</option><option>Екатеринбург, UTC+5</option></select></div>
+              <div class="field"><div class="field-label"><b>Язык интерфейса</b><span>Меняется сразу для вашей учётной записи</span></div>
+                <div class="seg" role="group" aria-label="Язык интерфейса" id="lang-seg"><button type="button" data-set-lang="ru" lang="ru" translate="no">Русский</button><button type="button" data-set-lang="en" lang="en" translate="no">English</button></div></div>
+              <div class="field"><div class="field-label"><b>Тема</b><span>Светлая удобнее днём в торговом зале</span></div>
+                <div class="seg" role="group" aria-label="Тема" id="theme-seg"><button type="button" data-set-theme="light">Светлая</button><button type="button" data-set-theme="dark">Тёмная</button></div></div>
+            </div>
+          </section>
+
+          <section class="panel" id="stores" aria-labelledby="stores-title">
+            <div class="panel-head"><div><h2 id="stores-title" class="panel-title">Магазины и док-станции</h2><p class="panel-sub">Бейджи выгружают записи через док-станции в Wi-Fi магазина</p></div>
+              <button class="btn btn-s" type="button" data-soon="1"><i data-lucide="plus" class="i i-s"></i>Добавить магазин</button></div>
+            <div class="panel-body" style="padding-top:6px">
+              <div class="table-wrap"><table class="table" id="stores-table">
+                <thead><tr><th scope="col">Магазин</th><th scope="col">Адрес</th><th scope="col" class="t-right">Продавцов</th><th scope="col" class="t-right">Док-станций</th><th scope="col">Связь</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+            </div>
+          </section>
+
+          <section class="panel" id="users" aria-labelledby="users-title">
+            <div class="panel-head"><div><h2 id="users-title" class="panel-title">Пользователи и роли</h2><p class="panel-sub">Кто работает с аналитикой · продавцы добавляются в разделе «Команда»</p></div>
+              <button class="btn btn-s" type="button" data-soon="1"><i data-lucide="user-plus" class="i i-s"></i>Пригласить</button></div>
+            <div class="panel-body" style="padding-top:6px">
+              <div class="table-wrap"><table class="table" id="users-table">
+                <thead><tr><th scope="col">Пользователь</th><th scope="col">Роль</th><th scope="col">Доступ</th><th scope="col">Был в системе</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+              <div class="roles">
+                <div class="role"><b>Директор</b>Видит всю сеть, ничего не меняет.</div>
+                <div class="role"><b>Администратор</b>Пользователи, магазины, бейджи и настройки.</div>
+                <div class="role"><b>РОП</b>Аналитика и разборы по назначенным магазинам.</div>
+                <div class="role"><b>Менеджер магазина</b>Свой магазин, продавцы и скрипты.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="alerts" aria-labelledby="alerts-title">
+            <div class="panel-head"><div><h2 id="alerts-title" class="panel-title">Оповещения</h2><p class="panel-sub">Когда разговор попадает в очередь на разбор</p></div></div>
+            <div class="panel-body">
+              <div class="alert-row"><div><div class="alert-text"><b>Балл разговора ниже</b><input class="num" type="number" name="alert-score" value="60" min="0" max="100" aria-label="Порог балла"></div><div class="alert-sub">Разговор попадёт в очередь, менеджер магазина получит уведомление</div></div>
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Балл разговора ниже порога"><span class="switch-track" aria-hidden="true"></span></button></div>
+              <div class="alert-row"><div><div class="alert-text"><b>Отказов по цене подряд</b><input class="num" type="number" name="alert-streak" value="3" min="2" max="10" aria-label="Число отказов подряд"></div><div class="alert-sub">Серия у одного продавца за смену</div></div>
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Серия отказов по цене"><span class="switch-track" aria-hidden="true"></span></button></div>
+              <div class="alert-row"><div><div class="alert-text"><b>Бейдж не выгружен дольше, дней</b><input class="num" type="number" name="alert-badge" value="1" min="1" max="7" aria-label="Дней без выгрузки"></div><div class="alert-sub">Администратору и менеджеру магазина</div></div>
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Бейдж не выгружен"><span class="switch-track" aria-hidden="true"></span></button></div>
+              <div class="alert-row"><div><div class="alert-text"><b>Нарушение высокой важности</b></div><div class="alert-sub">Сразу после анализа разговора</div></div>
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Нарушение высокой важности"><span class="switch-track" aria-hidden="true"></span></button></div>
+              <div class="alert-row"><div><div class="alert-text"><b>Сводка недели</b></div><div class="alert-sub">По понедельникам в 9:00: главное за неделю и очередь на разбор</div></div>
+                <button type="button" class="switch" role="switch" aria-checked="false" aria-label="Сводка недели"><span class="switch-track" aria-hidden="true"></span></button></div>
+              <div class="channels" role="group" aria-label="Каналы">
+                <button class="chip" type="button" aria-pressed="true"><i data-lucide="bell" class="i"></i>В интерфейсе</button>
+                <button class="chip" type="button" aria-pressed="true"><i data-lucide="mail" class="i"></i>Письмо</button>
+                <button class="chip" type="button" aria-pressed="false"><i data-lucide="send" class="i"></i>Telegram</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="privacy" aria-labelledby="privacy-title">
+            <div class="panel-head"><div><h2 id="privacy-title" class="panel-title">Приватность и хранение</h2><p class="panel-sub">Запись разговоров в магазинах по 152-ФЗ</p></div></div>
+            <div class="panel-body">
+              <div class="alert-row"><div><div class="alert-text"><b>Согласие сотрудников на запись получено</b></div><div class="alert-sub">Без отметки бейджи новых продавцов не начнут запись</div></div>
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Согласие сотрудников"><span class="switch-track" aria-hidden="true"></span></button></div>
+              <div class="alert-row"><div><div class="alert-text"><b>Покупатели уведомлены о записи</b></div><div class="alert-sub">Табличка у входа и индикатор на бейдже</div></div>
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Покупатели уведомлены"><span class="switch-track" aria-hidden="true"></span></button></div>
+              <div class="alert-row"><div><div class="alert-text"><b>Скрывать номера карт, телефонов и паспортов</b></div><div class="alert-sub">В расшифровке вместо них — «скрыто»</div></div>
+                <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Скрывать персональные данные"><span class="switch-track" aria-hidden="true"></span></button></div>
+              <div class="alert-row"><div><div class="alert-text"><b>Хранить записи и расшифровки</b></div><div class="alert-sub">Аналитика хранится без срока: в ней нет персональных данных</div></div>
+                <div class="seg" role="group" aria-label="Срок хранения"><button type="button" aria-pressed="true">90 дней</button><button type="button" aria-pressed="false">180 дней</button><button type="button" aria-pressed="false">1 год</button></div></div>
+              <div class="alert-row"><div><div class="alert-text"><b>Шифрование и размещение</b></div><div class="alert-sub">AES-256 при хранении, TLS 1.3 при передаче · серверы в России</div></div>
+                <span class="ok-dot">Включено</span></div>
+            </div>
+          </section>
+
+          <section class="panel" id="integrations" aria-labelledby="int-title">
+            <div class="panel-head"><div><h2 id="int-title" class="panel-title">Интеграции</h2><p class="panel-sub">Точнее конверсия и меньше ручной работы</p></div></div>
+            <div class="panel-body">
+              <div class="int-grid">
+                <div class="int"><div class="int-top"><span class="int-logo"><i data-lucide="receipt" class="i"></i></span><b>Кассы и чеки</b></div><p>Сверка разговоров с чеками: покупка считается по факту оплаты, видно средний чек.</p><button class="btn btn-s" type="button" data-soon="1">Подключить</button></div>
+                <div class="int"><div class="int-top"><span class="int-logo"><i data-lucide="database" class="i"></i></span><b>1С: Розница</b></div><p>Остатки и карточки товаров: ИИ проверит, не обещал ли продавец то, чего нет.</p><button class="btn btn-s" type="button" data-soon="1">Подключить</button></div>
+                <div class="int"><div class="int-top"><span class="int-logo"><i data-lucide="webhook" class="i"></i></span><b>Вебхуки и API</b></div><p>Итоги разговоров — в вашу CRM или хранилище данных.</p><button class="btn btn-s" type="button" data-soon="1">Настроить</button></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  V.init();
+  const D = VD;
+  document.querySelector('[name="org-name"]').value = D.org.name;
+
+  /* Магазины */
+  document.querySelector('#stores-table tbody').innerHTML = D.storeStats.map((s) => `<tr>
+    <td><b style="font-weight:600">${s.short}</b><div class="muted" style="font-size:12px">${s.name.split(',')[0]}</div></td>
+    <td>${s.address}</td>
+    <td class="t-right t-num">${s.sellers}</td>
+    <td class="t-right t-num">${D.docks[s.id]}</td>
+    <td><span class="ok-dot">${V.t('в сети')}</span></td>
+  </tr>`).join('');
+
+  /* Пользователи */
+  document.querySelector('#users-table tbody').innerHTML = D.users.map((u) => `<tr>
+    <td>${V.person(u)}</td><td>${u.role}</td><td>${u.scope}</td><td class="muted">${u.last}</td>
+  </tr>`).join('');
+
+  /* Язык и тема — работают по-настоящему */
+  V.$$('[data-set-lang]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.setLang === V.lang));
+    b.addEventListener('click', () => V.setLang(b.dataset.setLang));
+  });
+  const syncTheme = () => V.$$('[data-set-theme]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.setTheme === 'dark') === V.isDark())));
+  syncTheme();
+  V.$$('[data-set-theme]').forEach((b) => b.addEventListener('click', () => { if ((b.dataset.setTheme === 'dark') !== V.isDark()) V.toggleTheme(); syncTheme(); }));
+  document.addEventListener('themechange', syncTheme);
+
+  /* Переключатели */
+  document.querySelector('.st-sections').addEventListener('click', (e) => {
+    const sw = e.target.closest('[role="switch"]');
+    if (sw) { sw.setAttribute('aria-checked', String(sw.getAttribute('aria-checked') !== 'true')); V.toast(V.t('Настройка сохранена')); return; }
+    const chip = e.target.closest('.channels .chip');
+    if (chip) chip.setAttribute('aria-pressed', String(chip.getAttribute('aria-pressed') !== 'true'));
+  });
+  document.querySelector('.st-sections').addEventListener('change', (e) => { if (e.target.matches('input, select')) V.toast(V.t('Настройка сохранена')); });
+
+  /* Подсветка раздела в навигации при прокрутке */
+  const links = V.$$('#st-nav a');
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((en) => { if (en.isIntersecting) links.forEach((a) => a.setAttribute('aria-current', String(a.getAttribute('href') === '#' + en.target.id))); });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  V.$$('.st-sections > .panel').forEach((s) => io.observe(s));
+  V.icons();
+})();
+</script>
+</body>
+</html>

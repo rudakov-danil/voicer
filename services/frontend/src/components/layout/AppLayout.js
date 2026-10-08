@@ -27,5 +27,7 @@ export function AppLayout() {
     };
     const currentTitle = pageTitles[location.pathname] || 'Voicer';
     const showPeriod = PAGES_WITH_PERIOD.has(location.pathname);
-    return (_jsxs(_Fragment, { children: [_jsx(Sidebar, {}), _jsxs("div", { className: "main", children: [_jsx(Topbar, { title: currentTitle, onPeriodChange: setPeriod, period: period, showPeriod: showPeriod }), _jsx("div", { className: "content", children: _jsx(Outlet, { context: { period } }) })] })] }));
+    // У страницы разговора своя шапка: крошки, тема, вердикт
+    const ownHeader = location.pathname.startsWith('/conversations/');
+    return (_jsxs(_Fragment, { children: [_jsx(Sidebar, {}), _jsxs("div", { className: "main", children: [!ownHeader && (_jsx(Topbar, { title: currentTitle, onPeriodChange: setPeriod, period: period, showPeriod: showPeriod })), _jsx("div", { className: "content", children: _jsx(Outlet, { context: { period } }) })] })] }));
 }

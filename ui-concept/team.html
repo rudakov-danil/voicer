@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Команда · Войсер</title>
+<meta name="description" content="Концепт раздела «Команда»: магазины, рейтинг продавцов и профиль продавца с зонами развития.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  /* Магазины-фильтры */
+  .stores { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .store-card {
+    display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; text-align: left;
+    border-radius: var(--r-l); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-panel);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .store-card:hover { border-color: var(--line-2); }
+  .store-card[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+  .store-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .store-card-name { font-weight: 600; }
+  .store-card-city { font-size: 12px; color: var(--ink-3); }
+  .store-card-nums { display: flex; align-items: flex-end; gap: 18px; }
+  .store-card-nums .display { font-size: 20px; }
+  .store-card-nums .display small { font-size: 13px; font-weight: 500; }
+  .store-card-nums span.lbl { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+  .store-card-foot { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--ink-3); }
+  .store-card-foot .st-b { display: inline-flex; align-items: center; gap: 5px; }
+  .store-card-foot .st-b.is-warn { color: var(--warn-ink); }
+
+  .team-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+
+  /* Рейтинг */
+  .lb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .lb-table td, .lb-table th { padding-left: 7px; padding-right: 7px; }
+  .lb-table td:first-child, .lb-table th:first-child { padding-left: 18px; }
+  .lb-table td:last-child, .lb-table th:last-child { padding-right: 18px; }
+  .lb-table td { padding-top: 10px; padding-bottom: 10px; }
+  .lb-table tbody tr { cursor: pointer; }
+  .lb-table tbody tr[aria-selected="true"] { background: var(--accent-soft); }
+  .lb-table tbody tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .rank { font-weight: 600; font-size: 13px; width: 38px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .rank.is-top { color: var(--ink); }
+  .conv-cell { display: flex; align-items: center; gap: 10px; }
+  .conv-bar { width: 40px; height: 6px; border-radius: 3px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); position: relative; }
+  .conv-bar span { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--ink-2); }
+  .conv-val { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 46px; }
+  .lb-spark { width: 52px; height: 26px; }
+  .weak { font-size: 12.5px; color: var(--ink-2); }
+  .b-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
+  .b-dot .i { width: 15px; height: 15px; }
+  .b-dot.is-good { color: var(--good-ink); }
+  .b-dot.is-warn { color: var(--warn-ink); }
+  .b-dot.is-crit { color: var(--crit-ink); }
+  .b-dot.is-plain { color: var(--ink-3); }
+  .nodata td { color: var(--ink-3); }
+  .nodata-msg { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; white-space: normal; }
+  .nodata-msg .i { color: var(--crit-ink); }
+
+  /* Профиль */
+  .profile { position: sticky; top: 16px; }
+  .pf-head { display: flex; align-items: center; gap: 14px; padding: 18px 18px 0; }
+  .pf-name { font-weight: 600; font-size: 20px; line-height: 1.25; letter-spacing: -.01em; }
+  .pf-sub { margin-top: 4px; font-size: 13px; color: var(--ink-2); }
+  .pf-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 16px 18px 4px; }
+  .pf-kpi { padding: 10px 12px; border-radius: 10px; background: var(--panel-2); }
+  .pf-kpi .display { display: block; font-size: 20px; }
+  .pf-kpi .display small { font-size: 13px; font-weight: 500; }
+  .pf-kpi span.lbl { font-size: 11.5px; color: var(--ink-3); }
+  .pf-kpi.is-crit { background: var(--crit-soft); }
+  .pf-kpi.is-crit .display, .pf-kpi.is-crit .lbl { color: var(--crit-ink); }
+  .pf-sec { padding: 16px 18px 0; }
+  .pf-sec:last-child { padding-bottom: 18px; }
+  .pf-sec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .pf-sec-h h3 { font-size: 13.5px; font-weight: 600; }
+  .pf-sec-h .legend { font-size: 11.5px; }
+
+  .lc { position: relative; height: 150px; }
+  .lc svg { overflow: visible; }
+  .lc-grid { stroke: var(--line); }
+  .lc-lbl { fill: var(--ink-3); font-size: 10.5px; font-family: var(--font-ui); }
+  .lc-team { fill: none; stroke: var(--ink-4); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .lc-me { fill: none; stroke: var(--seller); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .lc-area { fill: var(--seller); opacity: .08; }
+  .lc-end { fill: var(--seller); stroke: var(--panel); stroke-width: 2; }
+  .lc-end-team { fill: var(--ink-4); stroke: var(--panel); stroke-width: 2; }
+  .lc-endlbl { font-size: 11px; font-weight: 600; font-family: var(--font-ui); fill: var(--ink); }
+  .lc-cross { stroke: var(--ink-3); stroke-width: 1; display: none; }
+  .lc-hit { fill: transparent; }
+
+  .db-row { display: grid; grid-template-columns: 170px minmax(0, 1fr) 44px; gap: 12px; align-items: center; padding: 7px 0; }
+  .db-name { font-size: 13px; line-height: 1.25; }
+  .db-track { position: relative; height: 18px; }
+  .db-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
+  .db-line { position: absolute; top: calc(50% - 1px); height: 2px; background: var(--ink-4); border-radius: 1px; }
+  .db-dot { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
+  .db-dot.is-team { background: var(--ink-4); }
+  .db-dot.is-me { background: var(--seller); }
+  .db-gap { text-align: right; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .db-gap.is-bad { color: var(--crit-ink); }
+  .db-gap.is-good { color: var(--good-ink); }
+  .db-scale { display: grid; grid-template-columns: 170px minmax(0, 1fr) 44px; gap: 12px; font-size: 10.5px; color: var(--ink-3); }
+  .db-scale div { display: flex; justify-content: space-between; }
+
+  .zone { padding: 12px 14px; border-radius: 12px; background: var(--panel-2); margin-bottom: 8px; }
+  .zone-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .zone-top b { font-weight: 600; }
+  .zone p { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+  .zone-best { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); flex-wrap: wrap; }
+  .zone-best .avatar { width: 22px; height: 22px; font-size: 9px; }
+
+  .rc { display: grid; grid-template-columns: 58px minmax(0, 1fr) 170px auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .rc:first-child { border-top: 0; }
+  .rc-time b { display: block; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .rc-time span { font-size: 11.5px; color: var(--ink-3); }
+
+  @media (max-width: 1280px) {
+    .team-grid { grid-template-columns: minmax(0, 1fr); }
+    .profile { position: static; }
+  }
+  @media (max-width: 900px) {
+    .stores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pf-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .rc { grid-template-columns: 52px minmax(0, 1fr) auto; }
+    .rc .fp-row { display: none; }
+    .db-row, .db-scale { grid-template-columns: 110px minmax(0, 1fr) 40px; }
+  }
+</style>
+</head>
+<body data-page="team">
+<div class="app">
+  <aside class="sidebar"></aside>
+  <main class="main" id="main">
+    <div class="page">
+
+      <header class="page-head">
+        <div>
+          <h1 class="page-title">Команда</h1>
+          <p class="page-meta">12 продавцов в трёх магазинах · 21–27 сентября</p>
+        </div>
+        <div class="page-actions">
+          <div class="seg" role="group" aria-label="Период">
+            <button type="button" aria-pressed="true">7 дней</button>
+            <button type="button" aria-pressed="false">30 дней</button>
+            <button type="button" aria-pressed="false">Квартал</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="stores" id="stores" role="group" aria-label="Фильтр по магазину"></div>
+
+      <div class="team-grid">
+        <section class="panel" aria-labelledby="lb-title">
+          <div class="lb-head">
+            <div>
+              <h2 id="lb-title" class="panel-title">Рейтинг продавцов</h2>
+              <p class="panel-sub" id="lb-sub"></p>
+            </div>
+            <div class="seg" role="group" aria-label="Сортировка">
+              <button type="button" aria-pressed="true" data-sort="conv">Конверсия</button>
+              <button type="button" aria-pressed="false" data-sort="score">Балл</button>
+              <button type="button" aria-pressed="false" data-sort="delta">Динамика</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table lb-table">
+              <thead><tr>
+                <th scope="col">#</th>
+                <th scope="col">Продавец</th>
+                <th scope="col">Конверсия</th>
+                <th scope="col">Балл</th>
+                <th scope="col">12 недель</th>
+                <th scope="col"><span class="sr-only">Бейдж</span><i data-lucide="radio" class="i i-s" aria-hidden="true"></i></th>
+              </tr></thead>
+              <tbody id="lb"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel profile" id="profile" aria-live="polite"></section>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  V.init();
+  const D = VD, NB = V.NB;
+  const params = new URLSearchParams(location.search);
+  const state = { store: 'all', sort: 'conv', seller: D.byId[params.get('seller')] ? params.get('seller') : 'sokolov' };
+  const conv = (s) => (s.conv ? (s.won / s.conv) * 100 : null);
+
+  /* Медиана сети по этапам и по неделям */
+  const median = (arr) => { const a = [...arr].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  const stepMedian = D.script.steps.map((_, i) => median(Object.values(D.heat).map((h) => h[i])));
+  const teamWeekly = D.summary.spark.score;
+
+  /* ---------- Магазины ---------- */
+  const storesEl = document.getElementById('stores');
+  function drawStores() {
+    const all = { id: 'all', short: 'Все магазины', city: 'сеть', conversion: D.summary.conversion, score: D.summary.avgScore, sellers: D.sellers.length, badgesOk: D.sellers.filter((s) => s.bstate === 'shift' || s.bstate === 'dock').length };
+    const cards = [all, ...D.storeStats.map((s) => ({ ...s, city: s.name.split(',')[0] }))];
+    storesEl.innerHTML = cards.map((s) => `
+      <button class="store-card" type="button" aria-pressed="${state.store === s.id}" data-store="${s.id}">
+        <div class="store-card-top"><span class="store-card-name">${s.short}</span><span class="store-card-city">${s.city}</span></div>
+        <div class="store-card-nums">
+          <div><span class="display">${V.dec(s.conversion)}<small>${NB}%</small></span><span class="lbl">конверсия</span></div>
+          <div><span class="display">${Math.round(s.score)}</span><span class="lbl">балл</span></div>
+        </div>
+        <div class="store-card-foot"><span>${s.sellers} ${V.plural(s.sellers, 'продавец', 'продавца', 'продавцов')}</span>
+          <span class="st-b ${s.badgesOk === s.sellers ? '' : 'is-warn'}"><i data-lucide="radio" class="i i-s"></i>${V.L(`${s.badgesOk} из ${s.sellers} бейджей`, `${s.badgesOk} of ${s.sellers} badges`)}</span></div>
+      </button>`).join('');
+  }
+  storesEl.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-store]');
+    if (!b) return;
+    state.store = b.dataset.store;
+    drawStores(); drawBoard(); V.icons();
+  });
+
+  /* ---------- Рейтинг ---------- */
+  const BICON = { shift: ['is-good', 'mic', 'на смене'], dock: ['is-plain', 'battery-charging', 'заряжается'], missed: ['is-warn', 'triangle-alert', 'не выгружен'], never: ['is-crit', 'wifi-off', 'нет связи'] };
+  function drawBoard() {
+    let list = D.sellers.filter((s) => state.store === 'all' || s.store === state.store);
+    const withData = list.filter((s) => s.conv);
+    const noData = list.filter((s) => !s.conv);
+    const key = { conv: (s) => conv(s), score: (s) => s.score, delta: (s) => s.delta }[state.sort];
+    withData.sort((a, b) => key(b) - key(a));
+    const maxConv = Math.max(...withData.map(conv));
+    document.getElementById('lb-sub').textContent = V.L(`${withData.length} ${V.plural(withData.length, 'продавец', 'продавца', 'продавцов')} с записями`, `${withData.length} sellers with recordings`) + (noData.length ? V.L(` · ${noData.length} без данных`, ` · ${noData.length} without data`) : '');
+    const rows = withData.map((s, i) => {
+      const b = BICON[s.bstate];
+      return `<tr data-seller="${s.id}" aria-selected="${s.id === state.seller}" tabindex="0">
+        <td class="rank ${i < 3 ? 'is-top' : ''}">${i + 1}</td>
+        <td>${V.person(s, `${D.storeById[s.store].short} · ${s.conv} ${V.plural(s.conv, 'разговор', 'разговора', 'разговоров')}`)}</td>
+        <td><div class="conv-cell"><span class="conv-val">${V.pct(conv(s))}</span><span class="conv-bar"><span style="width:${(conv(s) / maxConv) * 100}%"></span></span></div></td>
+        <td>${V.meter(s.score)}</td>
+        <td><div class="row" style="gap:8px"><span class="lb-spark" data-lb="${s.id}"></span>${V.delta(s.delta)}</div></td>
+        <td><span class="b-dot ${b[0]}" title="${V.L('Бейдж', 'Badge')} ${s.badge}: ${V.t(b[2])}"><i data-lucide="${b[1]}" class="i"></i><span class="sr-only">${V.L('Бейдж', 'Badge')}: ${V.t(b[2])}</span></span></td>
+      </tr>`;
+    });
+    noData.forEach((s) => rows.push(`<tr class="nodata" data-seller="${s.id}" aria-selected="${s.id === state.seller}" tabindex="0">
+      <td class="rank">—</td>
+      <td>${V.person(s, `${D.storeById[s.store].short} · ${V.L('в команде', 'on the team for')} ${s.tenure}`)}</td>
+      <td colspan="4"><div class="nodata-msg"><i data-lucide="wifi-off" class="i"></i><span>Нет разговоров: бейдж ни разу не выгружался</span><a class="link" href="badges.html">Проверить бейдж<i data-lucide="arrow-right" class="i i-s"></i></a></div></td>
+    </tr>`));
+    const tb = document.getElementById('lb');
+    tb.innerHTML = rows.join('');
+    V.$$('[data-lb]', tb).forEach((el) => V.spark(el, D.byId[el.dataset.lb].spark, { width: 52, height: 26 }));
+    V.icons();
+  }
+  document.getElementById('lb').addEventListener('click', (e) => {
+    const tr = e.target.closest('[data-seller]');
+    if (!tr || e.target.closest('a')) return;
+    select(tr.dataset.seller);
+  });
+  document.getElementById('lb').addEventListener('keydown', (e) => {
+    const tr = e.target.closest('[data-seller]');
+    if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(tr.dataset.seller); }
+  });
+  V.$$('[data-sort]').forEach((b) => b.addEventListener('click', () => {
+    state.sort = b.dataset.sort;
+    V.$$('[data-sort]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    drawBoard();
+  }));
+  function select(id) {
+    state.seller = id;
+    V.$$('#lb [data-seller]').forEach((tr) => tr.setAttribute('aria-selected', String(tr.dataset.seller === id)));
+    drawProfile();
+    history.replaceState(null, '', `?seller=${id}`);
+    if (window.innerWidth < 1280) document.getElementById('profile').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /* ---------- Профиль ---------- */
+  const WEEKS = D.analytics.weeks;
+  function drawProfile() {
+    const s = D.byId[state.seller];
+    const el = document.getElementById('profile');
+    const st = D.storeById[s.store];
+    const b = BICON[s.bstate];
+    if (!s.conv) {
+      el.innerHTML = `
+        <div class="pf-head"><span class="avatar is-xl" aria-hidden="true">${s.initials}</span><div><h2 class="pf-name">${s.name}</h2><div class="pf-sub">${st.name} · ${V.L('в команде', 'on the team for')} ${s.tenure}</div></div></div>
+        <div class="pf-sec"><div class="zone"><div class="zone-top"><b>Данных пока нет</b>${V.badgeState(s.bstate)}</div>
+          <p>${D.badges.notes[s.id]} ${V.L('Проверьте, что бейдж стоит на док-станции после смены и подключён к Wi-Fi магазина.', 'Check that the badge goes back on the dock after the shift and the dock is on the store Wi-Fi.')}</p>
+          <div class="zone-best"><a class="btn btn-s" href="badges.html"><i data-lucide="radio" class="i i-s"></i>${V.L('Открыть бейдж', 'Open badge')} ${s.badge}</a></div></div></div>`;
+      V.icons();
+      return;
+    }
+    const heat = D.heat[s.id];
+    const zones = D.script.steps.map((stp, i) => ({ stp, me: heat[i], team: stepMedian[i], i }))
+      .filter((z) => z.me < 80).sort((a, b2) => a.me - b2.me).slice(0, 3);
+    const best = (i) => Object.entries(D.heat).sort((a, b2) => b2[1][i] - a[1][i])[0];
+    const recent = D.convs.filter((c) => c.seller === s.id).slice(0, 4);
+    el.innerHTML = `
+      <div class="pf-head">
+        <span class="avatar is-xl" aria-hidden="true">${s.initials}</span>
+        <div style="min-width:0">
+          <h2 class="pf-name">${s.name}</h2>
+          <div class="pf-sub">${st.name} · ${V.L('в команде', 'on the team for')} ${s.tenure}</div>
+          <div style="margin-top:8px"><span class="b-dot ${b[0]}"><i data-lucide="${b[1]}" class="i"></i><span>${V.L('Бейдж', 'Badge')} <span class="mono">${s.badge}</span> · ${V.t(b[2])}</span></span></div>
+        </div>
+      </div>
+      <div class="pf-kpis">
+        <div class="pf-kpi"><span class="display">${V.dec(conv(s))}<small>${NB}%</small></span><span class="lbl">конверсия</span></div>
+        <div class="pf-kpi"><span class="display">${s.score}</span><span class="lbl">${V.L('балл', 'score')} · ${s.delta > 0 ? '+' : s.delta < 0 ? '−' : ''}${Math.abs(s.delta)} ${V.L('за неделю', 'this week')}</span></div>
+        <div class="pf-kpi"><span class="display">${s.conv}</span><span class="lbl">разговоров</span></div>
+        <div class="pf-kpi ${s.viol ? 'is-crit' : ''}"><span class="display">${s.viol}</span><span class="lbl">${V.plural(s.viol, 'нарушение', 'нарушения', 'нарушений')}</span></div>
+      </div>
+      <div class="pf-sec">
+        <div class="pf-sec-h"><h3>Балл за 12 недель</h3>
+          <div class="legend"><span class="legend-item"><span class="key-line" style="background:var(--seller)"></span>${V.first(s.name)}</span><span class="legend-item"><span class="key-line" style="background:var(--ink-4)"></span>медиана сети</span></div></div>
+        <div class="lc" id="lc"></div>
+      </div>
+      <div class="pf-sec">
+        <div class="pf-sec-h"><h3>По этапам скрипта</h3>
+          <div class="legend"><span class="legend-item"><span class="key-dot" style="background:var(--seller)"></span>${V.first(s.name)}</span><span class="legend-item"><span class="key-dot" style="background:var(--ink-4)"></span>медиана сети</span></div></div>
+        <div id="db"></div>
+        <div class="db-scale" aria-hidden="true"><span></span><div><span>40</span><span>70</span><span>100</span></div><span></span></div>
+      </div>
+      <div class="pf-sec">
+        <div class="pf-sec-h"><h3>Зоны развития</h3><span class="muted" style="font-size:12px">от слабого к сильному</span></div>
+        ${zones.length ? zones.map((z) => {
+          const [bid, bh] = best(z.i);
+          const bp = D.byId[bid];
+          return `<div class="zone">
+            <div class="zone-top"><b>${z.stp.name}</b>${V.meter(z.me)}</div>
+            <p>${z.stp.rec}</p>
+            <div class="zone-best"><span class="avatar" aria-hidden="true">${bp.initials}</span>${V.L(`Лучше всех в сети — ${bp.name}, ${bh[z.i]}`, `Best in the network — ${bp.name}, ${bh[z.i]}`)}<a class="link" href="conversations.html?view=all" style="margin-left:auto"><i data-lucide="headphones" class="i i-s"></i>Послушать пример</a></div>
+          </div>`;
+        }).join('') : `<div class="zone"><div class="zone-top"><b>Все этапы выше 80</b></div><p>Отличная работа — продолжайте в том же духе.</p></div>`}
+      </div>
+      <div class="pf-sec">
+        <div class="pf-sec-h"><h3>Последние разговоры</h3><a class="link" href="conversations.html">Все<i data-lucide="arrow-right" class="i i-s"></i></a></div>
+        ${recent.map((c) => `<a class="rc" href="conversation.html?from=${c.id}">
+          <span class="rc-time"><b>${c.time}</b><span>${c.date}</span></span>
+          <span class="ellipsis">${c.topic}</span>
+          <span class="fp-row"><span data-fp="${c.id}" data-h="26" data-marks="on" style="flex:1"></span><span class="fp-dur">${V.clock(c.dur)}</span></span>
+          ${V.outcome(c.outcome)}
+        </a>`).join('') || '<p class="muted">За неделю разговоров нет.</p>'}
+      </div>`;
+    V.icons();
+    drawLine(s);
+    drawDumbbell(s, heat);
+    V.renderFingerprints(el);
+  }
+
+  /* Линия: продавец против медианы сети, с перекрестием */
+  function drawLine(s) {
+    const box = document.getElementById('lc');
+    const w = box.clientWidth, h = box.clientHeight;
+    const pad = { l: 26, r: 34, t: 10, b: 22 };
+    const me = s.spark;
+    const vals = [...me.filter(Boolean), ...teamWeekly];
+    const min = Math.floor(Math.min(...vals) / 10) * 10, max = Math.ceil(Math.max(...vals) / 10) * 10;
+    const X = (i) => pad.l + (i / (WEEKS.length - 1)) * (w - pad.l - pad.r);
+    const Y = (v) => pad.t + (1 - (v - min) / (max - min || 1)) * (h - pad.t - pad.b);
+    const svg = V.svg('svg', { width: w, height: h, viewBox: `0 0 ${w} ${h}`, role: 'img', 'aria-label': V.L(`Балл ${s.name} за 12 недель: сейчас ${me[me.length - 1]}, медиана сети ${teamWeekly[teamWeekly.length - 1]}`, `${s.name}'s score over 12 weeks: now ${me[me.length - 1]}, network median ${teamWeekly[teamWeekly.length - 1]}`) });
+    for (let v = min; v <= max; v += 10) {
+      V.svg('line', { x1: pad.l, x2: w - pad.r, y1: Y(v), y2: Y(v), class: 'lc-grid' }, svg);
+      V.svg('text', { x: 0, y: Y(v) + 3.5, class: 'lc-lbl' }, svg).textContent = v;
+    }
+    [0, 4, 8, 11].forEach((i) => V.svg('text', { x: X(i), y: h - 4, 'text-anchor': i === 0 ? 'start' : i === 11 ? 'end' : 'middle', class: 'lc-lbl' }, svg).textContent = WEEKS[i]);
+    const path = (arr) => arr.map((v, i) => (v ? `${arr[i - 1] ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}` : '')).join('');
+    V.svg('path', { d: path(teamWeekly), class: 'lc-team' }, svg);
+    const first = me.findIndex(Boolean);
+    V.svg('path', { d: path(me) + `L${X(me.length - 1)},${Y(min)}L${X(first)},${Y(min)}Z`, class: 'lc-area' }, svg);
+    V.svg('path', { d: path(me), class: 'lc-me' }, svg);
+    const n = me.length - 1;
+    V.svg('circle', { cx: X(n), cy: Y(teamWeekly[n]), r: 4, class: 'lc-end-team' }, svg);
+    V.svg('circle', { cx: X(n), cy: Y(me[n]), r: 4.5, class: 'lc-end' }, svg);
+    const dy = Math.abs(Y(me[n]) - Y(teamWeekly[n])) < 14 ? (me[n] > teamWeekly[n] ? -7 : 7) : 0;
+    V.svg('text', { x: X(n) + 8, y: Y(me[n]) + 4 + dy, class: 'lc-endlbl' }, svg).textContent = me[n];
+    V.svg('text', { x: X(n) + 8, y: Y(teamWeekly[n]) + 4 - dy, class: 'lc-endlbl', style: 'fill:var(--ink-3)' }, svg).textContent = teamWeekly[n];
+    const cross = V.svg('line', { y1: pad.t, y2: h - pad.b, class: 'lc-cross' }, svg);
+    const hit = V.svg('rect', { x: pad.l, y: 0, width: w - pad.l - pad.r, height: h, class: 'lc-hit' }, svg);
+    const at = (clientX) => {
+      const r = box.getBoundingClientRect();
+      return Math.max(0, Math.min(WEEKS.length - 1, Math.round(((clientX - r.left - pad.l) / (w - pad.l - pad.r)) * (WEEKS.length - 1))));
+    };
+    hit.addEventListener('pointermove', (e) => {
+      const i = at(e.clientX);
+      cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.style.display = 'block';
+      V.tip.show({ title: V.L(`Неделя с ${WEEKS[i]}`, `Week of ${WEEKS[i]}`), rows: [
+        { value: me[i] ? String(me[i]) : 'нет данных', label: V.first(s.name), color: getComputedStyle(document.documentElement).getPropertyValue('--seller').trim() },
+        { value: String(teamWeekly[i]), label: 'медиана сети', color: getComputedStyle(document.documentElement).getPropertyValue('--ink-4').trim() },
+      ] }, e.clientX, e.clientY);
+    });
+    hit.addEventListener('pointerleave', () => { cross.style.display = 'none'; V.tip.hide(); });
+    box.replaceChildren(svg);
+  }
+
+  /* Гантели: продавец против медианы сети по этапам */
+  function drawDumbbell(s, heat) {
+    const lo = 40, hi = 100;
+    const P = (v) => ((Math.max(lo, v) - lo) / (hi - lo)) * 100;
+    document.getElementById('db').innerHTML = D.script.steps.map((stp, i) => {
+      const me = heat[i], team = stepMedian[i];
+      const gap = Math.round(me - team);
+      const a = Math.min(P(me), P(team)), b2 = Math.max(P(me), P(team));
+      return `<div class="db-row" role="img" aria-label="${stp.name}: ${V.first(s.name)} ${me}, ${V.L('медиана сети', 'network median')} ${Math.round(team)}">
+        <span class="db-name">${stp.name}</span>
+        <span class="db-track" aria-hidden="true"><span class="db-line" style="left:${a}%;width:${b2 - a}%"></span><span class="db-dot is-team" style="left:${P(team)}%"></span><span class="db-dot is-me" style="left:${P(me)}%"></span></span>
+        <span class="db-gap ${gap < -2 ? 'is-bad' : gap > 2 ? 'is-good' : ''}">${gap > 0 ? '+' : gap < 0 ? '−' : ''}${Math.abs(gap)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  drawStores();
+  drawBoard();
+  drawProfile();
+  V.icons();
+  let rz = 0;
+  window.addEventListener('resize', () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(drawProfile); });
+})();
+</script>
+</body>
+</html>

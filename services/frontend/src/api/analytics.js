@@ -1,5 +1,19 @@
 import apiClient from './client';
 export const analyticsApi = {
+    // Резюме диалога от LLM. Первый вызов генерирует и кэширует, далее возвращает кэш.
+    // force=true — перегенерировать. Идёт напрямую в analytics-engine.
+    getConversationSummary: async (conversationId, force = false) => {
+        const response = await apiClient.post(`/api/v1/analytics/conversations/${conversationId}/summary${force ? '?force=true' : ''}`, undefined, 
+        // Генерация через внешний LLM бывает долгой — даём запас, чтобы браузер не
+        // оборвал запрос раньше бэкенда (иначе ошибка при уже идущей генерации).
+        { timeout: 180000 });
+        return response.data;
+    },
+    // Полное удаление диалога (разговор + транскрипт + запись)
+    deleteConversation: async (conversationId) => {
+        const response = await apiClient.delete(`/api/v1/analytics/conversations/${conversationId}`);
+        return response.data;
+    },
     getObjectionsDistribution: async (params) => {
         const response = await apiClient.get('/api/v1/dashboard/objections/distribution', { params });
         return response.data;

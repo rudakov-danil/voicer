@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Аналитика · Войсер</title>
+<meta name="description" content="Концепт раздела «Аналитика»: конверсия по магазинам, что влияет на покупку, где уходят покупатели, нагрузка по часам.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  .an-a { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
+  .an-b { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; margin-bottom: 16px; }
+  .an-c { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+
+  /* Линии */
+  .lc { position: relative; height: 250px; }
+  .lc svg { overflow: visible; }
+  .g-line { stroke: var(--line); }
+  .g-lbl { fill: var(--ink-3); font-size: 11px; font-family: var(--font-ui); }
+  .s-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .s-end { stroke: var(--panel); stroke-width: 2; }
+  .s-endlbl { fill: var(--ink); font-size: 11.5px; font-weight: 600; font-family: var(--font-ui); }
+  .s-endsub { fill: var(--ink-3); font-size: 11px; font-family: var(--font-ui); }
+  .cross { stroke: var(--ink-3); display: none; }
+  .hit { fill: transparent; }
+
+  /* Драйверы */
+  .drv { padding: 12px 0; border-top: 1px solid var(--line); }
+  .drv:first-child { border-top: 0; padding-top: 2px; }
+  .drv-title { font-weight: 500; line-height: 1.35; }
+  .drv-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; margin-top: 8px; }
+  .drv-track { position: relative; height: 16px; }
+  .drv-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
+  .drv-link { position: absolute; top: calc(50% - 1px); height: 2px; background: var(--ink-4); }
+  .drv-dot { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
+  .drv-dot.is-yes { background: var(--seller); }
+  .drv-dot.is-no { background: var(--ink-4); }
+  .drv-vals { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .drv-vals b { color: var(--ink); font-weight: 600; }
+  .drv-sub { margin-top: 4px; font-size: 12px; color: var(--ink-3); }
+
+  /* Воронка */
+  .fn { display: grid; grid-template-columns: 190px minmax(0, 1fr) 56px; gap: 6px 12px; align-items: center; }
+  .fn-stage { font-weight: 500; font-size: 13px; line-height: 1.3; }
+  .fn-bar { height: 22px; border-radius: 0 4px 4px 0; background: var(--console-seller); min-width: 4px; }
+  .fn-bar.is-last { background: var(--good); }
+  .fn-val { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .fn-loss { grid-column: 2 / 4; display: flex; align-items: center; gap: 6px; margin: -2px 0 8px; font-size: 12px; color: var(--ink-3); }
+  .fn-loss b { color: var(--crit-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* Нагрузка */
+  .load { width: 100%; border-collapse: separate; border-spacing: 3px; font-size: 11.5px; }
+  .load th { font-weight: 500; color: var(--ink-3); padding: 2px; text-align: center; font-variant-numeric: tabular-nums; }
+  .load th.row-h { text-align: left; padding-right: 6px; }
+  .load td { height: 30px; border-radius: 6px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; cursor: default; }
+  .load td.is-over { box-shadow: inset 0 0 0 2px var(--crit); }
+  .l1 { background: var(--seq-1); color: #0B0E14; } .l2 { background: var(--seq-2); color: #0B0E14; } .l3 { background: var(--seq-3); color: #0B0E14; }
+  .l4 { background: var(--seq-4); color: #0B0E14; } .l5 { background: var(--seq-5); color: #0B0E14; } .l6 { background: var(--seq-6); color: #0B0E14; }
+  :root[data-theme="dark"] .l1, :root[data-theme="dark"] .l2, :root[data-theme="dark"] .l3, :root[data-theme="dark"] .l4 { color: #EEF0F4; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .l1, :root:not([data-theme="light"]) .l2, :root:not([data-theme="light"]) .l3, :root:not([data-theme="light"]) .l4 { color: #EEF0F4; }
+  }
+  .load-note { display: flex; gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: var(--crit-soft); font-size: 13px; line-height: 1.5; }
+  .load-note .i { flex: none; margin-top: 2px; color: var(--crit-ink); }
+
+  /* Ответы на «дорого» */
+  .tq { display: grid; grid-template-columns: 210px minmax(0, 1fr) 56px; gap: 10px 12px; align-items: center; padding: 7px 0; }
+  .tq-name { font-size: 13px; font-weight: 500; line-height: 1.3; }
+  .tq-name span { display: block; font-size: 12px; font-weight: 400; color: var(--ink-3); }
+  .tq-bar { height: 10px; border-radius: 0 4px 4px 0; background: var(--console-seller); }
+  .tq-bar.is-bad { background: var(--crit); }
+  .tq-val { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* Разброс */
+  .sc { position: relative; height: 280px; }
+  .sc svg { overflow: visible; }
+  .band { fill: var(--good); opacity: .08; }
+  .band-lbl { fill: var(--good-ink); font-size: 11px; font-weight: 600; font-family: var(--font-ui); }
+  .trend { stroke: var(--ink-4); stroke-width: 1.5; }
+  .pt { fill: var(--console-seller); stroke: var(--panel); stroke-width: 2; }
+  .pt-lbl { fill: var(--ink-2); font-size: 11px; font-weight: 500; font-family: var(--font-ui); }
+  .pt-hit { fill: transparent; cursor: default; }
+
+  @media (max-width: 1240px) { .an-a, .an-b, .an-c { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 620px) {
+    .fn { grid-template-columns: 120px minmax(0, 1fr) 44px; }
+    .tq { grid-template-columns: 130px minmax(0, 1fr) 44px; }
+  }
+</style>
+</head>
+<body data-page="analytics">
+<div class="app">
+  <aside class="sidebar"></aside>
+  <main class="main" id="main">
+    <div class="page">
+
+      <header class="page-head">
+        <div>
+          <h1 class="page-title">Аналитика</h1>
+          <p class="page-meta">Три магазина · 12 недель, 6 июля — 27 сентября</p>
+        </div>
+        <div class="page-actions">
+          <div class="seg" role="group" aria-label="Период">
+            <button type="button" aria-pressed="false">4 недели</button>
+            <button type="button" aria-pressed="true">12 недель</button>
+            <button type="button" aria-pressed="false">Год</button>
+          </div>
+          <button class="select" type="button" data-soon="1"><i data-lucide="store" class="i"></i>Все магазины<i data-lucide="chevron-down" class="i i-s"></i></button>
+        </div>
+      </header>
+
+      <div class="an-a">
+        <section class="panel" aria-labelledby="cv-title">
+          <div class="panel-head">
+            <div><h2 id="cv-title" class="panel-title">Конверсия в покупку по магазинам</h2><p class="panel-sub">Доля разговоров, которые закончились покупкой, по неделям</p></div>
+            <div class="legend" id="cv-legend" aria-hidden="true"></div>
+          </div>
+          <div class="panel-body"><div class="lc" id="cv"></div></div>
+        </section>
+
+        <section class="panel" aria-labelledby="dr-title">
+          <div class="panel-head">
+            <div><h2 id="dr-title" class="panel-title">Что влияет на покупку</h2><p class="panel-sub">Конверсия, когда условие выполнено, и когда нет</p></div>
+          </div>
+          <div class="panel-body" id="drivers"></div>
+          <div class="panel-foot"><span class="legend"><span class="legend-item"><span class="key-dot" style="background:var(--seller)"></span>условие выполнено</span><span class="legend-item"><span class="key-dot" style="background:var(--ink-4)"></span>не выполнено</span></span></div>
+        </section>
+      </div>
+
+      <div class="an-b">
+        <section class="panel" aria-labelledby="fn-title">
+          <div class="panel-head">
+            <div><h2 id="fn-title" class="panel-title">Где уходят покупатели</h2><p class="panel-sub">Этапы разговора за неделю: сколько разговоров дошли до каждого</p></div>
+          </div>
+          <div class="panel-body"><div class="fn" id="funnel"></div></div>
+        </section>
+
+        <section class="panel" aria-labelledby="ld-title">
+          <div class="panel-head">
+            <div><h2 id="ld-title" class="panel-title">Нагрузка по часам</h2><p class="panel-sub">Разговоров в час, в среднем за неделю · красная рамка — конверсия ниже 22&nbsp;%</p></div>
+          </div>
+          <div class="panel-body">
+            <div class="table-wrap"><table class="load" id="load"></table></div>
+            <div class="load-note"><i data-lucide="users" class="i"></i><span>В субботу и воскресенье с 17 до 20 разговоров почти вдвое больше, а конверсия падает до 21&nbsp;%: покупатели уходят, не дождавшись продавца. Одного продавца на эти часы в каждом магазине хватит, чтобы вернуть около 30 покупок в неделю.</span></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="an-c">
+        <section class="panel" aria-labelledby="tq-title">
+          <div class="panel-head">
+            <div><h2 id="tq-title" class="panel-title">Что отвечают на «дорого»</h2><p class="panel-sub">Конверсия после ответа продавца · 12 недель</p></div>
+          </div>
+          <div class="panel-body" id="techniques"></div>
+          <div class="panel-foot"><span>Скидка 3&nbsp;% работает хуже всего: покупатель слышит, что цена была завышена.</span></div>
+        </section>
+
+        <section class="panel" aria-labelledby="sc-title">
+          <div class="panel-head">
+            <div><h2 id="sc-title" class="panel-title">Кто больше говорит — меньше продаёт</h2><p class="panel-sub">Доля речи продавца и его конверсия за неделю</p></div>
+          </div>
+          <div class="panel-body"><div class="sc" id="scatter"></div></div>
+        </section>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  V.init();
+  const D = VD, A = D.analytics, NB = V.NB;
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const SERIES = [
+    { id: 'msk', color: 'var(--cat-1)' },
+    { id: 'spb', color: 'var(--cat-2)' },
+    { id: 'ekb', color: 'var(--cat-3)' },
+  ].map((s) => ({ ...s, store: D.storeById[s.id], values: D.storeStats.find((x) => x.id === s.id).spark }));
+
+  /* ---------- Линии: конверсия по магазинам ---------- */
+  document.getElementById('cv-legend').innerHTML = SERIES.map((s) => `<span class="legend-item"><span class="key-line" style="background:${s.color}"></span>${s.store.short}</span>`).join('');
+  function drawLines() {
+    const box = document.getElementById('cv');
+    const w = box.clientWidth, h = box.clientHeight;
+    const pad = { l: 34, r: 96, t: 10, b: 24 };
+    const min = 22, max = 32;
+    const X = (i) => pad.l + (i / (A.weeks.length - 1)) * (w - pad.l - pad.r);
+    const Y = (v) => pad.t + (1 - (v - min) / (max - min)) * (h - pad.t - pad.b);
+    const svg = V.svg('svg', { width: w, height: h, viewBox: `0 0 ${w} ${h}`, role: 'img',
+      'aria-label': SERIES.map((s) => `${s.store.short}: ${V.pct(s.values[11])}`).join(', ') });
+    for (let v = min; v <= max; v += 2) {
+      V.svg('line', { x1: pad.l, x2: w - pad.r, y1: Y(v), y2: Y(v), class: 'g-line' }, svg);
+      V.svg('text', { x: 0, y: Y(v) + 4, class: 'g-lbl' }, svg).textContent = v + (V.lang === 'en' ? '%' : NB + '%');
+    }
+    [0, 3, 6, 9, 11].forEach((i) => V.svg('text', { x: X(i), y: h - 4, 'text-anchor': i === 0 ? 'start' : i === 11 ? 'end' : 'middle', class: 'g-lbl' }, svg).textContent = A.weeks[i]);
+    const ends = SERIES.map((s) => ({ s, y: Y(s.values[11]) })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 26) ends[i].y = ends[i - 1].y + 26;
+    SERIES.forEach((s) => {
+      V.svg('path', { d: s.values.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(''), class: 's-line', style: `stroke:${s.color}` }, svg);
+      V.svg('circle', { cx: X(11), cy: Y(s.values[11]), r: 4.5, class: 's-end', style: `fill:${s.color}` }, svg);
+      const ly = ends.find((e) => e.s === s).y;
+      V.svg('text', { x: X(11) + 10, y: ly, class: 's-endlbl' }, svg).textContent = V.pct(s.values[11]);
+      V.svg('text', { x: X(11) + 10, y: ly + 13, class: 's-endsub' }, svg).textContent = s.store.short;
+    });
+    const cross = V.svg('line', { y1: pad.t, y2: h - pad.b, class: 'cross' }, svg);
+    const hit = V.svg('rect', { x: pad.l, y: 0, width: w - pad.l - pad.r, height: h, class: 'hit' }, svg);
+    hit.addEventListener('pointermove', (e) => {
+      const r = box.getBoundingClientRect();
+      const i = Math.max(0, Math.min(11, Math.round(((e.clientX - r.left - pad.l) / (w - pad.l - pad.r)) * 11)));
+      cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.style.display = 'block';
+      V.tip.show({ title: V.L('Неделя с ', 'Week of ') + A.weeks[i], rows: SERIES.map((s) => ({ value: V.pct(s.values[i]), label: s.store.short, color: s.color })) }, e.clientX, e.clientY);
+    });
+    hit.addEventListener('pointerleave', () => { cross.style.display = 'none'; V.tip.hide(); });
+    box.replaceChildren(svg);
+  }
+
+  /* ---------- Что влияет на покупку ---------- */
+  document.getElementById('drivers').innerHTML = A.drivers.map((d) => {
+    const P = (v) => (v / 40) * 100;
+    const lo = Math.min(d.yes, d.no), hi = Math.max(d.yes, d.no);
+    const diff = d.yes - d.no;
+    return `<div class="drv">
+      <div class="drv-title">${d.title}</div>
+      <div class="drv-row">
+        <div class="drv-track" role="img" aria-label="${V.pct(d.yes)} / ${V.pct(d.no)}"><span class="drv-link" style="left:${P(lo)}%;width:${P(hi) - P(lo)}%"></span><span class="drv-dot is-no" style="left:${P(d.no)}%"></span><span class="drv-dot is-yes" style="left:${P(d.yes)}%"></span></div>
+        <span class="drv-vals"><b>${V.pct(d.yes)}</b> ${V.L('против', 'vs')} ${V.pct(d.no)}</span>
+      </div>
+      <div class="drv-sub">${V.delta(Math.round(diff * 10) / 10, { unit: V.PP, digits: 1 })} · ${V.L(`в ${d.share}${NB}% разговоров`, `in ${d.share}% of conversations`)}</div>
+    </div>`;
+  }).join('');
+
+  /* ---------- Воронка ---------- */
+  const top = A.funnel[0].n;
+  document.getElementById('funnel').innerHTML = A.funnel.map((f, i) => {
+    const prev = i ? A.funnel[i - 1].n : null;
+    const loss = prev ? `<div class="fn-loss"><i data-lucide="corner-down-right" class="i i-s"></i><b>−${V.int(prev - f.n)}</b><span>${f.loss}</span></div>` : '';
+    return `${loss}<span class="fn-stage">${f.stage}</span>
+      <div class="fn-bar${i === A.funnel.length - 1 ? ' is-last' : ''}" style="width:${(f.n / top) * 100}%" role="img" aria-label="${f.stage}: ${V.int(f.n)}"></div>
+      <span class="fn-val">${V.int(f.n)}</span>`;
+  }).join('');
+
+  /* ---------- Нагрузка по часам ---------- */
+  const dayW = [0.72, 0.76, 0.75, 0.82, 1.0, 1.38, 1.3];
+  const hourW = [0.35, 0.6, 0.8, 0.95, 1.0, 0.95, 0.95, 1.05, 1.28, 1.32, 1.1, 0.6];
+  const r = V.rng(404);
+  const cells = dayW.map((dw) => hourW.map((hw) => {
+    const n = Math.round(15 * dw * hw * (0.9 + r() * 0.2));
+    const conv = Math.max(14, Math.min(36, 31.5 - Math.max(0, n - 21) * 2.1 + (r() - 0.5) * 3));
+    return { n, conv };
+  }));
+  const bin = (n) => (n < 6 ? 1 : n < 10 ? 2 : n < 14 ? 3 : n < 18 ? 4 : n < 23 ? 5 : 6);
+  const hourLbl = (h) => (V.lang === 'en' ? `${h}:00` : `${h}:00`);
+  document.getElementById('load').innerHTML = `<caption class="sr-only">${V.t('Разговоров в час по дням недели')}</caption>
+    <thead><tr><th class="row-h" scope="col"></th>${A.loadHours.map((h) => `<th scope="col">${h}</th>`).join('')}</tr></thead>
+    <tbody>${cells.map((row, di) => `<tr><th class="row-h" scope="row">${A.loadDays[di]}</th>${row.map((c, hi) => `<td class="l${bin(c.n)}${c.conv < 22 ? ' is-over' : ''}" tabindex="0" data-c="${di}:${hi}">${c.n}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  V.$$('[data-c]').forEach((td) => {
+    const [di, hi] = td.dataset.c.split(':').map(Number);
+    const c = cells[di][hi];
+    V.bindTip(td, () => ({ title: `${A.loadDays[di]}, ${hourLbl(A.loadHours[hi])}–${hourLbl(A.loadHours[hi] + 1)}`,
+      rows: [{ value: `${c.n} ${V.plural(c.n, 'разговор', 'разговора', 'разговоров')}`, label: V.t('в час') }, { value: V.pct(c.conv), label: V.t('конверсия') }] }));
+  });
+
+  /* ---------- Ответы на «дорого» ---------- */
+  const maxConv = Math.max(...A.techniques.map((t) => t.conv));
+  document.getElementById('techniques').innerHTML = A.techniques.map((t) => `
+    <div class="tq">
+      <span class="tq-name">${t.name}<span>${V.L(`${t.uses} ${V.plural(t.uses, 'раз', 'раза', 'раз')}`, `used ${t.uses} times`)}</span></span>
+      <div class="tq-bar${t.conv < 12 ? ' is-bad' : ''}" style="width:${(t.conv / maxConv) * 100}%" role="img" aria-label="${t.name}: ${V.pct(t.conv)}"></div>
+      <span class="tq-val">${V.pct(t.conv)}</span>
+    </div>`).join('');
+
+  /* ---------- Разброс: доля речи и конверсия ---------- */
+  function drawScatter() {
+    const box = document.getElementById('scatter');
+    const w = box.clientWidth, h = box.clientHeight;
+    const pad = { l: 38, r: 16, t: 14, b: 30 };
+    const xMin = 40, xMax = 75, yMin = 15, yMax = 40;
+    const X = (v) => pad.l + ((v - xMin) / (xMax - xMin)) * (w - pad.l - pad.r);
+    const Y = (v) => pad.t + (1 - (v - yMin) / (yMax - yMin)) * (h - pad.t - pad.b);
+    const pts = D.sellers.filter((s) => s.conv).map((s) => ({ s, x: s.talk, y: (s.won / s.conv) * 100 }));
+    const svg = V.svg('svg', { width: w, height: h, viewBox: `0 0 ${w} ${h}`, role: 'img', 'aria-label': V.t('Доля речи продавца и конверсия по продавцам') });
+    V.svg('rect', { x: X(40), y: pad.t, width: X(60) - X(40), height: h - pad.t - pad.b, class: 'band' }, svg);
+    V.svg('text', { x: X(40) + 6, y: pad.t + 14, class: 'band-lbl' }, svg).textContent = V.t('Норма 40–60 %');
+    for (let v = yMin; v <= yMax; v += 5) {
+      V.svg('line', { x1: pad.l, x2: w - pad.r, y1: Y(v), y2: Y(v), class: 'g-line' }, svg);
+      V.svg('text', { x: 0, y: Y(v) + 4, class: 'g-lbl' }, svg).textContent = v + (V.lang === 'en' ? '%' : NB + '%');
+    }
+    for (let v = xMin; v <= xMax; v += 5) V.svg('text', { x: X(v), y: h - 8, 'text-anchor': 'middle', class: 'g-lbl' }, svg).textContent = v + (V.lang === 'en' ? '%' : NB + '%');
+    /* тренд — простая линейная регрессия */
+    const n = pts.length, mx = pts.reduce((a, p) => a + p.x, 0) / n, my = pts.reduce((a, p) => a + p.y, 0) / n;
+    const k = pts.reduce((a, p) => a + (p.x - mx) * (p.y - my), 0) / pts.reduce((a, p) => a + (p.x - mx) ** 2, 0);
+    const b = my - k * mx;
+    V.svg('line', { x1: X(45), y1: Y(k * 45 + b), x2: X(72), y2: Y(k * 72 + b), class: 'trend' }, svg);
+    pts.forEach((p) => {
+      V.svg('circle', { cx: X(p.x), cy: Y(p.y), r: 5, class: 'pt' }, svg);
+      if (['petrova', 'galiev', 'volkov', 'kuznetsova', 'orlov'].includes(p.s.id)) {
+        V.svg('text', { x: X(p.x) + 9, y: Y(p.y) + 4, class: 'pt-lbl' }, svg).textContent = V.first(p.s.name) + ' ' + p.s.name.split(' ')[1][0] + '.';
+      }
+      const hit = V.svg('circle', { cx: X(p.x), cy: Y(p.y), r: 13, class: 'pt-hit', tabindex: 0 }, svg);
+      V.bindTip(hit, () => ({ title: p.s.name, rows: [{ value: V.pct(p.x, 0), label: V.t('доля речи') }, { value: V.pct(p.y), label: V.t('конверсия') }] }));
+    });
+    V.svg('text', { x: w - pad.r, y: h - 8, 'text-anchor': 'end', class: 'g-lbl', dy: -14 }, svg).textContent = V.t('доля речи продавца →');
+    box.replaceChildren(svg);
+  }
+
+  drawLines();
+  drawScatter();
+  V.icons();
+  let rz = 0;
+  window.addEventListener('resize', () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => { drawLines(); drawScatter(); }); });
+})();
+</script>
+</body>
+</html>

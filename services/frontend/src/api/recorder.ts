@@ -99,6 +99,7 @@ export const recorderApi = {
       default_seller_id: string | null
       operator_channel: number
       operator_mapping: Record<string, string> | null
+      scorable_categories: string[] | null
     }
   },
 
@@ -108,6 +109,7 @@ export const recorderApi = {
     default_seller_id?: string
     operator_channel?: number
     operator_mapping?: Record<string, string>
+    scorable_categories?: string[]
     regenerate_token?: boolean
   }) => {
     const response = await apiClient.put('/api/v1/recorder/telephony/settings', data)

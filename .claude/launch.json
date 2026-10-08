@@ -8,6 +8,12 @@
       "port": 3001
     },
     {
+      "name": "ui-concept",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "ui-concept"],
+      "port": 4173
+    },
+    {
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

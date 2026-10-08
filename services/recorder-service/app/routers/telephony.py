@@ -55,6 +55,10 @@ def _ensure_bucket():
 
 # ─── Настройки телефонии ──────────────────────────────────────────────────────
 
+#: Категории звонков, доступные для настройки «что идёт в рейтинг».
+SCORABLE_CATEGORY_CODES = {"sales", "service", "non_target", "other"}
+
+
 class TelephonySettingsOut(BaseModel):
     is_enabled: bool
     webhook_token: str
@@ -63,6 +67,8 @@ class TelephonySettingsOut(BaseModel):
     default_seller_id: Optional[uuid.UUID] = None
     operator_channel: int = 0
     operator_mapping: Optional[dict] = None
+    # None → используется дефолт (['sales']); список кодов категорий иначе.
+    scorable_categories: Optional[list[str]] = None
 
 
 class TelephonySettingsPatch(BaseModel):
@@ -71,6 +77,7 @@ class TelephonySettingsPatch(BaseModel):
     default_seller_id: Optional[uuid.UUID] = None
     operator_channel: Optional[int] = Field(default=None, ge=0, le=1)
     operator_mapping: Optional[dict] = None
+    scorable_categories: Optional[list[str]] = None
     regenerate_token: bool = False
 
 
@@ -98,6 +105,7 @@ def _settings_out(s: TelephonySettings) -> TelephonySettingsOut:
         default_seller_id=s.default_seller_id,
         operator_channel=s.operator_channel,
         operator_mapping=s.operator_mapping,
+        scorable_categories=s.scorable_categories,
     )
 
 
@@ -127,6 +135,9 @@ async def update_telephony_settings(
         s.operator_channel = body.operator_channel
     if body.operator_mapping is not None:
         s.operator_mapping = body.operator_mapping
+    if body.scorable_categories is not None:
+        # Оставляем только валидные коды; пустой список → трактуется как дефолт на стороне анализа
+        s.scorable_categories = [c for c in body.scorable_categories if c in SCORABLE_CATEGORY_CODES] or None
     if body.regenerate_token:
         s.webhook_token = secrets.token_hex(24)
     await db.commit()

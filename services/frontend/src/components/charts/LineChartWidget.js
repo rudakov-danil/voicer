@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-export function LineChartWidget({ data, color = '#2563EB', height = 240, valueLabel = 'Значение', valueSuffix = '', }) {
+export function LineChartWidget({ data, color = '#2E5BFF', height = 240, valueLabel = 'Значение', valueSuffix = '', }) {
     const chartData = data.map((d) => ({
         name: d.label,
         value: d.value

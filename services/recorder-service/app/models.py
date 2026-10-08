@@ -58,6 +58,9 @@ class TelephonySettings(Base):
     operator_channel = Column(Integer, nullable=False, default=0)
     # Сопоставление добавочного номера оператора -> seller_id: {"101": "uuid", ...}
     operator_mapping = Column(JSONB, nullable=True)
+    # Категории звонков, которые идут в рейтинг менеджера (оцениваются по скрипту):
+    # список кодов sales|service|non_target|other. NULL → дефолт (['sales']) в analytics-engine.
+    scorable_categories = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 

@@ -141,9 +141,11 @@ GENERAL_ANALYSIS_TELEPHONY_SYSTEM_PROMPT = """Ты — эксперт по пр�
 (в транскрипте — ПРОДАВЕЦ) и клиентом.
 Проанализируй звонок и верни СТРОГО валидный JSON:
 {{
-  "outcome": "<purchase|appointment|callback|deferred|refusal|transfer|non_target|voicemail|unknown>",
+  "outcome": "<purchase|appointment|callback|deferred|refusal|transfer|non_target|voicemail|resolved|unknown>",
   "outcome_confidence": <0.0—1.0>,
   "topic": "<тема звонка: товар/услуга/причина обращения, или null>",
+  "call_category": "<sales|service|non_target|other>",
+  "contact_reason": "<краткая причина обращения клиента, 3-7 слов, или null>",
   "sentiment_avg": <-1.0 до 1.0>,
   "objections": [
     {{
@@ -154,6 +156,16 @@ GENERAL_ANALYSIS_TELEPHONY_SYSTEM_PROMPT = """Ты — эксперт по пр�
     }}
   ]
 }}
+
+Как выбирать call_category (определяет, оценивать ли работу менеджера в этом звонке):
+- sales — продажный диалог: клиент интересуется покупкой/услугой, подбором, ценой,
+  условиями; есть намерение или потенциал сделки. Оценивается по скрипту продаж.
+- service — обслуживание текущего клиента: статус заказа, поддержка, жалоба, доставка,
+  возврат — без новой продажи.
+- non_target — нецелевой звонок: ошиблись номером, спам/реклама, поставщик, соискатель
+  вакансии, не наш профиль.
+- other — не удалось однозначно отнести к продажам/сервису.
+Ставь sales ТОЛЬКО при реальном намерении/потенциале покупки — иначе service/non_target.
 
 Как выбирать outcome (строго в этом порядке приоритета):
 - purchase — клиент оформил заказ/заявку/покупку прямо в звонке («оформляйте», «беру»,
@@ -166,6 +178,8 @@ GENERAL_ANALYSIS_TELEPHONY_SYSTEM_PROMPT = """Ты — эксперт по пр�
 - transfer — звонок переведён на другого сотрудника/отдел, разговор по сути не состоялся.
 - non_target — нецелевой звонок: ошиблись номером, спам, не клиент (поставщик, реклама).
 - voicemail — автоответчик, недозвон, тишина, обрыв в самом начале.
+- resolved — сервисный звонок: клиент получил ответ/консультацию, вопрос решён,
+  продажа не требовалась (обычно вместе с call_category=service).
 - unknown — исход не удалось определить.
 Если был и заказ, и договорённость о встрече — приоритет purchase.
 
@@ -263,6 +277,38 @@ def is_call_context(call_context: dict | None) -> bool:
     if (call_context.get("source") or "").startswith("call"):
         return True
     return bool(call_context.get("call_direction"))
+
+
+SUMMARY_SYSTEM_PROMPT = """Ты — ассистент, который делает краткое деловое резюме {conversation_kind} между {seller_role} и клиентом.
+
+Проанализируй транскрипт и верни резюме на русском языке в формате Markdown, строго по этой структуре:
+
+**Кратко:** одно-два предложения — о чём был разговор и чем закончился.
+
+**Запрос клиента:** с чем обратился клиент, что хотел.
+
+**Ход разговора:** 3–6 маркеров (списком через «- ») ключевых моментов: что предложил {seller_role_short}, какие вопросы задавал клиент, возражения и как их отработали.
+
+**Договорённости и следующий шаг:** к чему пришли, что обещали, кто и что должен сделать дальше. Если явных договорённостей нет — так и напиши.
+
+Правила:
+- Опирайся ТОЛЬКО на факты из транскрипта, ничего не выдумывай.
+- Не оценивай работу {seller_role_short} и не выставляй баллов — это делает отдельный модуль. Только факты.
+- Пиши сжато и по делу, без воды. Без вступлений вроде «Вот резюме»."""
+
+
+def build_summary_prompt(
+    transcript_segments: list[dict],
+    call_context: dict | None = None,
+) -> tuple[str, str]:
+    """Промпт для генерации краткого резюме диалога (для карточки разговора)."""
+    is_call = is_call_context(call_context)
+    system = SUMMARY_SYSTEM_PROMPT.format(
+        conversation_kind=(f"телефонного разговора ({_direction_label(call_context)} звонок)" if is_call else "разговора в торговом зале"),
+        seller_role=("оператором" if is_call else "продавцом"),
+        seller_role_short=("оператор" if is_call else "продавец"),
+    )
+    return system, _format_transcript(transcript_segments)
 
 
 def build_fulltext_script_prompt(transcript_segments: list[dict], script: dict) -> tuple[str, str]:
@@ -439,9 +485,11 @@ _MERGED_GENERAL_SECTION_TELEPHONY = """
 ═══ Секция "general" — анализ итога звонка ═══
 Формат:
 {
-  "outcome": "<purchase|appointment|callback|deferred|refusal|transfer|non_target|voicemail|unknown>",
+  "outcome": "<purchase|appointment|callback|deferred|refusal|transfer|non_target|voicemail|resolved|unknown>",
   "outcome_confidence": <0.0—1.0>,
   "topic": "<тема звонка: товар/услуга/причина обращения, или null>",
+  "call_category": "<sales|service|non_target|other>",
+  "contact_reason": "<краткая причина обращения клиента, 3-7 слов, или null>",
   "sentiment_avg": <-1.0 до 1.0>,
   "objections": [
     {
@@ -452,6 +500,13 @@ _MERGED_GENERAL_SECTION_TELEPHONY = """
     }
   ]
 }
+Как выбирать call_category (определяет, оценивать ли работу менеджера в этом звонке):
+- sales — продажный диалог: интерес к покупке/услуге, подбор, цена, условия; есть
+  намерение или потенциал сделки. Оценивается по скрипту продаж.
+- service — обслуживание текущего клиента (статус заказа, поддержка, жалоба) без новой продажи.
+- non_target — нецелевой: ошиблись номером, спам/реклама, поставщик, соискатель вакансии.
+- other — не удалось однозначно отнести к продажам/сервису.
+Ставь sales ТОЛЬКО при реальном намерении/потенциале покупки — иначе service/non_target.
 Как выбирать outcome (строго в этом порядке приоритета):
 - purchase — клиент оформил заказ/заявку/покупку прямо в звонке («оформляйте», «беру»,
   продиктовал данные для заказа, согласился на договор).
@@ -463,6 +518,8 @@ _MERGED_GENERAL_SECTION_TELEPHONY = """
 - transfer — звонок переведён на другого сотрудника/отдел, разговор по сути не состоялся.
 - non_target — нецелевой звонок: ошиблись номером, спам, не клиент (поставщик, реклама).
 - voicemail — автоответчик, недозвон, тишина, обрыв в самом начале.
+- resolved — сервисный звонок: клиент получил ответ/консультацию, вопрос решён,
+  продажа не требовалась (обычно вместе с call_category=service).
 - unknown — исход не удалось определить.
 Если был и заказ, и договорённость о встрече — приоритет purchase.
 Возражения — это ЛЮБОЕ сомнение или отговорка клиента, даже мимоходом, в том числе:

@@ -4,7 +4,7 @@ import { Copy, RefreshCw, Check } from 'lucide-react'
 import { adminApi } from '@/api/admin'
 import { authApi } from '@/api/auth'
 import { recorderApi } from '@/api/recorder'
-import { useOrganization, useTerms } from '@/lib/terms'
+import { TELEPHONY_ENABLED, useOrganization, useTerms } from '@/lib/terms'
 
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState('privacy')
@@ -16,7 +16,8 @@ export function SettingsPage() {
         {[
           { key: 'privacy', label: 'Приватность' },
           { key: 'notifications', label: 'Уведомления' },
-          { key: 'organization', label: 'Организация' },
+          // «Организация» сейчас содержит только выбор «магазины / телефония» — скрыта вместе с контуром
+          ...(TELEPHONY_ENABLED ? [{ key: 'organization', label: 'Организация' }] : []),
           ...(terms.isTelephony ? [{ key: 'telephony', label: 'Телефония' }] : []),
         ].map((tab) => (
           <button key={tab.key}
@@ -31,7 +32,7 @@ export function SettingsPage() {
       <div style={{ padding: '24px' }}>
         {activeTab === 'privacy' && <PrivacyTab />}
         {activeTab === 'notifications' && <NotificationsTab />}
-        {activeTab === 'organization' && <OrganizationTab />}
+        {activeTab === 'organization' && TELEPHONY_ENABLED && <OrganizationTab />}
         {activeTab === 'telephony' && terms.isTelephony && <TelephonyTab />}
       </div>
     </div>
@@ -202,9 +203,70 @@ function TelephonyTab() {
         isSaving={mutation.isPending}
       />
 
+      <ScorableCategoriesEditor
+        value={settings.scorable_categories}
+        onSave={(scorable_categories) => mutation.mutate({ scorable_categories })}
+        isSaving={mutation.isPending}
+      />
+
       {mutation.isPending && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>Сохранение...</div>
       )}
+    </div>
+  )
+}
+
+/** Какие категории звонков идут в рейтинг менеджера (оцениваются по скрипту).
+ *  Нецелевые/сервисные звонки, исключённые здесь, не портят средний балл сотрудника. */
+const SCORABLE_CATEGORY_OPTIONS: { code: string; label: string; hint: string }[] = [
+  { code: 'sales', label: 'Продажные', hint: 'Есть намерение или потенциал покупки' },
+  { code: 'service', label: 'Сервисные', hint: 'Обслуживание текущего клиента: статус заказа, поддержка' },
+  { code: 'non_target', label: 'Нецелевые', hint: 'Ошиблись номером, спам, поставщик, вакансии' },
+  { code: 'other', label: 'Прочие', hint: 'Не удалось однозначно классифицировать' },
+]
+
+function ScorableCategoriesEditor({ value, onSave, isSaving }: {
+  value: string[] | null
+  onSave: (categories: string[]) => void
+  isSaving: boolean
+}) {
+  // null → дефолт: оцениваются только продажные звонки
+  const current = value && value.length ? value : ['sales']
+  const toggle = (code: string) => {
+    const next = current.includes(code)
+      ? current.filter(c => c !== code)
+      : [...current, code]
+    // Не даём выключить всё — иначе оценивать будет нечего; оставляем хотя бы 'sales'
+    onSave(next.length ? next : ['sales'])
+  }
+  return (
+    <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+      <label className="form-label">Какие звонки учитывать в рейтинге</label>
+      <div className="toggle-desc" style={{ marginBottom: 12 }}>
+        ИИ определяет категорию каждого звонка. Звонки вне выбранных категорий не оцениваются
+        по скрипту и не влияют на средний балл менеджера — так нецелевые и сервисные обращения
+        не портят рейтинг.
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {SCORABLE_CATEGORY_OPTIONS.map(opt => {
+          const checked = current.includes(opt.code)
+          return (
+            <label key={opt.code} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: isSaving ? 'default' : 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={isSaving}
+                onChange={() => toggle(opt.code)}
+                style={{ marginTop: 3 }}
+              />
+              <div>
+                <div style={{ fontSize: 13.5, color: 'var(--text)' }}>{opt.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{opt.hint}</div>
+              </div>
+            </label>
+          )
+        })}
+      </div>
     </div>
   )
 }

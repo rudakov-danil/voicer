@@ -1,0 +1,40 @@
+# Автономный стек: свои порты и своё хранилище, с основным docker-compose.yml Voicer
+# не пересекается и не зависит от него.
+services:
+  story-splitter:
+    build: ./backend
+    container_name: story-splitter
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    environment:
+      # --- ASR: казахский поддерживает nova-3 (batch-режим) ---
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY}
+      DEEPGRAM_API_URL: ${DEEPGRAM_API_URL:-https://api.deepgram.com/v1/listen}
+      DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-3}
+      ASR_LANGUAGE: ${ASR_LANGUAGE:-kk}
+      # --- LLM: нарезка на истории и перевод ---
+      LLM_SERVER_URL: ${LLM_SERVER_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_FOLDER_ID: ${LLM_FOLDER_ID:-}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME}
+      LLM_EXTRA_HEADER_NAME: ${LLM_EXTRA_HEADER_NAME:-}
+      LLM_EXTRA_HEADER_VALUE: ${LLM_EXTRA_HEADER_VALUE:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-8192}
+      LLM_DISABLE_THINKING: ${LLM_DISABLE_THINKING:-true}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-300}
+      # --- Поведение пайплайна ---
+      TRANSLATE_TO_RU: ${TRANSLATE_TO_RU:-true}
+      STORY_MIN_SEC: ${STORY_MIN_SEC:-20}
+      SEGMENT_WINDOW_CHARS: ${SEGMENT_WINDOW_CHARS:-12000}
+      DATA_DIR: /data
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/data
+      - ./frontend:/app/frontend:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8099/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

@@ -25,11 +25,32 @@ export const dashboardApi = {
             apiParams.date_to = to.toISOString().split('T')[0];
         }
         delete apiParams.period;
+        // Бэкенд принимает offset, а не page — конвертируем, иначе всегда возвращается 1-я страница.
+        const limit = params.limit || 20;
+        apiParams.limit = limit;
+        apiParams.offset = Math.max(0, ((params.page || 1) - 1) * limit);
+        delete apiParams.page;
+        if (!apiParams.q)
+            delete apiParams.q;
+        if (!apiParams.view)
+            delete apiParams.view;
         const response = await apiClient.get('/api/v1/dashboard/conversations', { params: apiParams });
         return response.data;
     },
+    /** «Отпечатки» разговоров для списка — одним запросом на страницу. */
+    getFingerprints: async (ids) => {
+        if (!ids.length)
+            return {};
+        const response = await apiClient.get('/api/v1/dashboard/conversations/fingerprints', { params: { ids: ids.join(',') } });
+        return response.data.items;
+    },
     getConversationDetail: async (conversationId) => {
         const response = await apiClient.get(`/api/v1/dashboard/conversations/${conversationId}`);
+        return response.data;
+    },
+    // История обращений с того же номера клиента (группировка звонков по номеру)
+    getClientHistory: async (conversationId) => {
+        const response = await apiClient.get(`/api/v1/dashboard/conversations/${conversationId}/history`);
         return response.data;
     },
     getSellers: async (params) => {

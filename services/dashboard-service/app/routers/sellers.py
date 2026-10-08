@@ -54,9 +54,12 @@ async def list_sellers(
                 seller_id,
                 COUNT(*) AS total_conversations,
                 COALESCE(AVG(overall_score), 0) AS avg_score,
-                CASE WHEN COUNT(*) > 0
-                     THEN SUM(CASE WHEN outcome = 'purchase' THEN 1 ELSE 0 END)::FLOAT / COUNT(*)
-                     ELSE 0 END AS conversion_rate
+                -- Конверсия считается только по оцениваемым (продажным) обращениям:
+                -- нецелевые/сервисные звонки не в знаменателе (иначе занижают конверсию).
+                COALESCE(
+                    SUM(CASE WHEN is_scorable AND outcome = 'purchase' THEN 1 ELSE 0 END)::FLOAT
+                    / NULLIF(SUM(CASE WHEN is_scorable THEN 1 ELSE 0 END), 0),
+                0) AS conversion_rate
             FROM analytics.conversations
             WHERE organization_id = :org_id
               AND session_date BETWEEN :date_from AND :date_to
@@ -185,9 +188,11 @@ async def seller_detail(
         SELECT
             COUNT(*) AS total_conversations,
             COALESCE(AVG(overall_score), 0) AS avg_score,
-            CASE WHEN COUNT(*) > 0
-                 THEN SUM(CASE WHEN outcome = 'purchase' THEN 1 ELSE 0 END)::FLOAT / COUNT(*)
-                 ELSE 0 END AS conversion_rate,
+            -- Конверсия только по оцениваемым (продажным) обращениям (см. список продавцов)
+            COALESCE(
+                SUM(CASE WHEN is_scorable AND outcome = 'purchase' THEN 1 ELSE 0 END)::FLOAT
+                / NULLIF(SUM(CASE WHEN is_scorable THEN 1 ELSE 0 END), 0),
+            0) AS conversion_rate,
             SUM(CASE WHEN overall_score >= 70 THEN 1 ELSE 0 END) AS strong_count,
             (
                 SELECT COUNT(*) FROM analytics.conversation_compliance_violations v
@@ -240,6 +245,7 @@ async def seller_detail(
         WHERE c.organization_id = :org_id
           AND c.seller_id = :seller_id
           AND c.session_date BETWEEN :date_from AND :date_to
+          AND c.is_scorable = TRUE
           AND t.is_active = TRUE
           AND (
             t.applies_to_all_stores = TRUE
@@ -260,6 +266,7 @@ async def seller_detail(
     recent_sql = text("""
         SELECT
             c.id, c.session_date, c.analyzed_at, c.overall_score, c.outcome, c.topic,
+            c.is_scorable, c.call_category,
             r.duration_seconds
         FROM analytics.conversations c
         LEFT JOIN recorder.recordings r ON r.id = c.recording_id
@@ -345,6 +352,8 @@ async def seller_detail(
                 "topic": r.topic,
                 "overall_score": float(r.overall_score) if r.overall_score is not None else None,
                 "outcome": r.outcome,
+                "is_scorable": r.is_scorable,
+                "call_category": r.call_category,
                 "duration_seconds": int(r.duration_seconds or 0) if r.duration_seconds else None,
             }
             for r in recent_rows

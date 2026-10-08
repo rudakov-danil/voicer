@@ -56,6 +56,19 @@ class Conversation(Base):
     # Доля тишины (паузы между репликами) от длительности разговора (0..1)
     silence_ratio: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
 
+    # ─── Резюме диалога (генерируется LLM по запросу из карточки, кэшируется) ────
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_generated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+    # ─── Классификация обращения (учёт нецелевых/сервисных звонков) ──────────────
+    # is_scorable=false → звонок не оценивается по скрипту продаж и НЕ влияет на
+    # рейтинг менеджера (overall_score=NULL). Задаётся из call_category + org-настройки.
+    is_scorable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # sales | service | non_target | other (только для звонков; для розницы None)
+    call_category: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Краткая причина обращения клиента (тегирование причин звонков)
+    contact_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     script_results: Mapped[list["ConversationScriptResult"]] = relationship(
         "ConversationScriptResult", back_populates="conversation", cascade="all, delete-orphan"
     )

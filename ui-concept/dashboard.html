@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обзор · Войсер</title>
+<meta name="description" content="Концепт главного экрана речевой аналитики для магазинов: пульс недели, очередь на разбор, магазины и бейджи.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  /* ---------- Пульс недели (консоль) ---------- */
+  .pulse { padding: 24px 26px 18px; margin-bottom: 16px; }
+  .pulse-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; }
+  .pulse-title { margin-top: 6px; font-size: 20px; line-height: 1.3; }
+  .pulse-title em { font-style: normal; color: var(--console-ink-2); }
+  .pulse-lead { margin-top: 4px; max-width: 70ch; color: var(--console-ink-2); font-size: 14px; line-height: 1.5; }
+  .pulse-attn {
+    flex: none;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 14px;
+    min-width: 280px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: var(--console-2);
+    border: 1px solid var(--console-line);
+    transition: background .15s, border-color .15s;
+  }
+  .pulse-attn:hover { background: var(--console-3); }
+  .pulse-attn-num { font-size: 30px; line-height: 1; color: var(--console-signal); }
+  .pulse-attn-label { font-size: 14.5px; font-weight: 600; line-height: 1.3; }
+  .pulse-attn-label span { display: block; margin-top: 3px; font-size: 12.5px; font-weight: 400; color: var(--console-ink-2); }
+  .pulse-attn .i { color: var(--console-ink-2); }
+  .pulse-chart { position: relative; margin-top: 18px; height: 180px; }
+  .pulse-chart svg { overflow: visible; }
+  .pulse-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+  .pulse .legend { color: var(--console-ink-2); }
+  .key-rec { width: 8px; height: 8px; border-radius: 50%; background: var(--console-signal); box-shadow: 0 0 0 3px rgba(255, 90, 78, .25); }
+  .pulse-table { margin-top: 14px; width: 100%; border-collapse: collapse; font-size: 13px; }
+  .pulse-table th, .pulse-table td { padding: 7px 10px; border-bottom: 1px solid var(--console-line); text-align: left; }
+  .pulse-table th { color: var(--console-ink-2); font-weight: 500; font-size: 12px; }
+  .pulse-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .pb { fill: var(--console-bar); }
+  .pf { fill: var(--console-signal); }
+  .p-idle { fill: var(--console-line); }
+  .p-grid { stroke: var(--console-line); stroke-width: 1; }
+  .p-label { fill: var(--console-ink-2); font-size: 11.5px; font-family: var(--font-ui); }
+  .p-label-strong { fill: var(--console-ink); font-weight: 600; }
+  .p-rec { fill: var(--console-signal); }
+  .p-rec-halo { fill: var(--console-signal); opacity: .22; }
+  .p-rec-label { fill: var(--console-ink); font-size: 11.5px; font-weight: 600; font-family: var(--font-ui); }
+  .p-hit { fill: transparent; cursor: pointer; }
+  .p-col:hover .pb { fill: var(--console-bar-hover); }
+  .p-col:hover .pf { opacity: .8; }
+  
+  /* ---------- Сетки ---------- */
+  .dash-a { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
+  .dash-b { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
+  .dash-c { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; margin-bottom: 16px; }
+  .dash-d { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 16px; }
+
+  /* ---------- Очередь ---------- */
+  .queue-list { list-style: none; margin: 0; padding: 4px 0 0; }
+  .q-item {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) 208px;
+    gap: 14px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--line);
+    transition: background .12s;
+  }
+  .q-item:first-child { border-top: 0; }
+  .q-item:hover { background: var(--panel-2); }
+  .q-sev { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; }
+  .q-sev .i { width: 17px; height: 17px; }
+  .q-sev.is-crit { background: var(--crit-soft); color: var(--crit-ink); }
+  .q-sev.is-warn { background: var(--warn-soft); color: var(--warn-ink); }
+  .q-reason { font-size: 14px; line-height: 1.35; }
+  .q-reason b { font-weight: 600; }
+  .q-quote { margin: 7px 0 8px; padding-left: 10px; border-left: 2px solid var(--line-2); color: var(--ink-2); font-size: 13px; line-height: 1.45; }
+  .q-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-3); }
+  .q-meta .avatar { width: 22px; height: 22px; font-size: 9px; }
+  .q-meta b { font-weight: 500; color: var(--ink); }
+  .q-side { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; min-width: 0; }
+  .q-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .q-actions .mono { font-size: 11px; }
+
+  /* ---------- KPI ---------- */
+  .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .kpi-grid .panel { display: flex; }
+  .kpi-grid .kpi { flex: 1; }
+
+  .outcomes { padding: 16px 18px 18px; }
+  .stackbar { display: flex; gap: 2px; height: 14px; margin: 14px 0 12px; }
+  .stackbar span { display: block; height: 100%; }
+  .stackbar span:first-child { border-radius: 4px 0 0 4px; }
+  .stackbar span:last-child { border-radius: 0 4px 4px 0; }
+  .ob-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
+  .ob-item { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 8px; font-size: 12.5px; }
+  .ob-item b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ob-item .muted { font-variant-numeric: tabular-nums; margin-left: 6px; font-weight: 400; }
+
+  /* ---------- Нарушения ---------- */
+  .vio { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .vio:first-child { border-top: 0; }
+  .vio-sev { width: 28px; height: 28px; border-radius: 8px; }
+  .vio-rule { font-weight: 500; line-height: 1.3; }
+  .vio-ops { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12px; color: var(--ink-3); }
+  .vio-ops .avatar { width: 20px; height: 20px; font-size: 8.5px; margin-right: -4px; box-shadow: 0 0 0 2px var(--panel), inset 0 0 0 1px var(--line-2); }
+  .vio-ops .avatar:last-of-type { margin-right: 2px; }
+  .vio-num { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .vio-num .display { font-size: 18px; }
+
+  /* ---------- Магазины ---------- */
+  .st-table td, .st-table th { padding-left: 10px; padding-right: 10px; }
+  .st-table td { padding-top: 13px; padding-bottom: 13px; }
+  .st-table td:first-child, .st-table th:first-child { padding-left: 0; }
+  .st-table td:last-child, .st-table th:last-child { padding-right: 0; }
+  .st-name b { display: block; font-weight: 600; font-size: 14px; }
+  .st-name span { font-size: 12px; color: var(--ink-3); }
+  .st-conv { display: flex; align-items: center; gap: 14px; }
+  .st-conv > div { display: flex; flex-direction: column; gap: 3px; }
+  .st-conv .display { font-size: 16px; }
+  .st-conv .display small { font-size: 12px; font-weight: 500; }
+  .st-spark { width: 60px; height: 26px; }
+  .st-badges { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .st-badges .i { width: 15px; height: 15px; }
+  .st-badges.is-ok .i { color: var(--good-ink); }
+  .st-badges.is-warn { color: var(--warn-ink); }
+
+  /* ---------- Бейджи ---------- */
+  .rack { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; margin: 4px 0 14px; }
+  .rack-cell {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: 48px;
+    border-radius: 9px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    cursor: default;
+  }
+  .rack-cell.is-shift { background: var(--accent-soft); color: var(--accent); }
+  .rack-cell.is-dock { background: var(--panel-2); color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line); }
+  .rack-cell.is-missed { background: var(--warn-soft); color: var(--warn-ink); box-shadow: inset 0 0 0 1.5px var(--warn); }
+  .rack-cell.is-never { background: var(--panel); color: var(--crit-ink); box-shadow: inset 0 0 0 1.5px var(--crit); }
+  .rack-eq { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); display: flex; align-items: flex-end; gap: 1.5px; height: 8px; }
+  .rack-eq span { width: 2px; border-radius: 1px; background: currentColor; }
+  .rack-eq span:nth-child(1) { height: 50%; }
+  .rack-eq span:nth-child(2) { height: 100%; }
+  .rack-eq span:nth-child(3) { height: 70%; }
+  .rack-cell .rack-ini { margin-top: -8px; }
+  .rack-cell.is-dock .rack-ini, .rack-cell.is-missed .rack-ini, .rack-cell.is-never .rack-ini { margin-top: 0; }
+  .b-issue { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+  .b-issue:first-child { border-top: 0; }
+  .b-issue-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 500; }
+  .b-issue-note { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+  .b-issue .mono { color: var(--ink-3); font-size: 10.5px; }
+
+  /* ---------- Где теряем баллы ---------- */
+  .loss { display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .loss:first-child { border-top: 0; padding-top: 2px; }
+  .loss-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
+  .loss-val { grid-row: span 2; align-self: center; text-align: right; font-weight: 600; font-size: 16px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .loss-val small { font-size: 12px; font-weight: 500; }
+  .loss-bar { position: relative; height: 6px; border-radius: 3px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }
+  .loss-bar span { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); }
+  .loss-hint { grid-column: 1; font-size: 12px; color: var(--ink-3); }
+
+  /* ---------- Возражения ---------- */
+  .obj-table td { padding-top: 11px; padding-bottom: 11px; }
+  .share { display: flex; align-items: center; gap: 10px; }
+  .share-bar { width: 84px; height: 6px; border-radius: 3px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); position: relative; flex: none; }
+  .share-bar span { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--ink-2); }
+  .dv { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+  .dv-track { position: relative; width: 92px; height: 14px; flex: none; }
+  .dv-track::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--ink-4); }
+  .dv-bar { position: absolute; top: 4px; height: 6px; }
+  .dv-bar.is-up { left: 50%; background: var(--accent); border-radius: 0 3px 3px 0; }
+  .dv-bar.is-down { right: 50%; background: var(--crit); border-radius: 3px 0 0 3px; }
+  .dv-val { width: 48px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  /* ---------- Движение в команде ---------- */
+  .movers { display: grid; grid-template-columns: 1fr 1fr; }
+  .movers-col { padding: 4px 18px 14px; min-width: 0; }
+  .movers-col + .movers-col { border-left: 1px solid var(--line); }
+  .movers-h { display: flex; align-items: center; gap: 6px; padding: 10px 0 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+  .mv { display: grid; grid-template-columns: minmax(0, 1fr) 64px 44px; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .mv:first-of-type { border-top: 0; }
+  .mv-spark { width: 64px; height: 26px; }
+  .mv .delta { justify-content: flex-end; }
+  .mv .person-sub { white-space: normal; }
+
+  /* ---------- Темы ---------- */
+  .topic { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .topic:first-child { border-top: 0; padding-top: 2px; }
+  .topic-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .topic-name .i { color: var(--ink-3); }
+  .topic-hot { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+
+  @media (max-width: 1320px) {
+    .dash-a, .dash-b, .dash-c, .dash-d { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 900px) {
+    .pulse-head { flex-direction: column; }
+    .pulse-attn { min-width: 0; width: 100%; }
+    .pulse-title { font-size: 19px; }
+    .q-item { grid-template-columns: 34px minmax(0, 1fr); }
+    .q-side { grid-column: 2; }
+    .q-actions { justify-content: flex-start; }
+    .rack { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  }
+  @media (max-width: 620px) {
+    .kpi-grid, .movers, .ob-grid { grid-template-columns: minmax(0, 1fr); }
+    .movers-col + .movers-col { border-left: 0; border-top: 1px solid var(--line); }
+    .pulse { padding: 20px 16px 14px; }
+    .pulse-title { font-size: 18px; }
+    .pulse-attn-num { font-size: 26px; }
+    .col-hide-s { display: none; }
+  }
+</style>
+</head>
+<body data-page="dashboard">
+<div class="app">
+  <aside class="sidebar"></aside>
+  <main class="main" id="main">
+    <div class="page">
+
+      <header class="page-head">
+        <div>
+          <h1 class="page-title">Обзор</h1>
+          <p class="page-meta">Три магазина, все продавцы · 21–27 сентября</p>
+        </div>
+        <div class="page-actions">
+          <div class="seg" role="group" aria-label="Период">
+            <button type="button" aria-pressed="false">Вчера</button>
+            <button type="button" aria-pressed="true">7 дней</button>
+            <button type="button" aria-pressed="false">30 дней</button>
+            <button type="button" aria-pressed="false">Квартал</button>
+          </div>
+          <button class="select" type="button" data-soon="1"><i data-lucide="store" class="i"></i>Все магазины<i data-lucide="chevron-down" class="i i-s"></i></button>
+        </div>
+      </header>
+
+      <!-- Пульс недели -->
+      <section class="console pulse reveal" aria-labelledby="pulse-title">
+        <div class="pulse-head">
+          <div>
+            <div class="eyebrow">Неделя · 21–27 сентября</div>
+            <h2 id="pulse-title" class="pulse-title display">1&nbsp;075 разговоров с&nbsp;покупателями <em>· 108&nbsp;часов из&nbsp;640 часов записи смен</em></h2>
+          </div>
+          <a class="pulse-attn" href="conversations.html?view=attention">
+            <span class="pulse-attn-num display">14</span>
+            <span class="pulse-attn-label">требуют внимания<span>7 нарушений, 7 упущенных продаж</span></span>
+            <i data-lucide="arrow-right" class="i i-l"></i>
+          </a>
+        </div>
+        <div class="pulse-chart" id="pulse"></div>
+        <div class="pulse-foot">
+          <div class="legend" aria-hidden="true">
+            <span class="legend-item"><span class="key-bar" style="background:var(--console-bar)"></span>Разговоры за 30 минут, 10:00–22:00</span>
+            <span class="legend-item"><span class="key-bar" style="background:var(--console-signal)"></span>Требуют внимания</span>
+            <span class="legend-item"><span class="key-rec"></span>Сегодня идёт запись — разговоры появятся после выгрузки бейджей</span>
+          </div>
+          <button class="btn btn-s" type="button" id="pulse-toggle" aria-expanded="false"><i data-lucide="table-2" class="i i-s"></i><span>Показать таблицей</span></button>
+        </div>
+        <div id="pulse-table-wrap" hidden></div>
+      </section>
+
+      <!-- Очередь и показатели -->
+      <div class="dash-a">
+        <section class="panel reveal" aria-labelledby="queue-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="queue-title" class="panel-title">Очередь на разбор</h2>
+              <p class="panel-sub">Сначала — риски для сети, потом упущенные продажи</p>
+            </div>
+            <div class="seg" role="group" aria-label="Фильтр очереди">
+              <button type="button" aria-pressed="true">Все · 14</button>
+              <button type="button" aria-pressed="false">Нарушения · 7</button>
+              <button type="button" aria-pressed="false">Продажи · 7</button>
+            </div>
+          </div>
+          <ul class="queue-list" id="queue"></ul>
+          <div class="panel-foot">
+            <span>Ещё 9 разговоров в очереди</span>
+            <a class="link" href="conversations.html?view=attention">Открыть всю очередь<i data-lucide="arrow-right" class="i i-s"></i></a>
+          </div>
+        </section>
+
+        <div class="stack">
+          <div class="kpi-grid" id="kpis"></div>
+          <section class="panel outcomes reveal" aria-labelledby="out-title">
+            <div class="spread">
+              <h2 id="out-title" class="panel-title">Чем заканчиваются разговоры</h2>
+              <span class="muted" style="font-size:12.5px">1&nbsp;075 разговоров</span>
+            </div>
+            <div class="stackbar" id="outbar" role="img"></div>
+            <div class="ob-grid" id="outlegend"></div>
+          </section>
+          <section class="panel reveal" aria-labelledby="vio-title">
+            <div class="panel-head">
+              <div>
+                <h2 id="vio-title" class="panel-title">Нарушения за неделю</h2>
+                <p class="panel-sub">7 разговоров · правила общения с покупателями</p>
+              </div>
+              <a class="link" href="#" data-soon="1">Комплаенс<i data-lucide="arrow-right" class="i i-s"></i></a>
+            </div>
+            <div class="panel-body" id="violations" style="padding-top:8px"></div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Магазины и бейджи -->
+      <div class="dash-b">
+        <section class="panel reveal" aria-labelledby="st-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="st-title" class="panel-title">Магазины</h2>
+              <p class="panel-sub">Конверсия за 12 недель и полнота записи</p>
+            </div>
+            <a class="link" href="team.html">Команда<i data-lucide="arrow-right" class="i i-s"></i></a>
+          </div>
+          <div class="panel-body" style="padding-top:6px">
+            <div class="table-wrap">
+              <table class="table st-table">
+                <thead><tr>
+                  <th scope="col">Магазин</th>
+                  <th scope="col">Конверсия</th>
+                  <th scope="col">Балл</th>
+                  <th scope="col">Бейджи</th>
+                </tr></thead>
+                <tbody id="stores"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel-foot"><span><i data-lucide="info" class="i i-s" style="display:inline;vertical-align:-2px"></i> В «Гринвиче» один бейдж ни разу не выгружался — данные магазина неполные.</span></div>
+        </section>
+
+        <section class="panel reveal" aria-labelledby="bd-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="bd-title" class="panel-title">Бейджи сегодня</h2>
+              <p class="panel-sub">Воскресенье, 16:30 · выгрузка после 22:30</p>
+            </div>
+            <a class="link" href="badges.html">Все бейджи<i data-lucide="arrow-right" class="i i-s"></i></a>
+          </div>
+          <div class="panel-body">
+            <div class="rack" id="rack" role="list" aria-label="Бейджи продавцов"></div>
+            <div id="badge-issues"></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Скрипт и возражения -->
+      <div class="dash-c">
+        <section class="panel reveal" aria-labelledby="loss-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="loss-title" class="panel-title">Где теряем баллы</h2>
+              <p class="panel-sub">Этапы скрипта, пропущенные или слабые (балл ниже 50)</p>
+            </div>
+            <a class="link" href="scripts.html">Скрипт<i data-lucide="arrow-right" class="i i-s"></i></a>
+          </div>
+          <div class="panel-body" id="losses"></div>
+        </section>
+
+        <section class="panel reveal" aria-labelledby="obj-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="obj-title" class="panel-title">Возражения покупателей</h2>
+              <p class="panel-sub">Как часто звучат и что делают с конверсией (в среднем <span id="baseline"></span>)</p>
+            </div>
+          </div>
+          <div class="panel-body" style="padding-top:6px">
+            <div class="table-wrap">
+              <table class="table obj-table">
+                <thead><tr>
+                  <th scope="col">Возражение</th>
+                  <th scope="col">Доля разговоров</th>
+                  <th scope="col" class="t-right col-hide-s">Отработано</th>
+                  <th scope="col" class="t-right">Конверсия</th>
+                </tr></thead>
+                <tbody id="objections"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Команда и спрос -->
+      <div class="dash-d">
+        <section class="panel reveal" aria-labelledby="mv-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="mv-title" class="panel-title">Кто растёт, кто проседает</h2>
+              <p class="panel-sub">Балл по скрипту за 12 недель, изменение к прошлой неделе</p>
+            </div>
+            <a class="link" href="team.html">Команда<i data-lucide="arrow-right" class="i i-s"></i></a>
+          </div>
+          <div class="movers" id="movers"></div>
+        </section>
+
+        <section class="panel reveal" aria-labelledby="tp-title">
+          <div class="panel-head">
+            <div>
+              <h2 id="tp-title" class="panel-title">Что ищут покупатели</h2>
+              <p class="panel-sub">Товары, о которых спрашивают, — к прошлой неделе</p>
+            </div>
+          </div>
+          <div class="panel-body" id="topics"></div>
+        </section>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  V.init();
+  const D = VD, S = D.summary, NB = V.NB;
+
+  /* ================= Пульс недели ================= */
+  const PROFILE = [.35, .5, .65, .75, .85, .95, 1.05, 1.1, 1.1, 1.05, 1, .95, .95, 1, 1.05, 1.15, 1.25, 1.3, 1.25, 1.1, .95, .75, .5, .3];
+  const BINS = PROFILE.length;
+  const NOW_BIN = 13; /* воскресенье, 16:30 */
+  const hhmm = (i) => `${10 + Math.floor(i / 2)}:${i % 2 ? '30' : '00'}`;
+  const binLabel = (i) => `${hhmm(i)}–${hhmm(i + 1)}`;
+  /* Разложить дневной объём по получасам: профиль + шум, сумма сходится точно */
+  const days = D.week.map((day, di) => {
+    if (day.pending) return { ...day, bins: [], flaggedBins: [] };
+    const r = V.rng(100 + di);
+    const w = PROFILE.map((p) => p * (0.78 + r() * 0.44));
+    const sum = w.reduce((a, b) => a + b, 0);
+    const raw = w.map((x) => (x / sum) * day.total);
+    const bins = raw.map(Math.floor);
+    let rest = day.total - bins.reduce((a, b) => a + b, 0);
+    raw.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (rest > 0) { bins[i]++; rest--; } });
+    const flaggedBins = new Array(BINS).fill(0);
+    day.flagged.forEach(([i, n]) => { flaggedBins[i] += n; });
+    return { ...day, bins, flaggedBins };
+  });
+
+  const pulseEl = document.getElementById('pulse');
+  function drawPulse() {
+    const W = pulseEl.clientWidth || 320;
+    const H = pulseEl.clientHeight;
+    const axisH = 26, top = 10;
+    const plotH = Math.max(0, H - axisH - top);
+    const gap = W < 700 ? 6 : 14;
+    const slot = Math.max(0, (W - gap * 6) / (7 * BINS));
+    const bw = Math.max(1.5, Math.min(5, slot - 2));
+    const max = 20;
+    const y = (v) => top + plotH - (v / max) * plotH;
+    const svg = V.svg('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
+      'aria-label': V.L(`Разговоры по получасам за неделю: всего ${V.int(S.totalConvs)}, требуют внимания ${S.queue}. Пик — суббота вечером. Сегодня идёт запись, данные появятся после выгрузки.`, `Conversations per half hour this week: ${V.int(S.totalConvs)} in total, ${S.queue} need attention. Peak — Saturday evening. Today is still recording; data arrives after upload.`) });
+
+    [10, 20].forEach((v) => {
+      V.svg('line', { x1: 0, x2: W, y1: y(v), y2: y(v), class: 'p-grid' }, svg);
+      V.svg('text', { x: W, y: y(v) - 4, 'text-anchor': 'end', class: 'p-label' }, svg).textContent = v;
+    });
+    V.svg('line', { x1: 0, x2: W, y1: y(0) + .5, y2: y(0) + .5, class: 'p-grid' }, svg);
+
+    let idx = 0;
+    days.forEach((day, di) => {
+      const gx = di * (BINS * slot + gap);
+      if (day.pending) {
+        /* Сегодня: бейджи пишут, но записи ещё на SD-картах — показываем ход записи, а не выдуманные столбики */
+        for (let bi = 0; bi <= NOW_BIN; bi++) {
+          V.svg('rect', { x: gx + bi * slot + (slot - bw) / 2, y: y(0) - 3, width: bw, height: 3, rx: 1, class: 'p-idle' }, svg);
+        }
+        const nx = gx + (NOW_BIN + 0.5) * slot;
+        V.svg('circle', { cx: nx, cy: y(0) - 16, r: 9, class: 'p-rec-halo' }, svg);
+        V.svg('circle', { cx: nx, cy: y(0) - 16, r: 4, class: 'p-rec' }, svg);
+        const tx = gx + BINS * slot;
+        const t1 = V.svg('text', { x: tx, y: y(0) - 56, 'text-anchor': 'end', class: 'p-rec-label' }, svg);
+        t1.textContent = 'Идёт запись';
+        const t2 = V.svg('text', { x: tx, y: y(0) - 40, 'text-anchor': 'end', class: 'p-label' }, svg);
+        t2.textContent = V.L(`${D.badges.onShift} бейджей, выгрузка после ${D.badges.uploadEta}`, `${D.badges.onShift} badges, upload after ${D.badges.uploadEta}`);
+      } else {
+        day.bins.forEach((n, bi) => {
+          const x = gx + bi * slot + (slot - bw) / 2;
+          const g = V.svg('g', { class: 'p-col' }, svg);
+          const f = day.flaggedBins[bi];
+          const normal = n - f;
+          const bar = V.svg('g', { class: 'p-bar', style: `--i:${idx++}` }, g);
+          if (normal > 0) V.svg('rect', { x, y: y(normal), width: bw, height: Math.max(1, y(0) - y(normal)), rx: Math.min(2, bw / 2), class: 'pb' }, bar);
+          if (f > 0) V.svg('rect', { x, y: y(n) - 2, width: bw, height: y(normal) - y(n), rx: Math.min(2, bw / 2), class: 'pf' }, bar);
+          const hit = V.svg('rect', { x: gx + bi * slot, y: top, width: slot, height: plotH, class: 'p-hit' }, g);
+          V.bindTip(hit, () => ({
+            title: `${day.d}, ${day.date} · ${binLabel(bi)}`,
+            rows: [{ value: `${n} ${V.plural(n, 'разговор', 'разговора', 'разговоров')}`, color: 'var(--console-bar)' }]
+              .concat(f ? [{ value: V.L(`${f} ${V.plural(f, 'требует', 'требуют', 'требуют')} внимания`, `${f} need${f === 1 ? 's' : ''} attention`), color: 'var(--console-signal)' }] : []),
+            note: f ? 'Нажмите, чтобы открыть эти разговоры' : '',
+          }));
+          if (f) hit.addEventListener('click', () => { location.href = 'conversations.html?view=attention'; });
+        });
+      }
+      const lbl = V.svg('text', { x: gx, y: H - 6, class: 'p-label' }, svg);
+      V.svg('tspan', { class: 'p-label-strong' }, lbl).textContent = day.d + ' ';
+      if (W >= 640) V.svg('tspan', {}, lbl).textContent = day.num + (day.pending ? ' · ' + V.t('сегодня') : '  ·  ' + day.total);
+    });
+    pulseEl.replaceChildren(svg);
+  }
+  drawPulse();
+  let rz = 0;
+  window.addEventListener('resize', () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => { drawPulse(); V.renderFingerprints(); }); });
+
+  /* Табличный вид пульса — доступный двойник графика */
+  const tWrap = document.getElementById('pulse-table-wrap');
+  tWrap.innerHTML = `<table class="pulse-table"><caption class="sr-only">Разговоры по дням недели</caption>
+    <thead><tr><th scope="col">День</th><th scope="col" class="num">Разговоров</th><th scope="col" class="num">Требуют внимания</th><th scope="col" class="num">Пиковый получас</th></tr></thead>
+    <tbody>${days.map((d) => d.pending
+      ? `<tr><td>${d.d}, ${d.date}</td><td class="num" colspan="3">${V.L(`идёт запись, данные после ${D.badges.uploadEta}`, `recording, data after ${D.badges.uploadEta}`)}</td></tr>`
+      : `<tr><td>${d.d}, ${d.date}</td><td class="num">${d.total}</td><td class="num">${d.flaggedBins.reduce((a, b) => a + b, 0)}</td><td class="num">${binLabel(d.bins.indexOf(Math.max(...d.bins)))}</td></tr>`).join('')}</tbody></table>`;
+  document.getElementById('pulse-toggle').addEventListener('click', (e) => {
+    const open = tWrap.hidden;
+    tWrap.hidden = !open;
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+    e.currentTarget.querySelector('span').textContent = open ? 'Скрыть таблицу' : 'Показать таблицей';
+  });
+
+  /* ================= Очередь ================= */
+  const SEV = { crit: { icon: 'octagon-alert', label: 'Высокий риск' }, warn: { icon: 'triangle-alert', label: 'Нужен разбор' } };
+  document.getElementById('queue').innerHTML = D.queue.slice(0, 5).map((q) => {
+    const p = D.byId[q.seller];
+    const conv = D.convs.find((c) => c.id === q.id);
+    const secs = q.at.split(':').reduce((m, s) => m * 60 + +s, 0);
+    return `<li class="q-item">
+      <span class="q-sev is-${q.sev}" title="${SEV[q.sev].label}"><i data-lucide="${SEV[q.sev].icon}" class="i"></i><span class="sr-only">${SEV[q.sev].label}</span></span>
+      <div style="min-width:0">
+        <div class="q-reason"><b>${q.reason}</b><span class="muted"> · ${q.rule}</span></div>
+        <blockquote class="q-quote">${q.quote}</blockquote>
+        <div class="q-meta"><span class="avatar" aria-hidden="true">${p.initials}</span><b>${p.name}</b><span>${D.storeById[p.store].short}</span><span aria-hidden="true">·</span><span>${q.when}</span></div>
+      </div>
+      <div class="q-side">
+        <div class="fp-row"><div data-fp="${q.id}" data-h="30"></div><span class="fp-dur">${V.clock(conv.dur)}</span></div>
+        <div class="q-actions">
+          <a class="btn btn-s" href="conversation.html?from=${q.id}#t=${secs}" aria-label="${V.L(`Прослушать с ${q.at}`, `Listen from ${q.at}`)}"><i data-lucide="play" class="i i-s"></i><span class="mono">${q.at}</span></a>
+          <a class="btn btn-s btn-ghost" href="conversation.html?from=${q.id}">Открыть</a>
+        </div>
+      </div>
+    </li>`;
+  }).join('');
+
+  /* ================= KPI ================= */
+  const kpis = [
+    { label: 'Конверсия в покупку', value: V.dec(S.conversion), unit: '%', delta: V.delta(1.4, { unit: V.PP, digits: 1 }), spark: S.spark.conversion, note: V.L(`${S.won} из ${V.int(S.totalConvs)}`, `${S.won} of ${V.int(S.totalConvs)}`) },
+    { label: 'Балл по скрипту', value: Math.round(S.avgScore), unit: '', delta: V.delta(-1), spark: S.spark.score, note: 'из 100' },
+    { label: 'Допродажа предложена', value: S.upsellOffered, unit: '%', delta: V.delta(6, { unit: V.PP }), spark: S.spark.upsell, note: 'продаж с правилом' },
+    { label: 'Возражения отработаны', value: S.objectionsResolved, unit: '%', delta: V.delta(2, { unit: V.PP }), spark: S.spark.objections, note: V.L(`${S.objectionsTotal} возражения`, `${S.objectionsTotal} objections`) },
+  ];
+  document.getElementById('kpis').innerHTML = kpis.map((k, i) => `
+    <section class="panel reveal" aria-label="${k.label}">
+      <div class="kpi">
+        <div class="kpi-label">${k.label}</div>
+        <div class="kpi-row">
+          <div class="kpi-value">${k.value}${k.unit ? `<small>${NB}${k.unit}</small>` : ''}</div>
+          <div class="kpi-spark" data-spark="${i}"></div>
+        </div>
+        <div class="kpi-foot">${k.delta}<span>${k.note}</span></div>
+      </div>
+    </section>`).join('');
+  V.$$('[data-spark]').forEach((el) => V.spark(el, kpis[+el.dataset.spark].spark, { width: 96, height: 34 }));
+
+  /* ================= Исходы: часть целого ================= */
+  const OUT_COLOR = { purchase: 'var(--good)', deferred: 'var(--warn)', price_refusal: 'var(--serious)', competitor: 'var(--crit)', unknown: 'var(--ink-4)' };
+  const outs = S.outcomes.map((o) => ({ ...o, label: D.OUTCOMES[o.key].label, color: OUT_COLOR[o.key] }));
+  const outTotal = outs.reduce((a, o) => a + o.n, 0);
+  const outbar = document.getElementById('outbar');
+  outbar.setAttribute('aria-label', outs.map((o) => `${o.label} ${V.pct((o.n / outTotal) * 100, 0)}`).join(', '));
+  outbar.innerHTML = outs.map((o) => `<span style="width:${(o.n / outTotal) * 100}%;background:${o.color}"></span>`).join('');
+  V.$$('#outbar span').forEach((sp, i) => V.bindTip(sp, () => ({ title: outs[i].label, rows: [{ value: `${outs[i].n} ${V.plural(outs[i].n, 'разговор', 'разговора', 'разговоров')}`, label: V.pct((outs[i].n / outTotal) * 100, 1) }] })));
+  document.getElementById('outlegend').innerHTML = outs.map((o) => `
+    <div class="ob-item"><span class="key-bar" style="background:${o.color}"></span><span class="ellipsis">${o.label}</span><b>${V.pct((o.n / outTotal) * 100, 0)}<span class="muted">${o.n}</span></b></div>`).join('');
+
+  /* ================= Нарушения по правилам ================= */
+  document.getElementById('violations').innerHTML = D.violations.map((v) => {
+    const diff = v.count - v.prev;
+    const trend = diff > 0 ? `<span class="delta is-bad"><i data-lucide="arrow-up-right" class="i"></i>+${diff}</span>`
+      : diff < 0 ? `<span class="delta is-good"><i data-lucide="arrow-down-right" class="i"></i>−${-diff}</span>`
+      : `<span class="delta is-flat">как на прошлой</span>`;
+    return `<div class="vio">
+      <span class="q-sev is-${v.sev} vio-sev" aria-hidden="true"><i data-lucide="${v.sev === 'crit' ? 'octagon-alert' : 'triangle-alert'}" class="i i-s"></i></span>
+      <div style="min-width:0"><div class="vio-rule">${v.rule}</div>
+        <div class="vio-ops">${v.who.map((id) => `<span class="avatar" title="${D.byId[id].name}">${D.byId[id].initials}</span>`).join('')}<span>${v.who.map((id) => D.byId[id].name).join(', ')}</span></div></div>
+      <div class="vio-num"><span class="display">${v.count}</span>${trend}</div>
+    </div>`;
+  }).join('');
+
+  /* ================= Магазины ================= */
+  const stores = [...D.storeStats].sort((a, b) => b.conversion - a.conversion);
+  document.getElementById('stores').innerHTML = stores.map((s) => {
+    const prev = s.spark[s.spark.length - 2];
+    const ok = s.badgesOk === s.sellers;
+    return `<tr>
+      <td class="st-name"><b>${s.short}</b><span>${s.name.split(',')[0]} · ${s.conv} ${V.plural(s.conv, 'разговор', 'разговора', 'разговоров')}</span></td>
+      <td><div class="st-conv"><div><span class="display">${V.dec(s.conversion)}<small>${NB}%</small></span>${V.delta(s.spark[s.spark.length - 1] - prev, { unit: V.PP, digits: 1 })}</div><span class="st-spark" data-st="${s.id}"></span></div></td>
+      <td>${V.meter(Math.round(s.score))}</td>
+      <td><span class="st-badges ${ok ? 'is-ok' : 'is-warn'}" title="${ok ? 'Все бейджи выгружаются' : 'Есть бейджи без выгрузки'}"><i data-lucide="${ok ? 'circle-check' : 'triangle-alert'}" class="i"></i>${V.L(`${s.badgesOk} из ${s.sellers}`, `${s.badgesOk} of ${s.sellers}`)}</span></td>
+    </tr>`;
+  }).join('');
+  V.$$('[data-st]').forEach((el) => V.spark(el, D.storeStats.find((s) => s.id === el.dataset.st).spark, { width: 60, height: 26 }));
+
+  /* ================= Бейджи ================= */
+  const rack = document.getElementById('rack');
+  rack.innerHTML = D.sellers.map((s) => `
+    <div class="rack-cell is-${s.bstate}" role="listitem" tabindex="0" data-b="${s.id}" aria-label="${s.name}, ${D.BSTATE[s.bstate].label}">
+      <span class="rack-ini">${s.initials}</span>
+      ${s.bstate === 'shift' ? '<span class="rack-eq" aria-hidden="true"><span></span><span></span><span></span></span>' : ''}
+    </div>`).join('');
+  V.$$('[data-b]', rack).forEach((cell) => {
+    const s = D.byId[cell.dataset.b];
+    V.bindTip(cell, () => ({
+      title: `${s.badge} · ${D.storeById[s.store].short}`,
+      rows: [{ value: s.name }, { value: D.BSTATE[s.bstate].label, label: s.since ? V.L(`с ${s.since}`, `since ${s.since}`) : '' }],
+    }));
+  });
+  const issues = D.sellers.filter((s) => s.bstate === 'never' || s.bstate === 'missed');
+  document.getElementById('badge-issues').innerHTML = issues.map((s) => `
+    <div class="b-issue">
+      <div class="b-issue-title">${s.name}<span class="mono">${s.badge}</span></div>
+      ${V.badgeState(s.bstate)}
+      <div class="b-issue-note">${D.badges.notes[s.id]}</div>
+    </div>`).join('') + `
+    <div class="b-issue">
+      <div class="b-issue-title">Остальные на смене с 09:41–10:03</div>
+      ${V.badgeState('shift')}
+      <div class="b-issue-note">Записи уйдут на сервер, когда бейджи поставят на док-станции после закрытия.</div>
+    </div>`;
+
+  /* ================= Где теряем баллы ================= */
+  const steps = [...D.script.steps].sort((a, b) => b.miss - a.miss);
+  const maxMiss = steps[0].miss;
+  document.getElementById('losses').innerHTML = steps.map((s) => `
+    <div class="loss">
+      <div class="loss-name"><span class="ellipsis">${s.name}</span><span class="tag">${V.L('вес', 'weight')} ${V.dec(s.weight, 2)}</span>${s.required ? '' : '<span class="tag">необязательный</span>'}</div>
+      <div class="loss-val">${s.miss}<small>${NB}%</small></div>
+      <div class="loss-bar" role="img" aria-label="${V.L(`Пропущен или слабый в ${s.miss}${NB}% разговоров`, `Missed or weak in ${s.miss}% of conversations`)}"><span style="width:${(s.miss / maxMiss) * 100}%"></span></div>
+      <div class="loss-hint">${s.hint}</div>
+    </div>`).join('');
+
+  /* ================= Возражения ================= */
+  const base = S.conversion;
+  document.getElementById('baseline').textContent = V.pct(base);
+  const maxShare = Math.max(...D.objections.map((o) => o.calls));
+  document.getElementById('objections').innerHTML = D.objections.map((o) => {
+    const share = (o.calls / S.totalConvs) * 100;
+    const diff = o.conv - base;
+    const len = Math.min(46, (Math.abs(diff) / 20) * 46);
+    return `<tr>
+      <td><div style="font-weight:500">${o.type}</div><div class="muted" style="font-size:12px">${o.calls} ${V.plural(o.calls, 'разговор', 'разговора', 'разговоров')}</div></td>
+      <td><div class="share"><span class="share-bar"><span style="width:${(o.calls / maxShare) * 100}%"></span></span><span class="num">${V.pct(share, 0)}</span></div></td>
+      <td class="t-right t-num col-hide-s">${o.resolved}${NB}%</td>
+      <td><div class="dv" role="img" aria-label="${V.L(`Конверсия ${V.pct(o.conv)}, ${diff >= 0 ? 'выше' : 'ниже'} средней на ${V.dec(Math.abs(diff))} п. п.`, `Conversion ${V.pct(o.conv)}, ${V.dec(Math.abs(diff))} pp ${diff >= 0 ? 'above' : 'below'} average`)}">
+        <span class="dv-track" aria-hidden="true"><span class="dv-bar ${diff >= 0 ? 'is-up' : 'is-down'}" style="width:${len}px"></span></span>
+        <span class="dv-val">${V.pct(o.conv)}</span></div></td>
+    </tr>`;
+  }).join('');
+
+  /* ================= Движение в команде ================= */
+  const withData = D.sellers.filter((s) => s.delta);
+  const up = [...withData].sort((a, b) => b.delta - a.delta).slice(0, 3);
+  const down = [...withData].sort((a, b) => a.delta - b.delta).slice(0, 3);
+  const col = (title, icon, list) => `
+    <div class="movers-col">
+      <div class="movers-h"><i data-lucide="${icon}" class="i i-s"></i>${title}</div>
+      ${list.map((s) => `<a class="mv" href="team.html?seller=${s.id}">${V.person(s, s.delta < 0 ? V.L('Слабое место: ', 'Weak spot: ') + s.weak.toLowerCase() : D.storeById[s.store].short)}<span class="mv-spark" data-mv="${s.id}"></span>${V.delta(s.delta)}</a>`).join('')}
+    </div>`;
+  document.getElementById('movers').innerHTML = col('Растут', 'trending-up', up) + col('Проседают', 'trending-down', down);
+  V.$$('[data-mv]').forEach((el) => V.spark(el, D.byId[el.dataset.mv].spark, { width: 64, height: 26 }));
+
+  /* ================= Спрос ================= */
+  document.getElementById('topics').innerHTML = D.topics.map((t, i) => `
+    <div class="topic">
+      <div class="topic-name"><i data-lucide="shopping-bag" class="i"></i><span class="ellipsis">${t.name}</span>${i === 0 ? '<span class="topic-hot">лидер роста</span>' : ''}</div>
+      ${V.delta(t.delta, { unit: V.PCT })}
+    </div>`).join('');
+
+  V.icons();
+  V.renderFingerprints();
+})();
+</script>
+</body>
+</html>

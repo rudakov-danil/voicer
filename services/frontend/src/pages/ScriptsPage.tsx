@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { scriptsApi } from '@/api/scripts'
+import { useTerms } from '@/lib/terms'
 import { adminApi } from '@/api/admin'
 import { dashboardApi } from '@/api/dashboard'
 import type { ScriptTemplate, ScriptStep, UpsellRule, CrossSellRule } from '@/types'
@@ -174,6 +175,7 @@ function StepRow({
 function AssignmentsBlock({ template }: { template: ScriptTemplate }) {
   const queryClient = useQueryClient()
   const templateId = template.id
+  const terms = useTerms()
 
   const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
   const { data: sellers } = useQuery({ queryKey: ['admin-sellers'], queryFn: () => adminApi.getSellers() })
@@ -230,7 +232,7 @@ function AssignmentsBlock({ template }: { template: ScriptTemplate }) {
         <MapPin size={14} /> Где применяется
         <HelpTooltip content={
           <div style={{ maxWidth: 280 }}>
-            Назначьте скрипт <strong>магазину</strong> — он автоматически применится ко всем разговорам в этом магазине.
+            Назначьте скрипт <strong>{terms.isTelephony ? 'отделу' : 'магазину'}</strong> — он автоматически применится ко всем разговорам в этом {terms.isTelephony ? 'отделе' : 'магазине'}.
             Можно дополнительно указать <strong>конкретных продавцов</strong>, если скрипт нужен только им.
           </div>
         } />
@@ -244,7 +246,7 @@ function AssignmentsBlock({ template }: { template: ScriptTemplate }) {
             onChange={(e) => patchAllStoresMut.mutate(e.target.checked)}
           />
           <span>
-            <strong>Применить ко всем магазинам организации</strong>
+            <strong>Применить ко всем {terms.isTelephony ? 'отделам' : 'магазинам'} организации</strong>
             <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 2 }}>
               Если включено — индивидуальный список ниже игнорируется, скрипт работает везде.
             </span>
@@ -253,20 +255,20 @@ function AssignmentsBlock({ template }: { template: ScriptTemplate }) {
       </div>
 
       <div style={{ marginBottom: 12, opacity: allStores ? 0.5 : 1, pointerEvents: allStores ? 'none' : 'auto' }}>
-        <label className="field-label">Магазины</label>
+        <label className="field-label">{terms.storePlural}</label>
         <MultiSelect
           options={storeOptions}
           selected={selectedStoreIds}
           onChange={(ids) => bulkStoresMut.mutate(ids)}
-          placeholder="Выберите один или несколько магазинов"
-          selectAllLabel="Выбрать все магазины"
+          placeholder={`Выберите один или несколько ${terms.isTelephony ? 'отделов' : 'магазинов'}`}
+          selectAllLabel={`Выбрать все ${terms.storePlural.toLowerCase()}`}
         />
       </div>
 
       <div>
         <label className="field-label">
           Отдельные продавцы (опционально)
-          <HelpTooltip content="Нужно, если скрипт обязателен не для всего магазина, а только для конкретных людей." />
+          <HelpTooltip content={`Нужно, если скрипт обязателен не для всего ${terms.isTelephony ? 'отдела' : 'магазина'}, а только для конкретных людей.`} />
         </label>
         <MultiSelect
           options={sellerOptions}
@@ -290,6 +292,7 @@ function TemplateEditor({
   onShowHelp: () => void
 }) {
   const queryClient = useQueryClient()
+  const terms = useTerms()
   const isNew = !template?.id
 
   const [name, setName] = useState(template?.name || '')
@@ -349,7 +352,7 @@ function TemplateEditor({
           <div className="editor-hint">
             <BookOpen size={13} />
             <span>
-              Сначала задайте этапы и сохраните — потом сможете назначить скрипт магазинам и протестировать на реальной записи.
+              Сначала задайте этапы и сохраните — потом сможете назначить скрипт {terms.isTelephony ? 'отделам' : 'магазинам'} и протестировать на реальной записи.
             </span>
             <button className="btn btn-outline btn-sm" onClick={onShowHelp} style={{ marginLeft: 'auto' }}>
               <HelpCircle size={12} /> Помощь
@@ -452,6 +455,7 @@ function TemplateEditor({
 function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
   const queryClient = useQueryClient()
   const isUpsell = kind === 'upsell'
+  const terms = useTerms()
   const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
   const { data: sellers } = useQuery({ queryKey: ['admin-sellers'], queryFn: () => adminApi.getSellers() })
 
@@ -525,7 +529,7 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
             <tr>
               <th>Триггер-продукт</th>
               <th>{isUpsell ? 'Обязательные предложения' : 'Сопутствующие товары'}</th>
-              <th style={{ minWidth: 200 }}>Магазины</th>
+              <th style={{ minWidth: 200 }}>{terms.storePlural}</th>
               <th style={{ minWidth: 200 }}>Менеджеры</th>
               <th style={{ width: 90 }}>Активно</th>
               <th style={{ width: 50 }} />
@@ -566,6 +570,7 @@ function RuleRow({ rule, stores, sellers, onPatch, onDelete }: {
   onDelete: () => void
 }) {
   const [trigger, setTrigger] = useState(rule.trigger_product)
+  const terms = useTerms()
   const [offers, setOffers] = useState(rule.required_offers.join(', '))
   const [saved, setSaved] = useState(false)
 
@@ -626,8 +631,8 @@ function RuleRow({ rule, stores, sellers, onPatch, onDelete }: {
             onPatch(patch)
             flash()
           }}
-          selectAllLabel="Все магазины"
-          placeholder="Все магазины"
+          selectAllLabel={terms.allStores}
+          placeholder={terms.allStores}
         />
       </td>
       <td>
@@ -1511,6 +1516,7 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
           <option value={7}>7 дней</option>
           <option value={30}>30 дней</option>
           <option value={90}>90 дней</option>
+          <option value={180}>6 месяцев</option>
           <option value={365}>Год</option>
         </select>
       </div>
@@ -1796,6 +1802,7 @@ function CompareDialog({ templateId, versionA, versionB, onClose }: {
               <option value={7}>7 дней</option>
               <option value={30}>30 дней</option>
               <option value={90}>90 дней</option>
+              <option value={180}>6 месяцев</option>
               <option value={365}>Год</option>
             </select>
           </div>
@@ -1997,6 +2004,7 @@ function ScriptsSidebar({
 }) {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState<ListFilter>('all')
+  const terms = useTerms()
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
 
@@ -2115,7 +2123,7 @@ function ScriptsSidebar({
                   ? `${(t as any).block_count ?? t.blocks?.length ?? 0} блоков · текст`
                   : `${(t as any).step_count ?? t.steps?.length ?? 0} этапов`}
                 {' · '}{t.is_active ? 'Активен' : 'Черновик'}
-                {t.applies_to_all_stores && ' · все магазины'}
+                {t.applies_to_all_stores && ` · ${terms.allStores.toLowerCase()}`}
               </div>
             </div>
             <div className="script-item-actions">

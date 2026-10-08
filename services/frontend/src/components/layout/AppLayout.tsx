@@ -30,17 +30,21 @@ export function AppLayout() {
 
   const currentTitle = pageTitles[location.pathname] || 'Voicer'
   const showPeriod = PAGES_WITH_PERIOD.has(location.pathname)
+  // У страницы разговора своя шапка: крошки, тема, вердикт
+  const ownHeader = location.pathname.startsWith('/conversations/')
 
   return (
     <>
       <Sidebar />
       <div className="main">
-        <Topbar
-          title={currentTitle}
-          onPeriodChange={setPeriod}
-          period={period}
-          showPeriod={showPeriod}
-        />
+        {!ownHeader && (
+          <Topbar
+            title={currentTitle}
+            onPeriodChange={setPeriod}
+            period={period}
+            showPeriod={showPeriod}
+          />
+        )}
         <div className="content">
           <Outlet context={{ period }} />
         </div>

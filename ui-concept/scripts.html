@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Скрипты · Войсер</title>
+<meta name="description" content="Концепт раздела «Скрипты»: этапы и веса, выполнение по продавцам, правила допродажи.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  .sc-grid { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start; }
+
+  /* Список скриптов */
+  .rail { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 16px; }
+  .rail-card {
+    display: flex; flex-direction: column; gap: 8px; padding: 14px; text-align: left;
+    border-radius: var(--r-l); background: var(--panel); border: 1px solid var(--line); transition: border-color .15s;
+  }
+  .rail-card:hover { border-color: var(--line-2); }
+  .rail-card[aria-current="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+  .rail-name { font-weight: 600; line-height: 1.3; }
+  .rail-meta { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+  .rail-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rail-ctx { font-size: 12px; color: var(--ink-2); padding: 6px 8px; border-radius: 8px; background: var(--panel-2); line-height: 1.4; }
+  .rail-add { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border-radius: var(--r-l); border: 1.5px dashed var(--line-2); color: var(--ink-2); font-weight: 500; }
+  .rail-add:hover { border-color: var(--ink-3); color: var(--ink); }
+
+  /* Шапка скрипта */
+  .sc-head { padding: 20px 22px 0; }
+  .sc-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; }
+  .sc-title { font-weight: 600; font-size: 21px; line-height: 1.25; letter-spacing: -.015em; }
+  .sc-desc { margin-top: 8px; color: var(--ink-2); }
+  .sc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .sc-tabs { margin-top: 16px; padding: 0 22px; }
+  .sc-body { padding: 20px 22px 24px; }
+
+  /* Как складывается балл */
+  .formula { margin-bottom: 20px; }
+  .formula-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .formula-h h3 { font-size: 13.5px; font-weight: 600; }
+  .wsum { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
+  .wsum.is-ok { color: var(--good-ink); }
+  .wsum.is-bad { color: var(--crit-ink); }
+  .fbar { display: flex; gap: 3px; height: 40px; }
+  .fseg { position: relative; min-width: 0; border-radius: 8px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+  .fseg-fill { position: absolute; left: 0; bottom: 0; right: 0; background: var(--accent-soft); box-shadow: inset 0 2px 0 var(--accent); transition: height .3s var(--ease); }
+  .fseg-txt { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; height: 100%; padding: 6px 8px; }
+  .fseg-txt span { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-2); }
+  .flabels { display: flex; gap: 3px; margin-top: 6px; }
+  .flabels div { min-width: 0; font-size: 11.5px; line-height: 1.3; color: var(--ink-2); }
+  .flabels div b { display: block; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .flabels div span { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+  .formula-note { margin-top: 8px; font-size: 12.5px; color: var(--ink-3); }
+
+  /* Этапы */
+  .step { display: grid; grid-template-columns: 36px minmax(0, 1fr) 190px; gap: 16px; padding: 16px 0; border-top: 1px solid var(--line); }
+  .step:first-of-type { border-top: 0; }
+  .step-num { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); font-weight: 600; font-size: 13px; }
+  .step-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .step-name { font-size: 15.5px; font-weight: 600; }
+  .step-desc { margin-top: 4px; color: var(--ink-2); font-size: 13.5px; line-height: 1.5; }
+  .step-rec { display: flex; gap: 8px; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); font-size: 13px; line-height: 1.5; }
+  .step-rec .i { flex: none; margin-top: 2px; color: var(--accent); }
+  .step-rec b { font-weight: 600; }
+  .step-side { display: flex; flex-direction: column; gap: 10px; }
+  .wctl { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .wctl label { font-size: 12px; color: var(--ink-3); }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; }
+  .stepper button { width: 28px; height: 30px; color: var(--ink-2); }
+  .stepper button:hover { background: var(--hover); color: var(--ink); }
+  .stepper input { width: 52px; height: 30px; border: 0; text-align: center; font-family: var(--font-mono); font-size: 12.5px; background: transparent; color: var(--ink); -moz-appearance: textfield; }
+  .stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .stat-mini { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); }
+  .stat-mini .row { justify-content: space-between; font-size: 12px; color: var(--ink-3); }
+  .stat-mini b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat-mini b.is-bad { color: var(--crit-ink); }
+  .req { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+
+  /* Тепловая карта */
+  .heat-wrap { position: relative; overflow-x: auto; }
+  .heat { border-collapse: separate; border-spacing: 3px; width: 100%; min-width: 720px; font-size: 12.5px; }
+  .heat th { font-weight: 500; color: var(--ink-3); text-align: center; padding: 6px 4px; font-size: 11.5px; line-height: 1.25; vertical-align: bottom; }
+  .heat th.row-h { text-align: left; }
+  .heat td.name { padding: 0 10px 0 0; white-space: nowrap; }
+  .heat td.cell { height: 38px; text-align: center; border-radius: 7px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: default; transition: transform .12s; }
+  .heat td.cell:hover { transform: scale(1.06); box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px var(--ink); }
+  .heat td.total { text-align: right; padding-left: 10px; }
+  .b1, .b2, .b3, .b4, .b5, .b6 { color: #0B0E14; }
+  .b1 { background: var(--seq-1); }
+  .b2 { background: var(--seq-2); }
+  .b3 { background: var(--seq-3); }
+  .b4 { background: var(--seq-4); }
+  .b5 { background: var(--seq-5); }
+  .b6 { background: var(--seq-6); }
+  :root[data-theme="dark"] .b1, :root[data-theme="dark"] .b2, :root[data-theme="dark"] .b3, :root[data-theme="dark"] .b4 { color: #EEF0F4; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .b1, :root:not([data-theme="light"]) .b2, :root:not([data-theme="light"]) .b3, :root:not([data-theme="light"]) .b4 { color: #EEF0F4; }
+  }
+  .cell.is-crit { box-shadow: inset 0 0 0 2px var(--crit); }
+  .scale { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 12px; color: var(--ink-3); flex-wrap: wrap; }
+  .scale-bar { display: flex; gap: 2px; }
+  .scale-bar span { width: 34px; height: 10px; }
+  .scale-bar span:first-child { border-radius: 3px 0 0 3px; }
+  .scale-bar span:last-child { border-radius: 0 3px 3px 0; }
+  .scale-lbls { display: flex; gap: 2px; font-family: var(--font-mono); font-size: 10.5px; }
+  .scale-lbls span { width: 34px; text-align: center; }
+  .heat-insight { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+  .insight { padding: 12px 14px; border-radius: 12px; background: var(--panel-2); font-size: 13px; line-height: 1.5; }
+  .insight b { display: block; font-weight: 600; margin-bottom: 2px; }
+
+  /* Допродажа */
+  .rule { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 16px 0; border-top: 1px solid var(--line); }
+  .rule:first-of-type { border-top: 0; padding-top: 4px; }
+  .rule-trigger { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14.5px; }
+  .rule-trigger .i { color: var(--ink-3); }
+  .rule-offers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .offer-chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: 500; }
+  .rule-stack { display: flex; gap: 2px; height: 12px; }
+  .rule-stack span:first-child { border-radius: 4px 0 0 4px; }
+  .rule-stack span:last-child { border-radius: 0 4px 4px 0; }
+  .rule-legend { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--ink-3); }
+  .rule-legend b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .rule-n { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+
+  @media (max-width: 1100px) {
+    .sc-grid { grid-template-columns: minmax(0, 1fr); }
+    .rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+    .rail-card, .rail-add { flex: 0 0 260px; }
+  }
+  @media (max-width: 760px) {
+    .step { grid-template-columns: 36px minmax(0, 1fr); }
+    .step-side { grid-column: 2; }
+    .rule { grid-template-columns: minmax(0, 1fr); }
+    .heat-insight { grid-template-columns: minmax(0, 1fr); }
+    .sc-title { font-size: 19px; }
+    .fseg-txt span { display: none; }
+  }
+</style>
+</head>
+<body data-page="scripts">
+<div class="app">
+  <aside class="sidebar"></aside>
+  <main class="main" id="main">
+    <div class="page">
+
+      <header class="page-head">
+        <div>
+          <h1 class="page-title">Скрипты</h1>
+          <p class="page-meta">4 скрипта · назначены 11 продавцам · оценка каждого разговора по этапам</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn" type="button" data-soon="1"><i data-lucide="file-up" class="i"></i>Из документа</button>
+          <button class="btn btn-primary" type="button" data-soon="1"><i data-lucide="plus" class="i"></i>Новый скрипт</button>
+        </div>
+      </header>
+
+      <div class="sc-grid">
+        <nav class="rail" aria-label="Скрипты" id="rail"></nav>
+
+        <section class="panel" aria-labelledby="sc-title">
+          <div class="sc-head">
+            <div class="sc-title-row">
+              <div>
+                <h2 id="sc-title" class="sc-title"></h2>
+                <p class="sc-desc" id="sc-desc"></p>
+              </div>
+              <div class="row">
+                <button class="btn" type="button" data-soon="1"><i data-lucide="history" class="i"></i>Версии</button>
+                <button class="btn btn-primary" type="button" id="save"><i data-lucide="check" class="i"></i>Сохранить</button>
+              </div>
+            </div>
+            <div class="sc-chips">
+              <span class="flag is-info"><i data-lucide="users" class="i"></i>Обязательный для 11 продавцов</span>
+              <span class="flag is-plain"><i data-lucide="building-2" class="i"></i>Уровень сети</span>
+              <span class="flag is-plain"><i data-lucide="calendar" class="i"></i>Изменён 14 сентября</span>
+            </div>
+          </div>
+          <div class="tabs sc-tabs" role="tablist" aria-label="Разделы скрипта">
+            <button class="tab" role="tab" type="button" aria-selected="true" data-tab="steps">Этапы и веса</button>
+            <button class="tab" role="tab" type="button" aria-selected="false" data-tab="heat">Выполнение по продавцам</button>
+            <button class="tab" role="tab" type="button" aria-selected="false" data-tab="upsell">Допродажа<span class="count">5 правил</span></button>
+          </div>
+
+          <div class="sc-body" data-pane="steps">
+            <div class="formula">
+              <div class="formula-h">
+                <h3>Как складывается балл разговора</h3>
+                <span class="wsum is-ok" id="wsum" role="status"></span>
+              </div>
+              <div class="fbar" id="fbar"></div>
+              <div class="flabels" id="flabels" aria-hidden="true"></div>
+              <p class="formula-note">Ширина — вес этапа, заливка — средний балл этапа за неделю. Балл разговора — сумма «вес × балл» по всем этапам.</p>
+            </div>
+            <div id="steps"></div>
+          </div>
+
+          <div class="sc-body" data-pane="heat" hidden>
+            <div class="heat-wrap"><table class="heat" id="heat-table"></table></div>
+            <div class="scale" aria-hidden="true">
+              <span>Балл этапа</span>
+              <div>
+                <div class="scale-bar"><span class="b1"></span><span class="b2"></span><span class="b3"></span><span class="b4"></span><span class="b5"></span><span class="b6"></span></div>
+                <div class="scale-lbls"><span>&lt;50</span><span>50</span><span>60</span><span>70</span><span>80</span><span>90+</span></div>
+              </div>
+              <span class="legend-item"><span class="key-bar" style="box-shadow: inset 0 0 0 2px var(--crit);background:transparent"></span>ниже 50 — нужен разбор</span>
+            </div>
+            <div class="heat-insight">
+              <div class="insight"><b>Главная дыра — допродажа</b>У 7 продавцов из 11 этап ниже 65. Больше всего забывают расширенную гарантию.</div>
+              <div class="insight"><b>Выявление потребностей</b>Новые продавцы задают 1–2 вопроса вместо трёх. Тимур Галиев — 47.</div>
+              <div class="insight"><b>Эталон сети</b>Мария Петрова — выше 80 на всех этапах. Её разговоры стоит разбирать с новичками.</div>
+            </div>
+          </div>
+
+          <div class="sc-body" data-pane="upsell" hidden>
+            <div id="rules"></div>
+            <button class="btn" type="button" data-soon="1" style="margin-top:12px"><i data-lucide="plus" class="i"></i>Добавить правило</button>
+          </div>
+        </section>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  V.init();
+  const D = VD, SC = D.script, NB = V.NB;
+
+  /* ---------- Список скриптов ---------- */
+  const RAIL = [
+    { id: 'base', name: SC.name, meta: 'Уровень сети · 6 этапов · 11 продавцов', score: 77, current: true },
+    { id: 'phones', name: 'Апсейл смартфонов', meta: 'Контекстный · 4 этапа · 5 продавцов', ctx: 'Применяется, когда говорят о смартфонах и телефонах', score: 71 },
+    { id: 'big', name: 'Консультация по крупной технике', meta: 'Контекстный · 5 этапов · 11 продавцов', ctx: 'Холодильники, стиральные и посудомоечные машины', score: 74 },
+    { id: 'returns', name: 'Возврат и обмен', meta: 'Черновик · 5 этапов', score: null },
+  ];
+  document.getElementById('rail').innerHTML = RAIL.map((r) => `
+    <a class="rail-card" href="${r.current ? '#' : '#'}" ${r.current ? 'aria-current="true"' : 'data-soon="1"'}>
+      <span class="rail-name">${r.name}</span>
+      <span class="rail-meta">${r.meta}</span>
+      ${r.ctx ? `<span class="rail-ctx">${r.ctx}</span>` : ''}
+      <span class="rail-foot">${r.score ? V.meter(r.score) : '<span class="tag">Черновик</span>'}<span class="muted" style="font-size:12px">${r.score ? 'средний балл' : 'не назначен'}</span></span>
+    </a>`).join('') + `<button class="rail-add" type="button" data-soon="1"><i data-lucide="plus" class="i"></i>Новый скрипт</button>`;
+
+  document.getElementById('sc-title').textContent = SC.name;
+  document.getElementById('sc-desc').textContent = SC.description;
+
+  /* ---------- Вкладки ---------- */
+  function showTab(id) {
+    V.$$('[data-tab]').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === id)));
+    V.$$('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== id; });
+    history.replaceState(null, '', '#' + id);
+  }
+  V.$$('[data-tab]').forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab)));
+
+  /* ---------- Этапы и веса ---------- */
+  const SHORTS = ['Приветствие', 'Потребности', 'Презентация', 'Возражения', 'Закрытие', 'Допродажа'];
+  const weights = SC.steps.map((s) => s.weight);
+  function drawFormula() {
+    const sum = weights.reduce((a, b) => a + b, 0);
+    const ok = Math.abs(sum - 1) < 0.001;
+    const ws = document.getElementById('wsum');
+    ws.className = 'wsum ' + (ok ? 'is-ok' : 'is-bad');
+    ws.innerHTML = ok
+      ? `<i data-lucide="circle-check" class="i i-s"></i>Сумма весов 1,00`
+      : `<i data-lucide="circle-alert" class="i i-s"></i>` + V.L(`Сумма весов ${V.dec(sum, 2)} — ${sum < 1 ? 'добавьте ' + V.dec(1 - sum, 2) : 'уберите ' + V.dec(sum - 1, 2)}, чтобы сохранить`, `Weights add up to ${V.dec(sum, 2)} — ${sum < 1 ? 'add ' + V.dec(1 - sum, 2) : 'remove ' + V.dec(sum - 1, 2)} to save`);
+    document.getElementById('save').disabled = !ok;
+    document.getElementById('save').style.opacity = ok ? '' : '.5';
+    const bar = document.getElementById('fbar');
+    bar.innerHTML = SC.steps.map((s, i) => `
+      <div class="fseg" style="flex-grow:${weights[i] * 100 || 0.01};flex-basis:0" data-f="${i}">
+        <div class="fseg-fill" style="height:${s.avg}%"></div>
+      </div>`).join('');
+    document.getElementById('flabels').innerHTML = SC.steps.map((s, i) => `<div style="flex-grow:${weights[i] * 100 || 0.01};flex-basis:0"><b>${s.n} · ${V.t(SHORTS[i])}</b><span>${V.dec(weights[i], 2)} × ${s.avg}</span></div>`).join('');
+    V.$$('[data-f]', bar).forEach((el) => {
+      const i = +el.dataset.f, s = SC.steps[i];
+      V.bindTip(el, () => ({ title: `${s.n} · ${s.name}`, rows: [{ value: V.L(`вес ${V.dec(weights[i], 2)}`, `weight ${V.dec(weights[i], 2)}`), label: V.L(`до ${Math.round(weights[i] * 100)} баллов`, `up to ${Math.round(weights[i] * 100)} points`) }, { value: V.L(`${s.avg} из 100`, `${s.avg} of 100`), label: V.t('средний балл этапа') }] }));
+    });
+    V.icons();
+  }
+  document.getElementById('steps').innerHTML = SC.steps.map((s, i) => `
+    <article class="step">
+      <span class="step-num" aria-hidden="true">${s.n}</span>
+      <div style="min-width:0">
+        <div class="step-top"><h3 class="step-name">${s.name}</h3>${s.required ? '<span class="tag">обязательный</span>' : '<span class="tag">по ситуации</span>'}</div>
+        <p class="step-desc">${s.desc}</p>
+        <div class="step-rec"><i data-lucide="lightbulb" class="i i-s"></i><span><b>Совет продавцу:</b> ${s.rec}</span></div>
+      </div>
+      <div class="step-side">
+        <div class="wctl"><label for="w${i}">Вес в балле</label>
+          <span class="stepper"><button type="button" data-dw="${i}" data-d="-0.05" aria-label="Уменьшить вес">−</button><input id="w${i}" name="weight-${s.n}" type="text" inputmode="decimal" autocomplete="off" value="${V.dec(s.weight, 2)}" data-w="${i}"><button type="button" data-dw="${i}" data-d="0.05" aria-label="Увеличить вес">+</button></span></div>
+        <div class="stat-mini">
+          <div class="row"><span>Средний балл</span>${V.meter(s.avg)}</div>
+          <div class="row"><span>Пропускают</span><b class="${s.miss > 25 ? 'is-bad' : ''}">${s.miss}${NB}%</b></div>
+        </div>
+      </div>
+    </article>`).join('');
+  const setW = (i, v) => {
+    weights[i] = Math.max(0, Math.min(1, Math.round(v * 100) / 100));
+    document.getElementById('w' + i).value = V.dec(weights[i], 2);
+    drawFormula();
+  };
+  document.getElementById('steps').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-dw]');
+    if (b) setW(+b.dataset.dw, weights[+b.dataset.dw] + +b.dataset.d);
+  });
+  document.getElementById('steps').addEventListener('change', (e) => {
+    const inp = e.target.closest('[data-w]');
+    if (inp) setW(+inp.dataset.w, parseFloat(String(inp.value).replace(',', '.')) || 0);
+  });
+  /* Поле текстовое (число в формате языка интерфейса), стрелки меняют вес на 0,05 */
+  document.getElementById('steps').addEventListener('keydown', (e) => {
+    const inp = e.target.closest('[data-w]');
+    if (!inp || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    setW(+inp.dataset.w, weights[+inp.dataset.w] + (e.key === 'ArrowUp' ? 0.05 : -0.05));
+  });
+  document.getElementById('save').addEventListener('click', () => V.toast('Скрипт сохранён — новые веса применятся к следующим разговорам'));
+
+  /* ---------- Тепловая карта ---------- */
+  const bin = (v) => (v < 50 ? 1 : v < 60 ? 2 : v < 70 ? 3 : v < 80 ? 4 : v < 90 ? 5 : 6);
+  const rows = Object.entries(D.heat).map(([id, vals]) => ({ s: D.byId[id], vals, total: D.byId[id].score }))
+    .sort((a, b) => b.total - a.total);
+  document.getElementById('heat-table').innerHTML = `
+    <caption class="sr-only">Средний балл этапов скрипта по продавцам за неделю</caption>
+    <thead><tr><th class="row-h" scope="col">Продавец</th>${SC.steps.map((s, i) => `<th scope="col">${s.n}<br>${V.t(SHORTS[i])}<br><span class="mono">${V.L('вес', 'wt')} ${V.dec(s.weight, 2)}</span></th>`).join('')}<th scope="col" style="text-align:right">Итог</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr>
+      <td class="name">${V.person(r.s, D.storeById[r.s.store].short)}</td>
+      ${r.vals.map((v, i) => `<td class="cell b${bin(v)}${v < 50 ? ' is-crit' : ''}" tabindex="0" data-h="${r.s.id}:${i}">${v}</td>`).join('')}
+      <td class="total">${V.meter(r.total)}</td>
+    </tr>`).join('')}</tbody>`;
+  V.$$('[data-h]').forEach((td) => {
+    const [id, i] = td.dataset.h.split(':');
+    V.bindTip(td, () => ({ title: `${D.byId[id].name} · ${SC.steps[+i].name}`, rows: [{ value: V.L(`${D.heat[id][+i]} из 100`, `${D.heat[id][+i]} of 100`), label: V.L(`вес ${V.dec(SC.steps[+i].weight, 2)}`, `weight ${V.dec(SC.steps[+i].weight, 2)}`) }], note: D.heat[id][+i] < 60 ? SC.steps[+i].rec : '' }));
+  });
+
+  /* ---------- Допродажа ---------- */
+  document.getElementById('rules').innerHTML = D.upsell.map((u) => `
+    <div class="rule">
+      <div>
+        <div class="rule-trigger"><i data-lucide="shopping-bag" class="i"></i>${u.trigger}</div>
+        <div class="rule-offers">${u.offers.map((o) => `<span class="offer-chip"><i data-lucide="plus" class="i i-s"></i>${o}</span>`).join('')}</div>
+      </div>
+      <div>
+        <div class="rule-stack" role="img" aria-label="${V.L(`Предложено всё в ${u.full}% продаж, часть — в ${u.part}%, ничего — в ${u.none}%`, `Everything offered in ${u.full}% of sales, some in ${u.part}%, nothing in ${u.none}%`)}">
+          <span style="flex:${u.full};background:var(--accent)"></span><span style="flex:${u.part};background:var(--seq-2)"></span><span style="flex:${u.none};background:var(--crit)"></span>
+        </div>
+        <div class="rule-legend"><span>всё <b>${u.full}${NB}%</b></span><span>часть <b>${u.part}${NB}%</b></span><span>ничего <b>${u.none}${NB}%</b></span></div>
+        <div class="rule-n">${V.L(`${u.sales} ${V.plural(u.sales, 'продажа', 'продажи', 'продаж')} с этим товаром за неделю`, `${u.sales} sales with this product this week`)}</div>
+      </div>
+      <button type="button" class="switch" role="switch" aria-checked="true" aria-label="${V.L(`Правило «${u.trigger}»`, `Rule “${u.trigger}”`)}"><span class="switch-track" aria-hidden="true"></span></button>
+    </div>`).join('');
+  document.getElementById('rules').addEventListener('click', (e) => {
+    const sw = e.target.closest('[role="switch"]');
+    if (!sw) return;
+    const on = sw.getAttribute('aria-checked') !== 'true';
+    sw.setAttribute('aria-checked', String(on));
+    V.toast(on ? 'Правило включено' : 'Правило выключено — допродажу по нему не проверяем', on ? 'check' : 'pause');
+  });
+
+  drawFormula();
+  V.icons();
+  const hash = location.hash.slice(1);
+  if (['steps', 'heat', 'upsell'].includes(hash)) showTab(hash);
+})();
+</script>
+</body>
+</html>

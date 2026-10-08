@@ -1,5 +1,7 @@
 import { useState, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useTerms } from '@/lib/terms'
+import { outcomeColor, outcomeLabel } from '@/lib/outcomes'
 import { useOutletContext } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { analyticsApi } from '@/api/analytics'
@@ -89,22 +91,7 @@ const OBJECTION_LABELS: Record<string, string> = {
   functionality: 'Функционал', quality: 'Качество', trust: 'Доверие', timing: 'Сроки',
 }
 
-const OUTCOME_LABELS: Record<string, string> = {
-  purchase: 'Покупка',
-  deferred: 'Отложено',
-  price_refusal: 'Отказ по цене',
-  competitor: 'Ушёл к конкуренту',
-  unknown: 'Неизвестно',
-}
-const OUTCOME_COLORS: Record<string, string> = {
-  purchase: '#16A34A',
-  deferred: '#F59E0B',
-  price_refusal: '#EF4444',
-  competitor: '#8B5CF6',
-  unknown: '#94A3B8',
-}
-
-const FUNNEL_COLORS = ['#2563EB', '#3B82F6', '#60A5FA', '#93C5FD', '#BFDBFE', '#16A34A']
+const FUNNEL_COLORS = ['#5873EC', '#7890F6', '#97ADFC', '#B4C4FF', '#D2DCFF', '#12A150']
 
 export function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState('objections')
@@ -289,6 +276,7 @@ function ObjectionsTab({ period }: { period: number }) {
 }
 
 function ConversionTab({ period }: { period: number }) {
+  const terms = useTerms()
   const { data: funnel } = useQuery({
     queryKey: ['conversion-funnel', period],
     queryFn: () => analyticsApi.getConversionFunnel({ period }),
@@ -319,9 +307,9 @@ function ConversionTab({ period }: { period: number }) {
     value: Math.round(s.conversion_rate * 100),
   }))
   const outcomeDonut = (outcomes || []).map((o) => ({
-    name: OUTCOME_LABELS[o.outcome] || o.outcome,
+    name: outcomeLabel(o.outcome),
     value: o.count,
-    color: OUTCOME_COLORS[o.outcome] || '#94A3B8',
+    color: outcomeColor(o.outcome),
   }))
 
   const handlingRows: { key: keyof NonNullable<typeof handling>; label: string; tone: string }[] = [
@@ -353,7 +341,7 @@ function ConversionTab({ period }: { period: number }) {
                 <div className="progress-bar-fill"
                   style={{
                     width: `${Math.max(stage.percentage, 2)}%`,
-                    background: FUNNEL_COLORS[i] || '#2563EB',
+                    background: FUNNEL_COLORS[i] || '#5873EC',
                   }}
                 />
               </div>
@@ -383,7 +371,7 @@ function ConversionTab({ period }: { period: number }) {
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Конверсия по магазинам</div>
+              <div className="card-title">Конверсия {terms.isTelephony ? 'по отделам' : 'по магазинам'}</div>
               <div className="card-subtitle">% покупок от всех разговоров</div>
             </div>
           </div>

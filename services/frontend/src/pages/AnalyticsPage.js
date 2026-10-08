@@ -1,6 +1,8 @@
 import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useTerms } from '@/lib/terms';
+import { outcomeColor, outcomeLabel } from '@/lib/outcomes';
 import { useOutletContext } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '@/api/analytics';
@@ -63,21 +65,7 @@ const OBJECTION_LABELS = {
     price: 'Цена', not_ready: 'Не готов сейчас', competitors: 'Конкуренты',
     functionality: 'Функционал', quality: 'Качество', trust: 'Доверие', timing: 'Сроки',
 };
-const OUTCOME_LABELS = {
-    purchase: 'Покупка',
-    deferred: 'Отложено',
-    price_refusal: 'Отказ по цене',
-    competitor: 'Ушёл к конкуренту',
-    unknown: 'Неизвестно',
-};
-const OUTCOME_COLORS = {
-    purchase: '#16A34A',
-    deferred: '#F59E0B',
-    price_refusal: '#EF4444',
-    competitor: '#8B5CF6',
-    unknown: '#94A3B8',
-};
-const FUNNEL_COLORS = ['#2563EB', '#3B82F6', '#60A5FA', '#93C5FD', '#BFDBFE', '#16A34A'];
+const FUNNEL_COLORS = ['#5873EC', '#7890F6', '#97ADFC', '#B4C4FF', '#D2DCFF', '#12A150'];
 export function AnalyticsPage() {
     const [activeTab, setActiveTab] = useState('objections');
     const { period } = useOutletContext();
@@ -122,6 +110,7 @@ function ObjectionsTab({ period }) {
                                         }), (!impact?.items || impact.items.length === 0) && (_jsx("tr", { children: _jsx("td", { colSpan: 6, children: _jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }) }) }))] })] }) })] })] }));
 }
 function ConversionTab({ period }) {
+    const terms = useTerms();
     const { data: funnel } = useQuery({
         queryKey: ['conversion-funnel', period],
         queryFn: () => analyticsApi.getConversionFunnel({ period }),
@@ -151,9 +140,9 @@ function ConversionTab({ period }) {
         value: Math.round(s.conversion_rate * 100),
     }));
     const outcomeDonut = (outcomes || []).map((o) => ({
-        name: OUTCOME_LABELS[o.outcome] || o.outcome,
+        name: outcomeLabel(o.outcome),
         value: o.count,
-        color: OUTCOME_COLORS[o.outcome] || '#94A3B8',
+        color: outcomeColor(o.outcome),
     }));
     const handlingRows = [
         { key: 'no_objections', label: 'Без возражений', tone: 'var(--text-muted)' },
@@ -165,8 +154,8 @@ function ConversionTab({ period }) {
                                             fontSize: '13px',
                                         }, children: [_jsx("span", { style: { color: 'var(--text)' }, children: stage.stage }), _jsxs("span", { style: { color: 'var(--text-muted)' }, children: [stage.count.toLocaleString('ru-RU'), " (", stage.percentage, "%)"] })] }), _jsx("div", { className: "progress-bar", children: _jsx("div", { className: "progress-bar-fill", style: {
                                                 width: `${Math.max(stage.percentage, 2)}%`,
-                                                background: FUNNEL_COLORS[i] || '#2563EB',
-                                            } }) })] }, i))), (!funnel || funnel.length === 0) && (_jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }))] }), _jsxs("div", { className: "card", children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u0438\u0441\u0445\u043E\u0434\u043E\u0432" }), _jsx("div", { className: "card-subtitle", children: "\u0427\u0435\u043C \u0437\u0430\u043A\u0430\u043D\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u044B" })] }) }), outcomeDonut.length > 0 ? (_jsx(DonutChartWidget, { data: outcomeDonut, valueSuffix: " \u0448\u0442." })) : (_jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }))] })] }), _jsxs("div", { className: "grid-2", children: [_jsxs("div", { className: "card", children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F \u043F\u043E \u043C\u0430\u0433\u0430\u0437\u0438\u043D\u0430\u043C" }), _jsx("div", { className: "card-subtitle", children: "% \u043F\u043E\u043A\u0443\u043F\u043E\u043A \u043E\u0442 \u0432\u0441\u0435\u0445 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432" })] }) }), storeChartData.length > 0 ? (_jsx(BarChartWidget, { data: storeChartData, valueLabel: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F", valueSuffix: "%" })) : (_jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }))] }), _jsxs("div", { className: "card", children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F \u043F\u043E \u043F\u0440\u043E\u0434\u0430\u0432\u0446\u0430\u043C" }), _jsx("div", { className: "card-subtitle", children: "\u0422\u043E\u043F-10 \u2014 % \u043F\u043E\u043A\u0443\u043F\u043E\u043A" })] }) }), sellerChartData.length > 0 ? (_jsx(BarChartWidget, { data: sellerChartData, valueLabel: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F", valueSuffix: "%" })) : (_jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }))] })] }), _jsxs("div", { className: "card", children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u0412\u043B\u0438\u044F\u043D\u0438\u0435 \u0440\u0430\u0431\u043E\u0442\u044B \u0441 \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F\u043C\u0438" }), _jsx("div", { className: "card-subtitle", children: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F \u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043E\u0442 \u0442\u043E\u0433\u043E, \u043A\u0430\u043A \u043F\u0440\u043E\u0434\u0430\u0432\u0435\u0446 \u043E\u0442\u0440\u0430\u0431\u043E\u0442\u0430\u043B \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F" })] }) }), _jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "\u0413\u0440\u0443\u043F\u043F\u0430" }), _jsx("th", { children: "\u0420\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432" }), _jsx("th", { children: "\u041F\u043E\u043A\u0443\u043F\u043A\u0430" }), _jsx("th", { children: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F" })] }) }), _jsx("tbody", { children: handlingRows.map(({ key, label, tone }) => {
+                                                background: FUNNEL_COLORS[i] || '#5873EC',
+                                            } }) })] }, i))), (!funnel || funnel.length === 0) && (_jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }))] }), _jsxs("div", { className: "card", children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u0438\u0441\u0445\u043E\u0434\u043E\u0432" }), _jsx("div", { className: "card-subtitle", children: "\u0427\u0435\u043C \u0437\u0430\u043A\u0430\u043D\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u044B" })] }) }), outcomeDonut.length > 0 ? (_jsx(DonutChartWidget, { data: outcomeDonut, valueSuffix: " \u0448\u0442." })) : (_jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }))] })] }), _jsxs("div", { className: "grid-2", children: [_jsxs("div", { className: "card", children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsxs("div", { className: "card-title", children: ["\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F ", terms.isTelephony ? 'по отделам' : 'по магазинам'] }), _jsx("div", { className: "card-subtitle", children: "% \u043F\u043E\u043A\u0443\u043F\u043E\u043A \u043E\u0442 \u0432\u0441\u0435\u0445 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432" })] }) }), storeChartData.length > 0 ? (_jsx(BarChartWidget, { data: storeChartData, valueLabel: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F", valueSuffix: "%" })) : (_jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }))] }), _jsxs("div", { className: "card", children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F \u043F\u043E \u043F\u0440\u043E\u0434\u0430\u0432\u0446\u0430\u043C" }), _jsx("div", { className: "card-subtitle", children: "\u0422\u043E\u043F-10 \u2014 % \u043F\u043E\u043A\u0443\u043F\u043E\u043A" })] }) }), sellerChartData.length > 0 ? (_jsx(BarChartWidget, { data: sellerChartData, valueLabel: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F", valueSuffix: "%" })) : (_jsx("div", { className: "empty-state", children: _jsx("p", { children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435 \u0430\u043D\u0430\u043B\u0438\u0437\u0430" }) }))] })] }), _jsxs("div", { className: "card", children: [_jsx("div", { className: "card-header", children: _jsxs("div", { children: [_jsx("div", { className: "card-title", children: "\u0412\u043B\u0438\u044F\u043D\u0438\u0435 \u0440\u0430\u0431\u043E\u0442\u044B \u0441 \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F\u043C\u0438" }), _jsx("div", { className: "card-subtitle", children: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F \u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043E\u0442 \u0442\u043E\u0433\u043E, \u043A\u0430\u043A \u043F\u0440\u043E\u0434\u0430\u0432\u0435\u0446 \u043E\u0442\u0440\u0430\u0431\u043E\u0442\u0430\u043B \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F" })] }) }), _jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "\u0413\u0440\u0443\u043F\u043F\u0430" }), _jsx("th", { children: "\u0420\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432" }), _jsx("th", { children: "\u041F\u043E\u043A\u0443\u043F\u043A\u0430" }), _jsx("th", { children: "\u041A\u043E\u043D\u0432\u0435\u0440\u0441\u0438\u044F" })] }) }), _jsx("tbody", { children: handlingRows.map(({ key, label, tone }) => {
                                         const bucket = handling?.[key];
                                         const rate = bucket ? Math.round(bucket.conversion_rate * 100) : 0;
                                         return (_jsxs("tr", { children: [_jsx("td", { style: { fontWeight: 500, color: tone }, children: label }), _jsx("td", { children: bucket?.total ?? 0 }), _jsx("td", { children: bucket?.purchases ?? 0 }), _jsxs("td", { style: { fontWeight: 600, color: tone }, children: [rate, "%"] })] }, key));

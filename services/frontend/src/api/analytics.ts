@@ -17,6 +17,29 @@ import type {
 } from '@/types'
 
 export const analyticsApi = {
+  // Резюме диалога от LLM. Первый вызов генерирует и кэширует, далее возвращает кэш.
+  // force=true — перегенерировать. Идёт напрямую в analytics-engine.
+  getConversationSummary: async (conversationId: string, force = false) => {
+    const response = await apiClient.post<{
+      summary: string
+      generated_at: string | null
+      cached: boolean
+    }>(
+      `/api/v1/analytics/conversations/${conversationId}/summary${force ? '?force=true' : ''}`,
+      undefined,
+      // Генерация через внешний LLM бывает долгой — даём запас, чтобы браузер не
+      // оборвал запрос раньше бэкенда (иначе ошибка при уже идущей генерации).
+      { timeout: 180000 },
+    )
+    return response.data
+  },
+
+  // Полное удаление диалога (разговор + транскрипт + запись)
+  deleteConversation: async (conversationId: string) => {
+    const response = await apiClient.delete(`/api/v1/analytics/conversations/${conversationId}`)
+    return response.data
+  },
+
   getObjectionsDistribution: async (params?: { period?: number; store_id?: string }) => {
     const response = await apiClient.get<ObjectionDistribution[]>(
       '/api/v1/dashboard/objections/distribution',

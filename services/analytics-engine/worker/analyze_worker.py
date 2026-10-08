@@ -27,6 +27,7 @@ from app.prompt_builder import (
     build_crosssell_prompt,
     build_compliance_prompt,
     screen_contextual_script,
+    is_call_context,
 )
 from app.dynamics import compute_dynamics
 from app.rabbitmq import publish
@@ -176,6 +177,33 @@ async def _fetch_call_context(db: AsyncSession, recording_id: str) -> dict | Non
         "call_direction": row.call_direction,
         "client_phone": row.client_phone,
     }
+
+
+# Категории обращений, которые ПО УМОЛЧАНИЮ идут в рейтинг (оцениваются по скрипту).
+# Организация может расширить список через recorder.telephony_settings.scorable_categories
+# (напр. добавить "service"). Всё, что вне списка (non_target, other, ...), не оценивается.
+DEFAULT_SCORABLE_CATEGORIES = ["sales"]
+
+
+async def _fetch_scorable_categories(db: AsyncSession, organization_id: str) -> list[str]:
+    """Список оцениваемых категорий звонков для организации (из настроек телефонии).
+
+    Пусто/нет строки настроек → дефолт (только 'sales'). Читаем recorder.telephony_settings
+    напрямую (тот же postgres) — как и остальной контекст звонка.
+    """
+    try:
+        row = (await db.execute(text("""
+            SELECT scorable_categories FROM recorder.telephony_settings
+            WHERE organization_id = :org_id
+        """), {"org_id": uuid.UUID(organization_id)})).fetchone()
+    except Exception as e:
+        logger.warning("Failed to read scorable_categories for org=%s: %s", organization_id, e)
+        return list(DEFAULT_SCORABLE_CATEGORIES)
+    if row and row.scorable_categories:
+        cats = [str(c) for c in row.scorable_categories if c]
+        if cats:
+            return cats
+    return list(DEFAULT_SCORABLE_CATEGORIES)
 
 
 STATUS_BLOCK_SCORE = {"spoken": 100.0, "paraphrased": 70.0, "missed": 0.0}
@@ -365,6 +393,8 @@ async def _general_analysis(
             "topic": parsed.topic,
             "sentiment_avg": parsed.sentiment_avg,
             "objections": [o.model_dump() for o in parsed.objections],
+            "call_category": parsed.call_category,
+            "contact_reason": parsed.contact_reason,
         }
     except (LLMResponseParseError, Exception) as e:
         logger.error("General analysis failed: %s", e)
@@ -374,6 +404,8 @@ async def _general_analysis(
             "topic": None,
             "sentiment_avg": 0.0,
             "objections": [],
+            "call_category": None,
+            "contact_reason": None,
         }
 
 
@@ -552,6 +584,8 @@ async def _general_and_compliance(
             "topic": gen_parsed.topic,
             "sentiment_avg": gen_parsed.sentiment_avg,
             "objections": [o.model_dump() for o in gen_parsed.objections],
+            "call_category": gen_parsed.call_category,
+            "contact_reason": gen_parsed.contact_reason,
         }
     except Exception as e:
         # general не распарсился → полный откат на раздельные проверенные вызовы.
@@ -787,6 +821,18 @@ async def process_analyze_message(
         applied_scores = [r["script_score"] for r in scored_results if r["script_score"] is not None]
         overall_score = calculate_overall_score(applied_scores)
 
+        # Step 5.0.1: Оцениваемость звонка. Для телефонии LLM классифицирует обращение
+        # (call_category); нецелевые/сервисные звонки НЕ должны портить рейтинг менеджера —
+        # у них overall_score=NULL (AVG в рейтинге их игнорирует), is_scorable=false.
+        # Для розницы (не звонок) классификации нет — всё оценивается как раньше.
+        call_category = general.get("call_category")
+        is_scorable = True
+        if is_call_context(call_context) and call_category:
+            scorable_categories = await _fetch_scorable_categories(db, organization_id)
+            is_scorable = call_category in scorable_categories
+        if not is_scorable:
+            overall_score = None
+
         # Step 5.1: Upsell + cross-sell checks параллельно — независимые LLM-проходы.
         has_upsell_task = _check_sell(segments, upsell_rules, llm_client, kind="upsell")
         has_crosssell_task = _check_sell(segments, crosssell_rules, llm_client, kind="crosssell")
@@ -851,6 +897,9 @@ async def process_analyze_message(
             outcome_confidence=general["outcome_confidence"],
             topic=general["topic"],
             sentiment_avg=general["sentiment_avg"],
+            is_scorable=is_scorable,
+            call_category=call_category,
+            contact_reason=general.get("contact_reason"),
             analyzed_at=datetime.utcnow(),
             llm_model=settings.LLM_MODEL_NAME,
             has_upsell=has_upsell,
@@ -868,8 +917,10 @@ async def process_analyze_message(
         db.add(conv)
         await db.flush()
 
-        # Applied script results
-        for result in scored_results:
+        # Applied script results — сохраняем ТОЛЬКО для оцениваемых звонков. Для
+        # нецелевых/сервисных (is_scorable=false) скоринг скрипта не имеет смысла и не
+        # должен попадать в метрики/хитмапы сотрудника.
+        for result in (scored_results if is_scorable else []):
             script_obj = next(
                 (s for s in scripts_to_score if s["id"] == result["script_id"]), None
             )
@@ -906,8 +957,8 @@ async def process_analyze_message(
                     )
                     db.add(cs)
 
-        # Skipped contextual scripts
-        for script, skip_reason in skipped_contextual:
+        # Skipped contextual scripts (тоже только для оцениваемых)
+        for script, skip_reason in (skipped_contextual if is_scorable else []):
             sr = ConversationScriptResult(
                 conversation_id=conv.id,
                 script_template_id=uuid.UUID(script["id"]),
@@ -946,6 +997,12 @@ async def process_analyze_message(
                 explanation=cv.get("explanation", ""),
                 sort_order=i,
             ))
+
+        # Помечаем запись как проанализированную в recorder — иначе она остаётся в
+        # статусе 'transcribed' и в UI ошибочно показывается как «Анализируется…».
+        await db.execute(text("""
+            UPDATE recorder.recordings SET status = 'analyzed' WHERE id = :rec_id
+        """), {"rec_id": uuid.UUID(recording_id)})
 
         await db.commit()
 

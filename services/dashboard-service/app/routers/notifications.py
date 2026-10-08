@@ -12,11 +12,24 @@ router = APIRouter(prefix="/api/v1/dashboard/notifications", tags=["notification
 DEFAULT_SCORE_THRESHOLD = 40.0
 
 
+async def get_score_threshold(db: AsyncSession, org_id: str, store_id) -> float:
+    """Порог низкой оценки: уровня магазина, если задан, иначе организации, иначе дефолт."""
+    row = (await db.execute(text("""
+        SELECT score_threshold
+        FROM admin_schema.alert_settings
+        WHERE organization_id = :org_id
+          AND (store_id = :store_id OR store_id IS NULL)
+        ORDER BY (store_id = :store_id) DESC NULLS LAST
+        LIMIT 1
+    """), {"org_id": uuid.UUID(org_id), "store_id": store_id})).fetchone()
+    return float(row.score_threshold) if row else DEFAULT_SCORE_THRESHOLD
+
+
 @router.get("")
 async def list_notifications(
     store_id: uuid.UUID | None = None,
     limit: int = Query(default=20, ge=1, le=100),
-    days: int = Query(default=14, ge=1, le=90),
+    days: int = Query(default=14, ge=1, le=365),
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -29,20 +42,7 @@ async def list_notifications(
     effective_store_id = forced_store_id or store_id
     date_from = date.today() - timedelta(days=days)
 
-    # Берём порог уровня магазина, если задан, иначе уровня организации, иначе дефолт.
-    threshold_sql = text("""
-        SELECT score_threshold
-        FROM admin_schema.alert_settings
-        WHERE organization_id = :org_id
-          AND (store_id = :store_id OR store_id IS NULL)
-        ORDER BY (store_id = :store_id) DESC NULLS LAST
-        LIMIT 1
-    """)
-    threshold_row = (await db.execute(threshold_sql, {
-        "org_id": uuid.UUID(org_id),
-        "store_id": effective_store_id,
-    })).fetchone()
-    threshold = float(threshold_row.score_threshold) if threshold_row else DEFAULT_SCORE_THRESHOLD
+    threshold = await get_score_threshold(db, org_id, effective_store_id)
 
     where = "c.organization_id = :org_id AND c.session_date >= :date_from"
     params: dict = {

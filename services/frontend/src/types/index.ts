@@ -45,6 +45,15 @@ export interface Conversation {
   compliance_ok?: boolean
   topic?: string
   recording_id?: string
+  /** Допродажа по сработавшим правилам: [предложено, положено] */
+  upsell?: [number, number] | null
+  /** Самое серьёзное нарушение комплаенса (название правила) */
+  top_violation?: string | null
+  top_violation_severity?: string | null
+  /** Тип первого неотработанного возражения */
+  open_objection?: string | null
+  /** Где прозвучала искомая фраза (при поиске q) */
+  hit?: { t: number; text: string } | null
 }
 
 export interface ConversationDetail extends Conversation {
@@ -355,4 +364,23 @@ export interface SellerDetail {
     score: number
     outcome: string
   }[]
+}
+
+/** Подборки списка разговоров (вкладки над таблицей). */
+export type ConversationView = 'attention' | 'violations' | 'price_open' | 'competitor' | 'no_upsell'
+
+/** Метка на «отпечатке»: crit / crit-mid — нарушение, warn / warn-ok — возражение
+ *  (не отработано / отработано), ok — предложение допродажи. t — позиция 0..1. */
+export interface FingerprintMark {
+  t: number
+  k: 'crit' | 'crit-mid' | 'warn' | 'warn-ok' | 'ok'
+  label?: string
+}
+
+/** «Отпечаток» разговора: реплики [начало, конец, дорожка] в секундах и метки событий. */
+export interface FingerprintData {
+  dur: number
+  segs: Array<[number, number, 's' | 'c' | 'u']>
+  talk: number | null
+  marks: FingerprintMark[]
 }

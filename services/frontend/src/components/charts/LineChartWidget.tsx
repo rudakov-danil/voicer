@@ -10,7 +10,7 @@ interface LineChartWidgetProps {
 
 export function LineChartWidget({
   data,
-  color = '#2563EB',
+  color = '#2E5BFF',
   height = 240,
   valueLabel = 'Значение',
   valueSuffix = '',

@@ -1,16 +1,21 @@
 import uuid
-from datetime import date
+import asyncio
+import logging
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, delete
+from sqlalchemy import select, func, and_, delete, text
 from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Conversation, ConversationScriptResult, ConversationScore, Objection
 from app.config import settings
+from app.llm_client import get_llm_client
+from app.prompt_builder import build_summary_prompt
 import httpx
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
+logger = logging.getLogger(__name__)
 
 
 def _org_filter(user: dict):
@@ -133,6 +138,130 @@ async def get_conversation(
             for o in sorted(conv.objections, key=lambda x: x.sort_order)
         ],
     }
+
+
+@router.post("/conversations/{conversation_id}/summary")
+async def generate_summary(
+    conversation_id: uuid.UUID,
+    force: bool = False,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Краткое резюме диалога от LLM. Кэшируется в conversations.summary.
+
+    Первый вызов генерирует и сохраняет резюме; последующие возвращают
+    кэш (cached=True). ?force=true — перегенерировать.
+    """
+    conv = (await db.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )).scalar_one_or_none()
+    if conv is None or str(conv.organization_id) != user["organization_id"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conv.summary and not force:
+        return {
+            "summary": conv.summary,
+            "generated_at": str(conv.summary_generated_at) if conv.summary_generated_at else None,
+            "cached": True,
+        }
+
+    # Транскрипт разговора из схемы transcription (тот же postgres)
+    seg_rows = (await db.execute(text("""
+        SELECT ts.speaker_role, ts.text, ts.start_ms
+        FROM transcription.transcripts t
+        JOIN transcription.transcript_segments ts ON ts.transcript_id = t.id
+        WHERE t.recording_id = :rec_id
+        ORDER BY ts.segment_index
+    """), {"rec_id": conv.recording_id})).fetchall()
+    if not seg_rows:
+        raise HTTPException(status_code=422, detail="Transcript not available for this conversation")
+    segments = [
+        {"speaker_role": s.speaker_role, "text": s.text, "start_ms": s.start_ms or 0}
+        for s in seg_rows
+    ]
+
+    # Контекст звонка (source / направление) — влияет на терминологию резюме
+    ctx_row = (await db.execute(text("""
+        SELECT source, call_direction FROM recorder.recordings WHERE id = :rec_id
+    """), {"rec_id": conv.recording_id})).fetchone()
+    call_context = (
+        {"source": ctx_row.source, "call_direction": ctx_row.call_direction}
+        if ctx_row else None
+    )
+
+    system, user_prompt = build_summary_prompt(segments, call_context)
+    llm_client = get_llm_client()
+    # Внешний LLM (Yandex Cloud) периодически даёт таймауты/транзиентные ошибки —
+    # раньше это отдавалось как 502 «не удалось сгенерировать». Ретраим с бэкоффом.
+    # 2 попытки с бэкоффом; таймаут на попытку держим так, чтобы суммарно уложиться
+    # в клиентский таймаут (фронт ждёт до 180с). ~60с + 60с + пауза = ~123с.
+    summary_text = ""
+    last_err: Exception | None = None
+    attempts = 2
+    for attempt in range(1, attempts + 1):
+        try:
+            response = await llm_client.chat.completions.create(
+                model=settings.LLM_MODEL_NAME,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user_prompt}],
+                temperature=0.2,
+                # Резюме структурное (4 секции) и модель пишет ~1800 токенов — при лимите
+                # 2000 она упиралась в предел (finish=length) и иногда отдавала пустой ответ.
+                # Даём запас, чтобы генерация завершалась нормально (finish=stop).
+                max_tokens=3500,
+                timeout=settings.LLM_GENERAL_TIMEOUT,
+            )
+            summary_text = (response.choices[0].message.content or "").strip()
+            if summary_text:
+                break
+            last_err = RuntimeError("empty summary")
+        except Exception as e:
+            last_err = e
+            logger.warning("Summary attempt %d/%d failed for conv %s: %s", attempt, attempts, conversation_id, e)
+        if attempt < attempts:
+            await asyncio.sleep(2.0)
+
+    if not summary_text:
+        logger.error("Summary generation failed for conv %s after 3 attempts: %s", conversation_id, last_err)
+        raise HTTPException(status_code=502, detail=f"LLM summary generation failed: {last_err}")
+
+    conv.summary = summary_text
+    conv.summary_generated_at = datetime.utcnow()
+    await db.commit()
+
+    return {"summary": summary_text, "generated_at": str(conv.summary_generated_at), "cached": False}
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Полностью удаляет диалог: разговор (+ каскадом скоринги/возражения/комплаенс),
+    транскрипт с сегментами и саму запись — чтобы диалог исчез из списка целиком."""
+    conv = (await db.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )).scalar_one_or_none()
+    if conv is None or str(conv.organization_id) != user["organization_id"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    rec_id = conv.recording_id
+
+    # Транскрипт + сегменты (схема transcription, без cross-schema FK — чистим явно)
+    await db.execute(text("""
+        DELETE FROM transcription.transcript_segments
+        WHERE transcript_id IN (SELECT id FROM transcription.transcripts WHERE recording_id = :rec_id)
+    """), {"rec_id": rec_id})
+    await db.execute(text("DELETE FROM transcription.transcripts WHERE recording_id = :rec_id"), {"rec_id": rec_id})
+
+    # Разговор — дочерние (script_results/scores/objections/compliance) уходят по FK ondelete=CASCADE
+    await db.execute(delete(Conversation).where(Conversation.id == conversation_id))
+
+    # Сама запись (recorder) — чтобы не осталась «висящей» в списке
+    await db.execute(text("DELETE FROM recorder.recordings WHERE id = :rec_id"), {"rec_id": rec_id})
+
+    await db.commit()
+    return {"status": "deleted", "conversation_id": str(conversation_id)}
 
 
 @router.get("/sellers/{seller_id}/stats")

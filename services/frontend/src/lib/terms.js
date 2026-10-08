@@ -9,11 +9,15 @@ export function useOrganization() {
         retry: 1,
     });
 }
+/** Контур телефонии отложен: интерфейс работает только для розницы, даже если
+ *  у организации в базе org_type = telephony. Бэкенд телефонии не трогаем —
+ *  чтобы вернуть контур, достаточно включить флаг. */
+export const TELEPHONY_ENABLED = false;
 /** Терминология интерфейса в зависимости от типа организации:
  *  retail — Магазин/Продавец/Разговор; telephony — Отдел/Оператор/Звонок. */
 export function useTerms() {
     const { data } = useOrganization();
-    const isTelephony = data?.org_type === 'telephony';
+    const isTelephony = TELEPHONY_ENABLED && data?.org_type === 'telephony';
     return {
         orgType: data?.org_type ?? 'retail',
         isTelephony,

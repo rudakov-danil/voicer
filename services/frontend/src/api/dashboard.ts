@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { DashboardOverview, Conversation, Seller } from '@/types'
+import type { DashboardOverview, Conversation, Seller, ConversationView, FingerprintData } from '@/types'
 
 export const dashboardApi = {
   getOverview: async (params: {
@@ -34,6 +34,10 @@ export const dashboardApi = {
     direction?: string
     source?: string
     client_phone?: string
+    group_by_phone?: boolean
+    view?: ConversationView
+    q?: string
+    with_counts?: boolean
   }) => {
     const apiParams: Record<string, any> = { ...params }
     if (params.period && !params.date_from && !params.date_to) {
@@ -44,17 +48,59 @@ export const dashboardApi = {
       apiParams.date_to = to.toISOString().split('T')[0]
     }
     delete apiParams.period
+    // Бэкенд принимает offset, а не page — конвертируем, иначе всегда возвращается 1-я страница.
+    const limit = params.limit || 20
+    apiParams.limit = limit
+    apiParams.offset = Math.max(0, ((params.page || 1) - 1) * limit)
+    delete apiParams.page
+    if (!apiParams.q) delete apiParams.q
+    if (!apiParams.view) delete apiParams.view
     const response = await apiClient.get<{
       items: Conversation[]
       total: number
-      page: number
-      limit: number
+      view_counts?: Record<'total' | ConversationView, number>
     }>('/api/v1/dashboard/conversations', { params: apiParams })
     return response.data
   },
 
+  /** «Отпечатки» разговоров для списка — одним запросом на страницу. */
+  getFingerprints: async (ids: string[]) => {
+    if (!ids.length) return {} as Record<string, FingerprintData>
+    const response = await apiClient.get<{ items: Record<string, FingerprintData> }>(
+      '/api/v1/dashboard/conversations/fingerprints',
+      { params: { ids: ids.join(',') } },
+    )
+    return response.data.items
+  },
+
   getConversationDetail: async (conversationId: string) => {
     const response = await apiClient.get(`/api/v1/dashboard/conversations/${conversationId}`)
+    return response.data
+  },
+
+  // История обращений с того же номера клиента (группировка звонков по номеру)
+  getClientHistory: async (conversationId: string) => {
+    const response = await apiClient.get<{
+      client_phone: string | null
+      items: Array<{
+        id: string
+        session_date: string
+        analyzed_at: string | null
+        overall_score: number | null
+        outcome: string | null
+        topic: string | null
+        is_scorable: boolean | null
+        call_category: string | null
+        has_upsell: boolean | null
+        has_crosssell: boolean | null
+        duration_seconds: number | null
+        call_direction: string | null
+        seller_name: string | null
+        store_name: string | null
+        is_current: boolean
+      }>
+      total: number
+    }>(`/api/v1/dashboard/conversations/${conversationId}/history`)
     return response.data
   },
 

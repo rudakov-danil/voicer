@@ -3,98 +3,31 @@ import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '@/api/dashboard';
 import { adminApi } from '@/api/admin';
 import { recorderApi } from '@/api/recorder';
-import { scriptsApi } from '@/api/scripts';
 import { ScoreBadge } from '@/components/ScoreBadge';
 import { OutcomeTag } from '@/components/OutcomeTag';
 import { Drawer } from '@/components/Drawer';
-import { AudioPlayer } from '@/components/AudioPlayer';
 import { AudioUploadModal } from '@/components/AudioUpload';
 import { TranscriptUploadModal } from '@/components/TranscriptUpload';
 import { CallUploadModal } from '@/components/CallUpload';
 import { useTerms } from '@/lib/terms';
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSearchParams, useOutletContext } from 'react-router-dom';
-import { Upload, CheckCircle, Clock, Loader, AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, X, FileText, Phone, PhoneIncoming, PhoneOutgoing } from 'lucide-react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useSearchParams, useOutletContext, useNavigate } from 'react-router-dom';
+import { OUTCOME_LABELS, TELEPHONY_OUTCOME_LABELS, CALL_CATEGORY_LABELS, DirectionIcon, useObjectionTypeLabel, } from '@/components/conversation/shared';
+import { Upload, CheckCircle, Clock, Loader, AlertCircle, X, FileText, Phone, Sparkles, ChevronRight, Search, ShieldAlert, MessageCircleWarning } from 'lucide-react';
+import { Fingerprint, clock } from '@/components/ui/Fingerprint';
+import { Meter, UpsellDots } from '@/components/ui/Meter';
+import { t, L, locale } from '@/i18n';
 import { MultiSelect } from '@/components/scripts/MultiSelect';
-import { avatarColorFor, highlightSegmentText, highlightRulesForSell, analyzeSell, } from '@/components/scripts/conversationHelpers';
-const OUTCOME_LABELS = {
-    purchase: 'Покупка',
-    deferred: 'Отложено',
-    price_refusal: 'Отказ по цене',
-    competitor: 'Ушёл к конкурентам',
-    unknown: 'Не определён',
-};
-// Исходы звонков (телефония) — добавляются к фильтру для telephony-организаций
-const TELEPHONY_OUTCOME_LABELS = {
-    purchase: 'Продажа / заявка',
-    appointment: 'Встреча назначена',
-    callback: 'Перезвон',
-    deferred: 'Думает',
-    refusal: 'Отказ',
-    transfer: 'Перевод звонка',
-    non_target: 'Нецелевой',
-    voicemail: 'Недозвон',
-    unknown: 'Не определён',
-};
-function DirectionIcon({ direction }) {
-    if (direction === 'inbound')
-        return _jsx(PhoneIncoming, { size: 13, style: { color: 'var(--success)', flexShrink: 0 }, "aria-label": "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0439" });
-    if (direction === 'outbound')
-        return _jsx(PhoneOutgoing, { size: 13, style: { color: '#6366F1', flexShrink: 0 }, "aria-label": "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0439" });
-    return null;
-}
-const OBJECTION_TYPE_LABELS = {
-    price: 'Цена',
-    quality: 'Качество',
-    competitors: 'Конкуренты',
-    timing: 'Время',
-    trust: 'Доверие',
-    not_ready: 'Не готов',
-    functionality: 'Функциональность',
-};
-/** Лейблы типов возражений: настраиваемый справочник организации поверх стандартных. */
-function useObjectionTypeLabel() {
-    const { data: types } = useQuery({
-        queryKey: ['objection-types'],
-        queryFn: () => scriptsApi.listObjectionTypes(),
-        staleTime: 5 * 60 * 1000,
-        retry: 1,
-    });
-    const map = useMemo(() => {
-        const m = { ...OBJECTION_TYPE_LABELS };
-        for (const t of (types || []))
-            m[t.code] = t.label;
-        return m;
-    }, [types]);
-    return useCallback((type) => (!type ? 'Возражение' : (map[type] || type)), [map]);
-}
-function makeSellBadge(kind) {
-    const noRulesTitle = kind === 'upsell'
-        ? 'Правила апсейла не настроены для этого скрипта — система не знает, что считать апсейлом. Добавьте правила в разделе Скрипты.'
-        : 'Правила кросс-сейла не настроены — система не знает, что считать кросс-сейлом. Добавьте правила в разделе Скрипты.';
-    return function Badge({ analysis }) {
-        if (analysis.status === 'complete' || analysis.status === 'partial')
-            return (_jsx("span", { className: "tag tag-success", title: analysis.status === 'partial' && analysis.missed.length
-                    ? `Упомянуто ${analysis.matched} из ${analysis.total}. Пропущено: ${analysis.missed.join(', ')}`
-                    : `Упомянуто ${analysis.matched} из ${Math.max(analysis.total, analysis.matched)}`, children: "\u0414\u0430" }));
-        if (analysis.status === 'missed')
-            return _jsx("span", { className: "tag tag-danger", children: "\u041D\u0435\u0442" });
-        return (_jsx("span", { className: "tag tag-neutral", title: noRulesTitle, style: { cursor: 'help' }, children: "\u041F\u0440\u0430\u0432\u0438\u043B \u043D\u0435\u0442" }));
-    };
-}
-const SellBadge = makeSellBadge('upsell');
-const CrossSellBadge = makeSellBadge('crosssell');
-function HighlightLegend() {
-    return (_jsxs("div", { className: "hl-legend", children: [_jsx("span", { className: "hl-pill hl-pill--script", children: "\u041F\u043E \u0442\u0435\u043A\u0441\u0442\u0443" }), _jsx("span", { className: "hl-pill hl-pill--paraphrased", children: "\u0421\u0432\u043E\u0438\u043C\u0438 \u0441\u043B\u043E\u0432\u0430\u043C\u0438" }), _jsx("span", { className: "hl-pill hl-pill--upsell", children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), _jsx("span", { className: "hl-pill hl-pill--crosssell", children: "\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B" }), _jsx("span", { className: "hl-pill hl-pill--objection", children: "\u0412\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u0435" })] }));
-}
+import { avatarColorFor, } from '@/components/scripts/conversationHelpers';
 // ─── Pipeline status badge ────────────────────────────────────────────────────
+// Флаги концепта, без бесконечной пульсации: статус обновляется опросом списка.
 function PipelineStatus({ status }) {
-    if (status === 'processing')
-        return (_jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 99, fontSize: 12, fontWeight: 500, background: 'rgba(245,158,11,0.12)', color: '#F59E0B' }, children: [_jsx("span", { style: { width: 7, height: 7, borderRadius: '50%', background: '#F59E0B', display: 'inline-block', animation: 'viq-pulse 1.4s ease-in-out infinite' } }), "\u0422\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u0431\u0430\u0446\u0438\u044F..."] }));
+    if (status === 'processing' || status === 'uploaded' || status === 'pending')
+        return (_jsxs("span", { className: "flag is-warn", children: [_jsx(Loader, { "aria-hidden": "true" }), "\u0422\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u0431\u0430\u0446\u0438\u044F..."] }));
     if (status === 'transcribed')
-        return (_jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 99, fontSize: 12, fontWeight: 500, background: 'rgba(99,102,241,0.12)', color: '#6366F1' }, children: [_jsx("span", { style: { width: 7, height: 7, borderRadius: '50%', background: '#6366F1', display: 'inline-block', animation: 'viq-pulse 1.4s ease-in-out 0.3s infinite' } }), "\u0410\u043D\u0430\u043B\u0438\u0437\u0438\u0440\u0443\u0435\u0442\u0441\u044F..."] }));
+        return (_jsxs("span", { className: "flag is-info", children: [_jsx(Sparkles, { "aria-hidden": "true" }), "\u0410\u043D\u0430\u043B\u0438\u0437\u0438\u0440\u0443\u0435\u0442\u0441\u044F..."] }));
     if (status === 'failed')
-        return (_jsx("span", { style: { padding: '2px 10px', borderRadius: 99, fontSize: 12, fontWeight: 500, background: 'rgba(239,68,68,0.12)', color: '#EF4444' }, children: "\u2715 \u041E\u0448\u0438\u0431\u043A\u0430" }));
+        return (_jsxs("span", { className: "flag is-crit", children: [_jsx(AlertCircle, { "aria-hidden": "true" }), "\u041E\u0448\u0438\u0431\u043A\u0430"] }));
     return null;
 }
 // ─── Detailed card for in-progress recording ─────────────────────────────────
@@ -142,351 +75,131 @@ function RecordingDetail({ recording }) {
                                             }, children: [step.label, isActive && _jsx("span", { style: { marginLeft: 6, fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }, children: "\u2014 \u0432 \u043F\u0440\u043E\u0446\u0435\u0441\u0441\u0435" }), isDone && _jsx("span", { style: { marginLeft: 6, fontSize: 12, fontWeight: 400, color: 'var(--success)' }, children: "\u2014 \u0433\u043E\u0442\u043E\u0432\u043E" }), isFail && _jsx("span", { style: { marginLeft: 6, fontSize: 12, fontWeight: 400, color: 'var(--danger)' }, children: "\u2014 \u043E\u0448\u0438\u0431\u043A\u0430" })] }) })] }, step.key));
                         }) })] }), isFailed && recording.error_message && (_jsx("div", { style: { padding: '10px 14px', background: 'rgba(239,68,68,0.08)', borderRadius: 'var(--radius)', color: 'var(--danger)', fontSize: 13 }, children: recording.error_message })), !isFailed && (_jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)', paddingTop: 4 }, children: "\u0421\u0442\u0440\u0430\u043D\u0438\u0446\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043A\u0430\u0436\u0434\u044B\u0435 5 \u0441\u0435\u043A\u0443\u043D\u0434 \u2014 \u0441\u0442\u0430\u0442\u0443\u0441 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438." }))] }));
 }
-// ─── Fulltext script coverage (блочное покрытие полнотекстового скрипта) ─────
-const BLOCK_STATUS_META = {
-    spoken: { icon: '✓', cls: 'done', label: 'произнесён по тексту' },
-    paraphrased: { icon: '~', cls: 'partial', label: 'своими словами' },
-    missed: { icon: '✕', cls: 'missed', label: 'пропущен' },
-    // Ситуация не возникла — блок закономерно не нужен, не штрафуем (нейтрально)
-    not_applicable: { icon: '–', cls: 'na', label: 'не требовался' },
-};
-function FulltextCoverage({ scriptResult, score, sColor, shortName }) {
-    const [openBlock, setOpenBlock] = useState(null);
-    const blocks = scriptResult.block_results || [];
-    // Знаменатель — блоки, которые реально требовались (без not_applicable):
-    // обязательные всегда + ситуативные, чья ситуация возникла
-    const required = blocks.filter(b => b.status !== 'not_applicable');
-    const okCount = required.filter(b => b.status === 'spoken' || b.status === 'paraphrased').length;
-    const naCount = blocks.length - required.length;
-    return (_jsxs("div", { children: [_jsxs("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 4 }, title: scriptResult.script_name || '', children: ["\u041F\u043E\u043A\u0440\u044B\u0442\u0438\u0435 \u0441\u043A\u0440\u0438\u043F\u0442\u0430", shortName ? ` («${shortName}»)` : '', " \u2014 ", score, "%"] }), _jsxs("div", { style: { fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }, children: ["\u041F\u0440\u043E\u0433\u043E\u0432\u043E\u0440\u0435\u043D\u043E ", okCount, " \u0438\u0437 ", required.length, " \u043D\u0443\u0436\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u043E\u0432", naCount > 0 && _jsxs("span", { children: [" \u00B7 ", naCount, " \u043D\u0435 \u0442\u0440\u0435\u0431\u043E\u0432\u0430\u043B\u043E\u0441\u044C"] })] }), _jsx("div", { className: "progress-bar", style: { marginBottom: 12 }, children: _jsx("div", { className: `progress-bar-fill ${sColor}`, style: { width: `${score}%` } }) }), _jsx("ul", { className: "checklist", children: blocks.map((b) => {
-                    const meta = BLOCK_STATUS_META[b.status] || BLOCK_STATUS_META.missed;
-                    const isOpen = openBlock === b.block_id;
-                    return (_jsxs("li", { className: "checklist-item", style: { flexDirection: 'column', alignItems: 'stretch', cursor: 'pointer' }, onClick: () => setOpenBlock(isOpen ? null : b.block_id), children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, width: '100%' }, children: [_jsx("div", { className: `check-icon ${meta.cls}`, children: meta.icon }), _jsxs("span", { className: `checklist-text ${meta.cls}`, style: { flex: 1 }, children: [b.title, !b.is_mandatory && (_jsx("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--text-muted)' }, children: "\u00B7 \u0441\u0438\u0442\u0443\u0430\u0442\u0438\u0432\u043D\u044B\u0439" }))] }), _jsx("span", { className: `checklist-score ${meta.cls}`, style: { whiteSpace: 'nowrap' }, children: meta.label })] }), isOpen && (_jsxs("div", { style: {
-                                    marginTop: 8, marginLeft: 30, padding: '10px 12px',
-                                    background: 'var(--bg)', borderRadius: 'var(--radius)', fontSize: 12.5, lineHeight: 1.5,
-                                }, children: [b.text && (_jsxs("div", { style: { color: 'var(--text-secondary)' }, children: [_jsx("span", { style: { fontWeight: 600, color: 'var(--text-muted)', fontSize: 11 }, children: "\u0421\u041A\u0420\u0418\u041F\u0422: " }), b.text] })), b.quote && (_jsxs("div", { style: { marginTop: 6, color: 'var(--success)' }, children: [_jsx("span", { style: { fontWeight: 600, fontSize: 11 }, children: "\u0421\u041A\u0410\u0417\u0410\u041D\u041E: " }), "\u00AB", b.quote, "\u00BB"] })), b.comment && (_jsx("div", { style: { marginTop: 6, color: 'var(--text-muted)', fontStyle: 'italic' }, children: b.comment }))] }))] }, b.block_id));
-                }) })] }));
-}
-// ─── Full conversation detail (analyzed) ─────────────────────────────────────
-function ConversationDetail({ conversationId }) {
-    const objectionTypeLabel = useObjectionTypeLabel();
+// ─── Вложенные строки группы: прежние звонки того же клиента ──────────────────
+function GroupChildRows({ conversationId, selectedConvId, onSelect }) {
     const { data, isLoading } = useQuery({
-        queryKey: ['conversation-detail', conversationId],
-        queryFn: () => dashboardApi.getConversationDetail(conversationId),
+        queryKey: ['client-history', conversationId],
+        queryFn: () => dashboardApi.getClientHistory(conversationId),
+        staleTime: 60 * 1000,
     });
-    const { data: upsellRules } = useQuery({
-        queryKey: ['upsell-rules-all'],
-        queryFn: () => scriptsApi.listUpsellRules(),
-    });
-    const { data: crossSellRules } = useQuery({
-        queryKey: ['cross-sell-rules-all'],
-        queryFn: () => scriptsApi.listCrossSellRules(),
-    });
-    const [audioTime, setAudioTime] = useState(0);
-    const [audioUrl, setAudioUrl] = useState();
-    // ─── Безопасные derived-значения для хуков ниже (работают и при !data) ──────
-    const c = data?.conversation || data || {};
-    const transcript = data?.transcript || {};
-    const segments = transcript.segments || c.segments || data?.segments || [];
-    const scriptResults = c.script_results || data?.script_results || [];
-    const objections = c.objections || data?.objections || [];
-    const storeId = c.store_id;
-    const sellerId = c.seller_id;
-    // LLM-результаты по апсейл/кросс-сейл из бэкенда: список объектов с цитатами для подсветки.
-    const upsellResults = Array.isArray(c.upsell_results) ? c.upsell_results : [];
-    const crosssellResults = Array.isArray(c.crosssell_results) ? c.crosssell_results : [];
-    // Анализ кросс-сейла предпочитает LLM-результат с бэка; для старых разговоров (где
-    // crosssell_results=NULL) фолбэк на клиентский подстрочный матч по правилам.
-    const crossSellAnalysis = useMemo(() => {
-        if (c.has_crosssell !== null && c.has_crosssell !== undefined && crosssellResults.length > 0) {
-            // Собираем агрегаты из LLM-результата.
-            let total = 0, matched = 0;
-            const missed = [];
-            for (const r of crosssellResults) {
-                const required = r.required_offers || [];
-                const offered = r.offered_items || [];
-                total += required.length;
-                matched += offered.length;
-                for (const m of (r.missed_items || []))
-                    missed.push(m);
-            }
-            let status = 'no-trigger';
-            if (crosssellResults.length > 0) {
-                if (total === 0)
-                    status = 'complete';
-                else if (matched === total)
-                    status = 'complete';
-                else if (matched === 0)
-                    status = 'missed';
-                else
-                    status = 'partial';
-            }
-            return { triggered: true, matched, total, missed, status };
-        }
-        return analyzeSell(crossSellRules, segments, storeId, sellerId);
-    }, [c.has_crosssell, crosssellResults, crossSellRules, segments, storeId, sellerId]);
-    // Анализ апсейла — симметрично кросс-сейлу: предпочитаем LLM-результат с бэка,
-    // фолбэк на клиентский матч по правилам. Раньше для апсейла фолбэка не было,
-    // поэтому при has_upsell=null показывалось "Правил нет", даже когда триггеры
-    // и офферы реально были в транскрипте.
-    const upsellAnalysis = useMemo(() => {
-        if (c.has_upsell !== null && c.has_upsell !== undefined && upsellResults.length > 0) {
-            let total = 0, matched = 0;
-            const missed = [];
-            for (const r of upsellResults) {
-                const required = r.required_offers || [];
-                const offered = r.offered_items || [];
-                total += required.length;
-                matched += offered.length;
-                for (const m of (r.missed_items || []))
-                    missed.push(m);
-            }
-            let status = 'no-trigger';
-            if (upsellResults.length > 0) {
-                if (total === 0)
-                    status = 'complete';
-                else if (matched === total)
-                    status = 'complete';
-                else if (matched === 0)
-                    status = 'missed';
-                else
-                    status = 'partial';
-            }
-            return { triggered: true, matched, total, missed, status };
-        }
-        return analyzeSell(upsellRules, segments, storeId, sellerId);
-    }, [c.has_upsell, upsellResults, upsellRules, segments, storeId, sellerId]);
-    const highlightRules = useMemo(() => {
-        const rules = [];
-        for (const sr of scriptResults) {
-            // Полнотекстовый скрипт: подсвечиваем цитаты оператора, подтверждающие блоки.
-            // spoken → зелёный (по тексту), paraphrased → жёлтый (своими словами).
-            for (const b of (sr.block_results || [])) {
-                const quote = (b.quote || '').trim();
-                if (quote.length < 3 || b.status === 'missed' || b.status === 'not_applicable')
-                    continue;
-                rules.push({
-                    text: quote,
-                    kind: b.status === 'spoken' ? 'script-done' : 'script-partial',
-                    tooltip: `Блок «${b.title}» — ${b.status === 'spoken' ? 'произнесён по тексту' : 'своими словами'}`,
-                });
-            }
-            for (const step of (sr.step_scores || sr.steps || [])) {
-                const evidence = (step.evidence || '').trim();
-                if (!evidence)
-                    continue;
-                const rawScore = Number(step.score ?? 0);
-                const isDetected = step.detected !== false && (rawScore > 0 || step.detected);
-                // Зелёным подсвечиваем только этапы, реально выполненные (≥70%).
-                // Частично выполненные не подсвечиваем — иначе вводит в заблуждение.
-                if (!isDetected || rawScore < 70)
-                    continue;
-                rules.push({
-                    text: evidence,
-                    kind: 'script-done',
-                    tooltip: `Этап «${step.step_name || step.name}» — выполнен (${Math.round(rawScore)}%)`,
-                });
-            }
-        }
-        for (const obj of objections) {
-            const raw = (obj?.raw_text || '').trim();
-            if (raw.length < 3)
-                continue;
-            rules.push({
-                text: raw,
-                kind: obj.is_resolved ? 'objection-resolved' : 'objection-unresolved',
-                tooltip: `Возражение${obj.type ? `: ${obj.type}` : ''} — ${obj.is_resolved ? 'закрыто' : 'не закрыто'}`,
-            });
-        }
-        // Цитаты из LLM-результатов апсейла/кросс-сейла — LLM уже сам устойчив к опечаткам
-        // транскрибации и возвращает ДОСЛОВНЫЕ цитаты из текста. Подсвечиваем их.
-        const pushSellQuotes = (results, kind) => {
-            const triggerKind = kind === 'upsell' ? 'upsell-trigger' : 'crosssell-trigger';
-            const offerKind = kind === 'upsell' ? 'upsell-offer' : 'crosssell-offer';
-            const label = kind === 'upsell' ? 'Апсейл' : 'Кросс-сейл';
-            for (const r of results) {
-                const product = r.trigger_product || '';
-                for (const q of (r.trigger_quotes || [])) {
-                    if (typeof q === 'string' && q.trim().length >= 3) {
-                        rules.push({ text: q, kind: triggerKind, tooltip: `${label}: триггер «${product}»` });
-                    }
-                }
-                const offerQuotes = r.offer_quotes || {};
-                for (const offer in offerQuotes) {
-                    for (const q of (offerQuotes[offer] || [])) {
-                        if (typeof q === 'string' && q.trim().length >= 3) {
-                            rules.push({ text: q, kind: offerKind, tooltip: `${label}: предложение «${offer}»` });
-                        }
-                    }
-                }
-            }
-        };
-        if (upsellResults.length > 0) {
-            pushSellQuotes(upsellResults, 'upsell');
-        }
-        else {
-            // Фолбэк для старых разговоров без LLM-цитат — берём правила и ищем подстроку.
-            rules.push(...highlightRulesForSell(upsellRules, storeId, 'upsell', sellerId));
-        }
-        if (crosssellResults.length > 0) {
-            pushSellQuotes(crosssellResults, 'crosssell');
-        }
-        else {
-            rules.push(...highlightRulesForSell(crossSellRules, storeId, 'crosssell', sellerId));
-        }
-        return rules;
-    }, [scriptResults, objections, upsellResults, crosssellResults, upsellRules, crossSellRules, storeId]);
-    const recordingId = data?.conversation?.recording_id || data?.recording_id;
-    useEffect(() => {
-        if (!recordingId)
-            return;
-        let revokedUrl;
-        let cancelled = false;
-        recorderApi.getAudioBlobUrl(recordingId)
-            .then(url => {
-            if (cancelled) {
-                URL.revokeObjectURL(url);
-                return;
-            }
-            revokedUrl = url;
-            setAudioUrl(url);
-        })
-            .catch(() => { });
-        return () => {
-            cancelled = true;
-            if (revokedUrl)
-                URL.revokeObjectURL(revokedUrl);
-        };
-    }, [recordingId]);
+    // Показываем в группе все звонки клиента, КРОМЕ текущего представителя (он — родительская строка)
+    const children = (data?.items || []).filter((it) => !it.is_current);
     if (isLoading)
-        return _jsx("div", { style: { padding: '20px', color: 'var(--text-muted)' }, children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." });
-    if (!data)
+        return (_jsx("tr", { children: _jsx("td", { colSpan: 9, style: { padding: '8px 16px 8px 52px', color: 'var(--text-muted)', fontSize: 12, background: 'var(--bg)' }, children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u0441\u0442\u043E\u0440\u0438\u0438\u2026" }) }));
+    if (!children.length)
         return null;
-    const sellerName = c.seller_name || c.seller_id || '?';
-    const storeName = c.store_name || c.store_id || '';
-    const mins = Math.floor((c.duration_seconds || 0) / 60);
-    const secs = (c.duration_seconds || 0) % 60;
-    const dateSource = c.analyzed_at || c.recorded_at || c.session_date || '';
-    const dateStr = dateSource ? new Date(dateSource).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
-    const timeStr = dateSource ? new Date(dateSource).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
-    const overallScore = Math.round(c.overall_score || 0);
-    const sellerColorKey = c.seller_id || sellerName;
-    return (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 16 }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'var(--bg)', borderRadius: 'var(--radius)' }, children: [_jsx("div", { className: "avatar", style: { background: avatarColorFor(sellerColorKey), width: 44, height: 44, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 16 }, children: sellerName[0].toUpperCase() }), _jsxs("div", { style: { flex: 1 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', fontSize: 15 }, children: sellerName }), _jsx("div", { style: { fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }, children: storeName })] }), _jsxs("div", { style: { textAlign: 'right' }, children: [_jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)' }, children: dateStr }), _jsxs("div", { style: { fontSize: 12, color: 'var(--text-muted)' }, children: [timeStr, " \u00B7 ", mins, ":", String(secs).padStart(2, '0')] })] })] }), _jsxs("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' }, children: [_jsx(OutcomeTag, { outcome: c.outcome }), c.call_direction && (_jsxs("span", { className: "tag tag-neutral", style: { display: 'inline-flex', alignItems: 'center', gap: 5 }, children: [_jsx(DirectionIcon, { direction: c.call_direction }), c.call_direction === 'inbound' ? 'Входящий' : 'Исходящий'] })), c.client_phone && (_jsxs("span", { className: "tag tag-neutral", style: { display: 'inline-flex', alignItems: 'center', gap: 5 }, children: [_jsx(Phone, { size: 12 }), " ", c.client_phone] })), c.topic && _jsx("span", { className: "tag tag-neutral", children: c.topic }), c.compliance_ok !== undefined && (_jsxs("span", { className: `tag ${c.compliance_ok ? 'tag-success' : 'tag-danger'}`, children: ["\u041A\u043E\u043C\u043F\u043B\u0430\u0435\u043D\u0441: ", c.compliance_ok ? 'OK' : 'Нарушение'] }))] }), c.talk_ratio !== null && c.talk_ratio !== undefined && (_jsx("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }, children: [
-                    {
-                        label: 'Речь сотрудника',
-                        value: `${Math.round(c.talk_ratio * 100)}%`,
-                        hint: 'Доля времени речи сотрудника. Ориентир для продаж — 40–60%',
-                        warn: c.talk_ratio > 0.75 || c.talk_ratio < 0.25,
-                    },
-                    {
-                        label: 'Перебивания',
-                        value: String(c.interruptions_count ?? '—'),
-                        hint: 'Сколько раз стороны перебивали друг друга',
-                        warn: (c.interruptions_count ?? 0) >= 5,
-                    },
-                    {
-                        label: 'Макс. монолог',
-                        value: c.longest_monologue_seconds != null ? `${c.longest_monologue_seconds}с` : '—',
-                        hint: 'Самый длинный непрерывный монолог сотрудника',
-                        warn: (c.longest_monologue_seconds ?? 0) >= 90,
-                    },
-                    {
-                        label: 'Тишина',
-                        value: c.silence_ratio != null ? `${Math.round(c.silence_ratio * 100)}%` : '—',
-                        hint: 'Доля пауз без речи от длительности разговора',
-                        warn: (c.silence_ratio ?? 0) >= 0.3,
-                    },
-                ].map((m) => (_jsxs("div", { title: m.hint, style: {
-                        padding: '10px 12px', background: 'var(--bg)', borderRadius: 'var(--radius)',
-                        textAlign: 'center', cursor: 'help',
-                    }, children: [_jsx("div", { style: { fontSize: 16, fontWeight: 700, color: m.warn ? 'var(--danger)' : 'var(--text)' }, children: m.value }), _jsx("div", { style: { fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }, children: m.label })] }, m.label))) })), scriptResults.map((sr, i) => {
-                const score = Math.round(sr.script_score || sr.total_score || 0);
-                const sColor = score >= 80 ? 'green' : score >= 60 ? 'yellow' : 'red';
-                const shortName = (sr.script_short_name || '').trim();
-                // Полнотекстовый скрипт: вместо этапов показываем покрытие по блокам
-                if (sr.script_type === 'fulltext' && Array.isArray(sr.block_results) && sr.block_results.length > 0) {
-                    return (_jsx(FulltextCoverage, { scriptResult: sr, score: score, sColor: sColor, shortName: shortName }, i));
-                }
-                return (_jsxs("div", { children: [_jsxs("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, title: sr.script_name || '', children: ["\u0421\u043A\u043E\u0440\u0438\u043D\u0433 \u0441\u043A\u0440\u0438\u043F\u0442\u0430", shortName ? ` («${shortName}»)` : '', " \u2014 ", score, "%"] }), _jsx("div", { className: "progress-bar", style: { marginBottom: 12 }, children: _jsx("div", { className: `progress-bar-fill ${sColor}`, style: { width: `${score}%` } }) }), _jsx("ul", { className: "checklist", children: (sr.step_scores || sr.steps || []).map((step, j) => {
-                                const rawScore = Number(step.score ?? 0);
-                                const stepScore = Math.round(rawScore);
-                                const isDetected = step.detected !== false && (rawScore > 0 || step.detected);
-                                // ≥70 — выполнен, 40-69 — частично, <40 / не detected — провален
-                                const status = !isDetected || rawScore < 40 ? 'missed'
-                                    : rawScore < 70 ? 'partial'
-                                        : 'done';
-                                const icon = status === 'done' ? '✓' : status === 'partial' ? '~' : '✕';
-                                return (_jsxs("li", { className: "checklist-item", children: [_jsx("div", { className: `check-icon ${status}`, children: icon }), _jsx("span", { className: `checklist-text ${status}`, children: step.step_name || step.name }), _jsxs("span", { className: `checklist-score ${status}`, children: [stepScore, "%"] })] }, j));
-                            }) })] }, i));
-            }), objections.length > 0 && (() => {
-                const seen = new Set();
-                const uniqueTypes = [];
-                for (const o of objections) {
-                    const t = (o.type || '').toString();
-                    if (t && !seen.has(t)) {
-                        seen.add(t);
-                        uniqueTypes.push(t);
-                    }
-                }
-                if (!uniqueTypes.length)
-                    return null;
-                return (_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, children: "\u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043D\u044B\u0435 \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }), _jsx("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap' }, children: uniqueTypes.map((t) => (_jsx("span", { className: "tag tag-danger", children: objectionTypeLabel(t) }, t))) })] }));
-            })(), _jsxs("div", { className: "sell-summary", children: [_jsxs("div", { className: "sell-summary-item", children: [_jsx("div", { className: "sell-summary-label", children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), _jsx(SellBadge, { analysis: upsellAnalysis })] }), _jsxs("div", { className: "sell-summary-item", children: [_jsx("div", { className: "sell-summary-label", children: "\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B" }), _jsx(CrossSellBadge, { analysis: crossSellAnalysis })] })] }), _jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)', marginBottom: 8 }, children: "\u0410\u0443\u0434\u0438\u043E\u0437\u0430\u043F\u0438\u0441\u044C" }), _jsx(AudioPlayer, { src: audioUrl, duration: c.duration_seconds, onTimeUpdate: setAudioTime })] }), segments.length > 0 && (_jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }, children: [_jsx("div", { style: { fontWeight: 600, color: 'var(--text)' }, children: "\u0422\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u043F\u0442" }), _jsx(HighlightLegend, {})] }), _jsx("div", { className: "transcript", children: segments.map((seg, i) => {
-                            const role = (seg.speaker_role || '').toLowerCase();
-                            const isSeller = role === 'seller';
-                            const isClient = role === 'client' || role === 'customer';
-                            const startSec = seg.start_time || (seg.start_ms ?? 0) / 1000;
-                            const m = Math.floor(startSec / 60);
-                            const s = Math.floor(startSec % 60);
-                            const timeStr = `${m}:${String(s).padStart(2, '0')}`;
-                            const isCall = !!c.call_direction || (c.source || '').startsWith('call');
-                            const speakerLabel = isSeller ? (isCall ? 'Оператор' : 'Продавец') : isClient ? 'Клиент' : '—';
-                            const speakerClass = isSeller ? 'seller' : isClient ? 'client' : 'unknown';
-                            // Апсейл/кросс-сейл — действия продавца, поэтому их подсветку (триггер и
-                            // предложение) показываем только в репликах продавца. У клиента триггер-продукт
-                            // может прозвучать (он сам упомянул товар), но это не работа менеджера —
-                            // согласуется с analyzeSell, который тоже считает только речь продавца.
-                            // Возражения и шаги скрипта не трогаем — они валидны для обеих сторон.
-                            const segRules = isSeller
-                                ? highlightRules
-                                : highlightRules.filter((r) => !r.kind.startsWith('upsell-') && !r.kind.startsWith('crosssell-'));
-                            return (_jsxs("div", { className: "transcript-line", children: [_jsx("span", { className: "transcript-time", children: timeStr }), _jsx("span", { className: `transcript-speaker ${speakerClass}`, children: speakerLabel }), _jsx("span", { className: "transcript-text", children: highlightSegmentText(seg.text, segRules) })] }, i));
-                        }) })] })), _jsxs("div", { style: { display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }, children: [_jsx("button", { className: "btn btn-outline btn-sm", children: "\u0412 \u043E\u0431\u0443\u0447\u0435\u043D\u0438\u0435" }), _jsx("button", { className: "btn btn-outline btn-sm", children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442" }), _jsx("button", { className: "btn btn-outline btn-sm", style: { color: 'var(--danger)' }, children: "\u041E\u0442\u043C\u0435\u0442\u0438\u0442\u044C \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0435" })] })] }));
+    return (_jsx(_Fragment, { children: children.map((it) => {
+            const d = it.session_date ? new Date(it.session_date) : null;
+            const dateStr = d ? d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : '—';
+            const mins = Math.floor((it.duration_seconds || 0) / 60);
+            const secs = (it.duration_seconds || 0) % 60;
+            const durStr = it.duration_seconds ? `${mins}:${String(secs).padStart(2, '0')}` : '—';
+            return (_jsxs("tr", { onClick: () => onSelect(it.id), style: { cursor: 'pointer', background: selectedConvId === it.id ? 'var(--bg-active)' : 'var(--bg)' }, children: [_jsx("td", { style: { paddingLeft: 52 }, children: _jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)' }, children: [_jsx(DirectionIcon, { direction: it.call_direction }), dateStr] }) }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: it.seller_name || '—' }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: it.store_name || '—' }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: durStr }), _jsx("td", { style: { color: 'var(--text-secondary)' }, children: it.topic || '—' }), _jsx("td", { style: { textAlign: 'center' }, children: it.is_scorable === false
+                            ? _jsx("span", { className: "tag tag-neutral", title: `Категория: ${CALL_CATEGORY_LABELS[it.call_category || ''] || it.call_category || 'нецелевой'}. Не влияет на рейтинг.`, children: "\u041D\u0435 \u043E\u0446\u0435\u043D\u0438\u0432\u0430\u0435\u0442\u0441\u044F" })
+                            : it.overall_score != null ? _jsx(ScoreBadge, { score: it.overall_score }) : '—' }), _jsx("td", { style: { textAlign: 'center' }, children: it.is_scorable === false ? _jsx("span", { style: { color: 'var(--text-muted)' }, children: "\u2014" })
+                            : it.has_upsell === true ? _jsx("span", { className: "tag tag-success", children: "\u0414\u0430" })
+                                : it.has_upsell === false ? _jsx("span", { className: "tag tag-danger", children: "\u041D\u0435\u0442" })
+                                    : _jsx("span", { style: { color: 'var(--text-muted)' }, children: "\u2014" }) }), _jsx("td", { style: { textAlign: 'center' }, children: it.is_scorable === false ? _jsx("span", { style: { color: 'var(--text-muted)' }, children: "\u2014" })
+                            : it.has_crosssell === true ? _jsx("span", { className: "tag tag-success", children: "\u0414\u0430" })
+                                : it.has_crosssell === false ? _jsx("span", { className: "tag tag-danger", children: "\u041D\u0435\u0442" })
+                                    : _jsx("span", { style: { color: 'var(--text-muted)' }, children: "\u2014" }) }), _jsx("td", { style: { textAlign: 'center' }, children: _jsx(OutcomeTag, { outcome: it.outcome || 'unknown' }) })] }, it.id));
+        }) }));
+}
+// Номера страниц с многоточиями: 1 … 4 5 6 … 50
+function buildPageList(current, totalPages) {
+    if (totalPages <= 7)
+        return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const pages = [1];
+    if (current > 3)
+        pages.push('…');
+    const start = Math.max(2, current - 1);
+    const end = Math.min(totalPages - 1, current + 1);
+    for (let i = start; i <= end; i++)
+        pages.push(i);
+    if (current < totalPages - 2)
+        pages.push('…');
+    pages.push(totalPages);
+    return pages;
+}
+// Подборки над таблицей: ключ API → подпись и «тревожность» счётчика
+const VIEWS = [
+    { id: '', label: 'Все' },
+    { id: 'attention', label: 'Требуют внимания', alert: true },
+    { id: 'violations', label: 'Нарушения', alert: true },
+    { id: 'price_open', label: '«Дорого» без ответа' },
+    { id: 'competitor', label: 'Ушли к конкурентам' },
+    { id: 'no_upsell', label: 'Без допродажи' },
+];
+function initialsOf(name) {
+    return (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+}
+/** Подсветка найденной фразы в реплике. */
+function HitText({ text, q }) {
+    const i = text.toLowerCase().indexOf(q.toLowerCase());
+    if (!q || i < 0)
+        return _jsx(_Fragment, { children: text });
+    return _jsxs(_Fragment, { children: [text.slice(0, i), _jsx("mark", { children: text.slice(i, i + q.length) }), text.slice(i + q.length)] });
 }
 export function ConversationsPage() {
     const { period } = useOutletContext();
     const terms = useTerms();
+    const objectionLabel = useObjectionTypeLabel();
     const [searchParams, setSearchParams] = useSearchParams();
     const [page, setPage] = useState(1);
-    const [selectedConvId, setSelectedConvId] = useState(() => searchParams.get('conv'));
+    const [pageSize, setPageSize] = useState(20);
+    const navigate = useNavigate();
+    const openConversation = useCallback((id) => navigate(`/conversations/${id}`), [navigate]);
     const [selectedRec, setSelectedRec] = useState(null);
+    // Подборка и фраза живут в адресе: на них ссылаются «Обзор» и оповещения
+    const view = (searchParams.get('view') || '');
+    const q = searchParams.get('q') || '';
+    const [qInput, setQInput] = useState(q);
+    const setParam = useCallback((key, value) => {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            if (value)
+                next.set(key, value);
+            else
+                next.delete(key);
+            return next;
+        }, { replace: true });
+        setPage(1);
+    }, [setSearchParams]);
+    // Поиск по фразе — с небольшой задержкой после ввода
+    useEffect(() => {
+        const id = setTimeout(() => { if (qInput.trim() !== q)
+            setParam('q', qInput.trim()); }, 400);
+        return () => clearTimeout(id);
+    }, [qInput, q, setParam]);
+    // Старые ссылки вида /conversations?conv=<id> (оповещения, обзор) ведут на страницу разговора
     useEffect(() => {
         const conv = searchParams.get('conv');
-        if (conv && conv !== selectedConvId)
-            setSelectedConvId(conv);
-        if (!conv && selectedConvId)
-            setSelectedConvId(null);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchParams]);
+        if (conv)
+            navigate(`/conversations/${conv}`, { replace: true });
+    }, [searchParams, navigate]);
     const [showUpload, setShowUpload] = useState(false);
     const [showTranscriptUpload, setShowTranscriptUpload] = useState(false);
     const [showCallUpload, setShowCallUpload] = useState(false);
-    const [lastUpdated, setLastUpdated] = useState(null);
     const [sort, setSort] = useState({ by: 'date', dir: 'desc' });
+    // Группировка звонков по клиенту (только для телефонии; контур сейчас отключён)
+    const groupByPhone = terms.isTelephony;
+    const [expandedGroups, setExpandedGroups] = useState(new Set());
+    const toggleGroup = useCallback((id) => {
+        setExpandedGroups(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+    }, []);
     const [filters, setFilters] = useState({
         store_id: '', seller_id: '', outcome: '', direction: '', source: '',
         score_min: undefined,
         score_max: undefined,
     });
-    const toggleSort = useCallback((by) => {
-        setSort(prev => prev.by === by
-            ? { by, dir: prev.dir === 'desc' ? 'asc' : 'desc' }
-            : { by, dir: by === 'date' || by === 'duration' ? 'desc' : 'asc' });
-    }, []);
-    const { data: conversations, dataUpdatedAt: convAt } = useQuery({
-        queryKey: ['conversations', page, filters, period],
+    const { data: conversations, isLoading } = useQuery({
+        queryKey: ['conversations', page, pageSize, filters, period, groupByPhone, view, q],
         queryFn: () => dashboardApi.getConversations({
-            page, limit: 20,
+            page, limit: pageSize,
             store_id: filters.store_id || undefined,
             seller_id: filters.seller_id || undefined,
             outcome: filters.outcome || undefined,
@@ -494,11 +207,16 @@ export function ConversationsPage() {
             source: filters.source || undefined,
             score_min: filters.score_min,
             score_max: filters.score_max,
+            group_by_phone: groupByPhone,
+            view: view || undefined,
+            q: q || undefined,
+            with_counts: true,
             period,
         }),
         refetchInterval: 5000,
+        placeholderData: (prev) => prev,
     });
-    const { data: recordingsData, dataUpdatedAt: recAt } = useQuery({
+    const { data: recordingsData } = useQuery({
         queryKey: ['recordings-status'],
         queryFn: () => recorderApi.getRecordings({ limit: 50 }),
         refetchInterval: 5000,
@@ -507,12 +225,31 @@ export function ConversationsPage() {
         queryKey: ['admin-stores'],
         queryFn: () => adminApi.getStores(),
     });
-    useEffect(() => {
-        if (convAt || recAt)
-            setLastUpdated(new Date());
-    }, [convAt, recAt]);
+    // «Отпечатки» строк текущей страницы — одним запросом; данные разговора не меняются
+    const convIds = (conversations?.items || []).map((c) => c.id);
+    const { data: fingerprints } = useQuery({
+        queryKey: ['fingerprints', convIds.join(',')],
+        queryFn: () => dashboardApi.getFingerprints(convIds),
+        enabled: convIds.length > 0,
+        staleTime: 5 * 60 * 1000,
+        placeholderData: (prev) => prev,
+    });
     const analyzedIds = new Set((conversations?.items || []).map((c) => c.recording_id).filter(Boolean));
-    const pendingRows = (recordingsData?.items || []).filter((r) => !analyzedIds.has(r.id));
+    // «Ожидающие» — записи, ещё не ставшие разговором. Проанализированные (status='analyzed')
+    // исключаем: раньше такая запись, чей разговор не попал в текущую страницу/период,
+    // ошибочно показывалась как «Анализируется…». Статус 'failed' оставляем — это реальная ошибка.
+    // Показываем только на 1-й странице «Всех» без поиска, чтобы не мешали подборкам.
+    const pendingRows = page === 1 && !view && !q
+        ? (recordingsData?.items || []).filter((r) => !analyzedIds.has(r.id) && r.status !== 'analyzed')
+        : [];
+    const totalItems = conversations?.total || 0;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    // Если после удаления страниц стало меньше — не зависаем на пустой странице
+    useEffect(() => {
+        if (page > totalPages)
+            setPage(totalPages);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [totalPages]);
     const allRows = [
         ...pendingRows.map((r) => ({
             _type: 'pending',
@@ -524,7 +261,7 @@ export function ConversationsPage() {
         })),
         ...(conversations?.items || []).map((c) => ({
             _type: 'analyzed',
-            _date: new Date(c.analyzed_at || c.recorded_at || c.session_date || 0).getTime(),
+            _date: new Date(c.recorded_at || c.analyzed_at || c.session_date || 0).getTime(),
             _name: (c.seller_name || '').toLowerCase(),
             _duration: c.duration_seconds || 0,
             _store: (c.store_name || '').toLowerCase(),
@@ -554,9 +291,6 @@ export function ConversationsPage() {
             setFilters(p => ({ ...p, score_min: undefined, score_max: undefined }));
         setPage(1);
     };
-    const lastUpdatedStr = lastUpdated
-        ? lastUpdated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-        : null;
     // ─── Filter metadata ───────────────────────────────────────────────────────
     const scoreValue = filters.score_min === 80 ? '80+' :
         filters.score_min === 60 && filters.score_max === 79 ? '60-79' :
@@ -568,8 +302,8 @@ export function ConversationsPage() {
         name_desc: 'Имя Я→А',
         duration_desc: 'Длинные сначала',
         duration_asc: 'Короткие сначала',
-        store_asc: 'Магазин А→Я',
-        store_desc: 'Магазин Я→А',
+        store_asc: `${terms.store} А→Я`,
+        store_desc: `${terms.store} Я→А`,
     };
     const sortKey = `${sort.by}_${sort.dir}`;
     const sortActive = sortKey !== 'date_desc';
@@ -579,60 +313,44 @@ export function ConversationsPage() {
         setSort({ by: 'date', dir: 'desc' });
         setPage(1);
     };
-    const drawerTitle = selectedConvId
-        ? `Разговор #${selectedConvId.slice(0, 8)}`
-        : selectedRec
-            ? `Запись #${String(selectedRec.id).slice(0, 8)}`
-            : '';
-    return (_jsxs("div", { children: [_jsx("style", { children: `
-        @keyframes viq-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.8)} }
-        @keyframes viq-spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-      ` }), _jsxs("div", { className: "filter-toolbar fade-in", children: [_jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: (stores?.items || []).map((s) => ({ id: s.id, label: s.name })), selected: filters.store_id ? [filters.store_id] : [''], onChange: (ids) => { setFilters(p => ({ ...p, store_id: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: terms.allStores }, placeholder: terms.allStores }) }), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: Object.entries(terms.isTelephony ? TELEPHONY_OUTCOME_LABELS : OUTCOME_LABELS).map(([k, l]) => ({ id: k, label: l })), selected: filters.outcome ? [filters.outcome] : [''], onChange: (ids) => { setFilters(p => ({ ...p, outcome: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: 'Все исходы' }, placeholder: "\u0412\u0441\u0435 \u0438\u0441\u0445\u043E\u0434\u044B" }) }), terms.isTelephony && (_jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: [
+    const drawerTitle = selectedRec ? `Запись #${String(selectedRec.id).slice(0, 8)}` : '';
+    const counts = conversations?.view_counts;
+    const markTitle = (m) => {
+        if (m.k === 'warn' || m.k === 'warn-ok') {
+            const what = t(objectionLabel(m.label));
+            return m.k === 'warn' ? L(`возражение «${what}» не отработано`, `objection “${what}” unanswered`) : L(`возражение «${what}» отработано`, `objection “${what}” handled`);
+        }
+        if (m.k === 'ok')
+            return t('предложение допродажи');
+        return m.label ? t(m.label) : t('нарушение');
+    };
+    const fmtTime = (d) => d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+    const fmtDate = (d) => d.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+    return (_jsxs("div", { children: [_jsx("div", { className: "views-bar", children: _jsx("div", { className: "tabs", role: "tablist", "aria-label": t('Подборки разговоров'), children: VIEWS.map((v) => {
+                        const n = counts ? (v.id ? counts[v.id] : counts.total) : undefined;
+                        return (_jsxs("button", { type: "button", role: "tab", "aria-selected": view === v.id, className: `tab ${view === v.id ? 'active' : ''}`, onClick: () => setParam('view', v.id), children: [t(v.label), n != null && _jsx("span", { className: `count ${v.alert && n > 0 ? 'is-alert' : ''}`, children: n.toLocaleString(locale) })] }, v.id || 'all'));
+                    }) }) }), _jsxs("div", { className: "conv-filters", children: [_jsxs("label", { className: "input", children: [_jsx(Search, { size: 15, "aria-hidden": "true" }), _jsx("input", { type: "search", value: qInput, onChange: (e) => setQInput(e.target.value), placeholder: t('Фраза из разговора, например «заменим на новый»'), "aria-label": t('Поиск по фразам из разговоров') }), qInput && (_jsx("button", { type: "button", className: "btn-icon", style: { width: 22, height: 22 }, onClick: () => setQInput(''), "aria-label": t('Очистить'), children: _jsx(X, { size: 13 }) }))] }), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: (stores?.items || []).map((s) => ({ id: s.id, label: s.name })), selected: filters.store_id ? [filters.store_id] : [''], onChange: (ids) => { setFilters(p => ({ ...p, store_id: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: terms.allStores }, placeholder: terms.allStores }) }), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: Object.entries(terms.isTelephony ? TELEPHONY_OUTCOME_LABELS : OUTCOME_LABELS).map(([k, l]) => ({ id: k, label: l })), selected: filters.outcome ? [filters.outcome] : [''], onChange: (ids) => { setFilters(p => ({ ...p, outcome: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: 'Все исходы' }, placeholder: "\u0412\u0441\u0435 \u0438\u0441\u0445\u043E\u0434\u044B" }) }), terms.isTelephony && (_jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: [
                                 { id: 'inbound', label: 'Входящие' },
                                 { id: 'outbound', label: 'Исходящие' },
-                            ], selected: filters.direction ? [filters.direction] : [''], onChange: (ids) => { setFilters(p => ({ ...p, direction: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: 'Все направления' }, placeholder: "\u0412\u0441\u0435 \u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u044F" }) })), terms.isTelephony && (_jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: [
-                                { id: 'calls', label: 'Звонки (все)' },
-                                { id: 'call_webhook', label: 'Звонки из АТС' },
-                                { id: 'call_manual', label: 'Звонки (вручную)' },
-                                { id: 'manual', label: 'Загруженное аудио' },
-                                { id: 'transcript', label: 'Транскрипты' },
-                            ], selected: filters.source ? [filters.source] : [''], onChange: (ids) => { setFilters(p => ({ ...p, source: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: 'Все источники' }, placeholder: "\u0412\u0441\u0435 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0438" }) })), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: [
+                            ], selected: filters.direction ? [filters.direction] : [''], onChange: (ids) => { setFilters(p => ({ ...p, direction: ids[0] === '' ? '' : ids[0] })); setPage(1); }, prependOption: { id: '', label: 'Все направления' }, placeholder: "\u0412\u0441\u0435 \u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u044F" }) })), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: [
                                 { id: '80+', label: 'Скоринг 80%+' },
                                 { id: '60-79', label: 'Скоринг 60–79%' },
                                 { id: '<60', label: 'Скоринг < 60%' },
                             ], selected: scoreValue ? [scoreValue] : [''], onChange: (ids) => handleScoreFilter(ids[0] === '' ? '' : ids[0]), prependOption: { id: '', label: 'Любой скоринг' }, placeholder: "\u041B\u044E\u0431\u043E\u0439 \u0441\u043A\u043E\u0440\u0438\u043D\u0433" }) }), _jsx("div", { className: "filter-cell", children: _jsx(MultiSelect, { single: true, options: Object.entries(sortLabels).map(([k, l]) => ({ id: k, label: l })), selected: [sortKey], onChange: (ids) => {
                                 const [by, dir] = (ids[0] || 'date_desc').split('_');
                                 setSort({ by, dir });
-                            }, placeholder: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430" }) }), hasActiveFilters && (_jsxs("button", { className: "filter-clear", onClick: resetAll, title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B", children: [_jsx(X, { size: 12 }), " \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C"] })), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { className: "filter-meta", children: [_jsx("span", { className: "filter-meta-strong", children: (conversations?.total || 0) + pendingRows.length }), _jsx("span", { children: "\u0437\u0430\u043F\u0438\u0441\u0435\u0439" }), lastUpdatedStr && (_jsxs(_Fragment, { children: [_jsx("span", { className: "filter-meta-divider" }), _jsx("span", { className: "live-dot" }), _jsxs("span", { children: ["\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E ", lastUpdatedStr] })] }))] }), _jsxs("button", { className: "btn btn-sm", onClick: () => setShowTranscriptUpload(true), title: "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0433\u043E\u0442\u043E\u0432\u044B\u0439 \u0440\u0430\u0437\u043C\u0435\u0447\u0435\u043D\u043D\u044B\u0439 \u0434\u0438\u0430\u043B\u043E\u0433 \u2014 \u0434\u043B\u044F \u0442\u0435\u0441\u0442\u043E\u0432 \u0441\u043A\u043E\u0440\u0438\u043D\u0433\u0430 \u0438 \u0430\u043F\u0441\u0435\u0439\u043B\u0430 \u0431\u0435\u0437 \u0430\u0443\u0434\u0438\u043E", style: { background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }, children: [_jsx(FileText, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0442\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u0431\u0430\u0446\u0438\u0438"] }), _jsxs("button", { className: "btn btn-sm btn-primary-gradient", onClick: () => setShowUpload(true), children: [_jsx(Upload, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0430\u0443\u0434\u0438\u043E"] }), terms.isTelephony && (_jsxs("button", { className: "btn btn-sm btn-primary-gradient", onClick: () => setShowCallUpload(true), title: "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u044C \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u043D\u043E\u0433\u043E \u0437\u0432\u043E\u043D\u043A\u0430 \u0441 \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u043C\u0438 (\u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435, \u043D\u043E\u043C\u0435\u0440 \u043A\u043B\u0438\u0435\u043D\u0442\u0430)", children: [_jsx(Phone, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0437\u0432\u043E\u043D\u043E\u043A"] }))] }), _jsx(AudioUploadModal, { open: showUpload, onClose: () => setShowUpload(false), onUploadComplete: () => { } }), _jsx(TranscriptUploadModal, { open: showTranscriptUpload, onClose: () => setShowTranscriptUpload(false), onUploadComplete: () => { } }), _jsx(CallUploadModal, { open: showCallUpload, onClose: () => setShowCallUpload(false), onUploadComplete: () => { } }), _jsxs("div", { className: "card fade-in", children: [_jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [['date', 'name', 'store', 'duration'].map(col => {
-                                                const labels = { date: 'Дата и время', name: terms.seller, store: terms.store, duration: 'Длительность' };
-                                                const active = sort.by === col;
-                                                const Icon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
-                                                return (_jsx("th", { onClick: () => toggleSort(col), style: { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }, children: _jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [labels[col], _jsx(Icon, { size: 12, style: { opacity: active ? 1 : 0.3, color: active ? 'var(--primary)' : 'inherit' } })] }) }, col));
-                                            }), _jsx("th", { children: "\u0422\u0435\u043C\u0430" }), _jsx("th", { style: { textAlign: 'center' }, children: "\u0421\u043A\u043E\u0440\u0438\u043D\u0433" }), _jsx("th", { style: { textAlign: 'center' }, children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), _jsx("th", { style: { textAlign: 'center' }, children: "\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B" }), _jsx("th", { style: { textAlign: 'center' }, children: "\u0418\u0441\u0445\u043E\u0434 / \u0421\u0442\u0430\u0442\u0443\u0441" })] }) }), _jsx("tbody", { children: sortedRows.map((row, idx) => {
+                            }, placeholder: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430" }) }), hasActiveFilters && (_jsxs("button", { className: "filter-clear", onClick: resetAll, title: t('Сбросить все фильтры'), children: [_jsx(X, { size: 12 }), " \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C"] })), _jsxs("div", { className: "conv-actions", children: [_jsxs("button", { className: "btn btn-ghost", onClick: () => setShowTranscriptUpload(true), title: t('Загрузить готовый размеченный диалог — для тестов скоринга и апсейла без аудио'), children: [_jsx(FileText, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0442\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u0431\u0430\u0446\u0438\u0438"] }), _jsxs("button", { className: "btn btn-primary", onClick: () => setShowUpload(true), children: [_jsx(Upload, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0430\u0443\u0434\u0438\u043E"] }), terms.isTelephony && (_jsxs("button", { className: "btn btn-primary", onClick: () => setShowCallUpload(true), title: t('Загрузить запись телефонного звонка с метаданными (направление, номер клиента)'), children: [_jsx(Phone, { size: 14 }), " \u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0437\u0432\u043E\u043D\u043E\u043A"] }))] })] }), q && (_jsxs("div", { className: "search-note", role: "status", children: [_jsx(Search, { size: 16, "aria-hidden": "true" }), _jsxs("span", { children: [L('Фраза', 'Phrase'), " ", _jsxs("b", { translate: "no", children: ["\u00AB", q, "\u00BB"] }), " \u2014 ", L(`нашлась в ${totalItems} разговорах`, `found in ${totalItems} conversations`)] }), _jsx("button", { className: "btn btn-sm", onClick: () => setQInput(''), children: t('Сбросить') })] })), _jsx(AudioUploadModal, { open: showUpload, onClose: () => setShowUpload(false), onUploadComplete: () => { } }), _jsx(TranscriptUploadModal, { open: showTranscriptUpload, onClose: () => setShowTranscriptUpload(false), onUploadComplete: () => { } }), _jsx(CallUploadModal, { open: showCallUpload, onClose: () => setShowCallUpload(false), onUploadComplete: () => { } }), _jsxs("div", { className: "card", style: { padding: 0 }, children: [!isLoading && sortedRows.length === 0 ? (_jsxs("div", { className: "empty", children: [_jsx("h3", { children: q || view ? t('Ничего не нашлось') : t('Разговоров пока нет') }), _jsx("p", { children: q || view ? t('Попробуйте другую фразу, подборку или период.') : t('Записи появятся после выгрузки бейджей или загрузки аудио.') }), (q || view) && (_jsx("button", { className: "btn btn-sm", onClick: () => { setQInput(''); setParam('view', ''); }, children: t('Показать все разговоры') }))] })) : (_jsx("div", { className: "table-wrapper", children: _jsxs("table", { className: "conv-table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { className: "c-when", children: t('Когда') }), _jsx("th", { className: "c-seller", children: terms.seller }), _jsx("th", { className: "c-topic", children: t('Тема и события') }), _jsx("th", { className: "c-fp", children: t('Разговор') }), _jsx("th", { className: "c-score", children: t('Балл') }), _jsx("th", { className: "c-up", children: t('Допродажа') }), _jsx("th", { className: "c-out", children: t('Исход') }), _jsx("th", { className: "c-go", children: _jsx("span", { className: "sr-only", children: t('Открыть') }) })] }) }), _jsx("tbody", { children: sortedRows.map((row) => {
                                         const dateObj = row._date ? new Date(row._date) : null;
-                                        const dateStr = dateObj ? dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : '—';
-                                        const timeStr = dateObj ? dateObj.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
-                                        const mins = Math.floor(row._duration / 60);
-                                        const secs = row._duration % 60;
-                                        const durStr = row._duration ? `${mins}:${String(secs).padStart(2, '0')}` : '—';
+                                        const durStr = row._duration ? clock(row._duration) : '—';
                                         if (row._type === 'pending') {
                                             const sellerName = row.seller_name || '—';
-                                            return (_jsxs("tr", { onClick: () => { setSelectedRec(row); setSelectedConvId(null); }, style: { cursor: 'pointer', background: 'var(--bg)', opacity: .92,
-                                                    outline: selectedRec?.id === row.id ? '1px solid var(--primary)' : undefined }, children: [_jsxs("td", { children: [dateStr, " ", _jsx("span", { style: { color: 'var(--text-muted)' }, children: timeStr })] }), _jsx("td", { children: _jsxs("div", { className: "seller-cell", children: [_jsx("div", { className: "avatar", style: { background: '#94A3B8' }, children: sellerName[0]?.toUpperCase() || '?' }), _jsx("div", { className: "name", children: sellerName })] }) }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: row.store_name || '—' }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: durStr }), _jsx("td", { children: "\u2014" }), _jsx("td", { style: { textAlign: 'center' }, children: "\u2014" }), _jsx("td", { style: { textAlign: 'center' }, children: "\u2014" }), _jsx("td", { style: { textAlign: 'center' }, children: "\u2014" }), _jsx("td", { style: { textAlign: 'center' }, children: _jsx(PipelineStatus, { status: row.status }) })] }, row.id));
+                                            return (_jsxs("tr", { onClick: () => setSelectedRec(row), className: selectedRec?.id === row.id ? 'is-selected' : undefined, children: [_jsx("td", { className: "c-when", children: dateObj ? _jsxs(_Fragment, { children: [_jsx("b", { children: fmtTime(dateObj) }), _jsx("span", { children: fmtDate(dateObj) })] }) : '—' }), _jsx("td", { className: "c-seller", children: _jsxs("span", { className: "person", children: [_jsx("span", { className: "avatar", "aria-hidden": "true", translate: "no", children: initialsOf(row.seller_name) }), _jsxs("span", { className: "ellipsis", children: [_jsx("span", { className: "person-name ellipsis", translate: "no", children: sellerName }), row.store_name && _jsx("span", { className: "person-sub ellipsis", translate: "no", children: row.store_name })] })] }) }), _jsx("td", { className: "c-topic", children: _jsx("div", { className: "topic-title is-empty", children: t('Разговор обрабатывается') }) }), _jsx("td", { className: "c-fp", children: _jsxs("div", { className: "fp-row", children: [_jsx(Fingerprint, { data: null }), _jsx("span", { className: "fp-dur", children: durStr })] }) }), _jsx("td", { className: "c-score", children: _jsx("span", { className: "muted", children: "\u2014" }) }), _jsx("td", { className: "c-up", children: _jsx("span", { className: "muted", children: "\u2014" }) }), _jsx("td", { className: "c-out", children: _jsx(PipelineStatus, { status: row.status }) }), _jsx("td", { className: "c-go", children: _jsx(ChevronRight, { size: 16 }) })] }, row.id));
                                         }
-                                        const color = avatarColorFor(row.seller_id || row.seller_name);
-                                        return (_jsxs("tr", { onClick: () => { setSelectedConvId(row.id); setSelectedRec(null); }, style: { cursor: 'pointer', background: selectedConvId === row.id ? 'var(--bg-active)' : undefined }, children: [_jsx("td", { children: _jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 6 }, title: row.client_phone ? `${row.call_direction === 'inbound' ? 'Входящий' : 'Исходящий'} · ${row.client_phone}` : undefined, children: [row.call_direction && _jsx(DirectionIcon, { direction: row.call_direction }), dateStr, " ", _jsx("span", { style: { color: 'var(--text-muted)' }, children: timeStr })] }) }), _jsx("td", { children: _jsxs("div", { className: "seller-cell", children: [_jsx("div", { className: "avatar", style: { background: color }, children: (row.seller_name || '?')[0].toUpperCase() }), _jsx("div", { className: "name", children: row.seller_name || row.seller_id })] }) }), _jsx("td", { style: { color: 'var(--text-muted)' }, children: row.store_name || row.store_id }), _jsx("td", { children: durStr }), _jsx("td", { style: { color: 'var(--text-secondary)' }, children: row.topic || '—' }), _jsx("td", { style: { textAlign: 'center' }, children: _jsx(ScoreBadge, { score: row.overall_score }) }), _jsx("td", { style: { textAlign: 'center' }, children: row.has_upsell === true
-                                                        ? _jsx("span", { className: "tag tag-success", children: "\u0414\u0430" })
-                                                        : _jsx("span", { className: "tag tag-danger", children: "\u041D\u0435\u0442" }) }), _jsx("td", { style: { textAlign: 'center' }, children: row.has_crosssell === true
-                                                        ? _jsx("span", { className: "tag tag-success", children: "\u0414\u0430" })
-                                                        : _jsx("span", { className: "tag tag-danger", children: "\u041D\u0435\u0442" }) }), _jsx("td", { style: { textAlign: 'center' }, children: _jsx(OutcomeTag, { outcome: row.outcome }) })] }, row.id));
-                                    }) })] }) }), _jsxs("div", { style: { padding: '16px', textAlign: 'center', borderTop: '1px solid var(--border)' }, children: [_jsx("button", { className: "btn btn-outline btn-sm", onClick: () => setPage(Math.max(1, page - 1)), disabled: page === 1, children: "\u2190 \u041D\u0430\u0437\u0430\u0434" }), _jsxs("span", { style: { margin: '0 16px', color: 'var(--text-muted)', fontSize: 13 }, children: ["\u0421\u0442\u0440\u0430\u043D\u0438\u0446\u0430 ", page] }), _jsx("button", { className: "btn btn-outline btn-sm", onClick: () => setPage(page + 1), disabled: !conversations || conversations.items.length < 20, children: "\u0412\u043F\u0435\u0440\u0451\u0434 \u2192" })] })] }), _jsxs(Drawer, { isOpen: !!(selectedConvId || selectedRec), onClose: () => {
-                    setSelectedConvId(null);
-                    setSelectedRec(null);
-                    if (searchParams.get('conv')) {
-                        const next = new URLSearchParams(searchParams);
-                        next.delete('conv');
-                        setSearchParams(next, { replace: true });
-                    }
-                }, title: drawerTitle, children: [selectedConvId && _jsx(ConversationDetail, { conversationId: selectedConvId }), selectedRec && !selectedConvId && _jsx(RecordingDetail, { recording: selectedRec })] })] }));
+                                        const groupCount = row.group_count || 1;
+                                        const isExpanded = expandedGroups.has(row.id);
+                                        const notScored = row.is_scorable === false;
+                                        return (_jsxs(Fragment, { children: [_jsxs("tr", { onClick: () => openConversation(row.id), children: [_jsx("td", { className: "c-when", children: _jsxs("span", { style: { display: 'inline-flex', alignItems: 'flex-start', gap: 6 }, title: row.client_phone ? `${row.call_direction === 'inbound' ? 'Входящий' : 'Исходящий'} · ${row.client_phone}` : undefined, children: [groupCount > 1 && (_jsxs("button", { onClick: (e) => { e.stopPropagation(); toggleGroup(row.id); }, title: `${groupCount} звонков от этого клиента`, style: { display: 'inline-flex', alignItems: 'center', gap: 1, color: 'var(--accent)', flexShrink: 0 }, children: [_jsx(ChevronRight, { size: 14, style: { transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s' } }), _jsx("span", { style: { fontSize: 11, fontWeight: 700 }, children: groupCount })] })), terms.isTelephony && row.call_direction && _jsx(DirectionIcon, { direction: row.call_direction }), _jsx("span", { children: dateObj ? _jsxs(_Fragment, { children: [_jsx("b", { children: fmtTime(dateObj) }), _jsx("span", { children: fmtDate(dateObj) })] }) : '—' })] }) }), _jsx("td", { className: "c-seller", children: _jsxs("span", { className: "person", children: [_jsx("span", { className: "avatar", "aria-hidden": "true", translate: "no", children: initialsOf(row.seller_name) }), _jsxs("span", { className: "ellipsis", children: [_jsx("span", { className: "person-name ellipsis", translate: "no", children: row.seller_name || '—' }), row.store_name && _jsx("span", { className: "person-sub ellipsis", translate: "no", children: row.store_name })] })] }) }), _jsxs("td", { className: "c-topic", children: [_jsx("div", { className: `topic-title ${row.topic ? '' : 'is-empty'}`, translate: row.topic ? 'no' : undefined, children: row.topic || t('Без темы') }), (row.top_violation || row.open_objection || notScored) && (_jsxs("div", { className: "topic-flags", children: [row.top_violation && (_jsxs("span", { className: `flag ${row.top_violation_severity === 'high' ? 'is-crit' : 'is-warn'}`, children: [_jsx(ShieldAlert, { "aria-hidden": "true" }), row.top_violation] })), row.open_objection && (_jsxs("span", { className: "flag is-warn", children: [_jsx(MessageCircleWarning, { "aria-hidden": "true" }), L(`«${objectionLabel(row.open_objection)}» без ответа`, `“${t(objectionLabel(row.open_objection))}” unanswered`)] })), notScored && (_jsx("span", { className: "flag is-plain", title: `Категория: ${CALL_CATEGORY_LABELS[row.call_category] || row.call_category || 'нецелевой'}. Не влияет на рейтинг.`, children: "\u041D\u0435 \u043E\u0446\u0435\u043D\u0438\u0432\u0430\u0435\u0442\u0441\u044F" }))] })), row.hit && (_jsxs("div", { className: "hit", children: [_jsx("span", { className: "mono", children: clock(row.hit.t) }), _jsxs("span", { translate: "no", children: ["\u00AB", _jsx(HitText, { text: row.hit.text, q: q }), "\u00BB"] })] }))] }), _jsx("td", { className: "c-fp", children: _jsxs("div", { className: "fp-row", children: [_jsx(Fingerprint, { data: fingerprints?.[row.id], markTitle: markTitle }), _jsx("span", { className: "fp-dur", children: durStr })] }) }), _jsx("td", { className: "c-score", children: notScored ? _jsx("span", { className: "muted", children: "\u2014" }) : _jsx(Meter, { score: row.overall_score }) }), _jsx("td", { className: "c-up", children: notScored ? _jsx("span", { className: "muted", children: "\u2014" }) : _jsx(UpsellDots, { value: row.upsell }) }), _jsx("td", { className: "c-out", children: _jsx(OutcomeTag, { outcome: row.outcome }) }), _jsx("td", { className: "c-go", children: _jsx(ChevronRight, { size: 16 }) })] }), isExpanded && groupCount > 1 && (_jsx(GroupChildRows, { conversationId: row.id, selectedConvId: null, onSelect: openConversation }))] }, row.id));
+                                    }) })] }) })), _jsxs("div", { className: "table-foot", children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 8 }, children: [_jsx("span", { children: t('Показывать:') }), _jsx("select", { value: pageSize, onChange: (e) => { setPageSize(Number(e.target.value)); setPage(1); }, className: "select-pill", style: { height: 30 }, children: [20, 50, 100].map(n => _jsx("option", { value: n, children: n }, n)) }), _jsx("span", { children: L(`· всего ${totalItems}`, `· ${totalItems} total`) })] }), _jsxs("nav", { className: "pager", "aria-label": t('Страницы'), children: [_jsx("button", { onClick: () => setPage(Math.max(1, page - 1)), disabled: page === 1, "aria-label": t('Назад'), children: "\u2190" }), buildPageList(page, totalPages).map((p, i) => (p === '…'
+                                        ? _jsx("span", { style: { padding: '0 4px' }, children: "\u2026" }, `e${i}`)
+                                        : _jsx("button", { "aria-current": p === page ? 'page' : undefined, onClick: () => setPage(p), children: p }, p))), _jsx("button", { onClick: () => setPage(Math.min(totalPages, page + 1)), disabled: page >= totalPages, "aria-label": t('Вперёд'), children: "\u2192" })] })] })] }), _jsx(Drawer, { isOpen: !!selectedRec, onClose: () => setSelectedRec(null), title: drawerTitle, children: selectedRec && _jsx(RecordingDetail, { recording: selectedRec }) })] }));
 }

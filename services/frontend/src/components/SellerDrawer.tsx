@@ -42,6 +42,8 @@ interface SellerDetail {
     topic?: string | null
     overall_score: number | null
     outcome?: string | null
+    is_scorable?: boolean
+    call_category?: string | null
     duration_seconds?: number | null
   }>
   recommendations: Array<{ severity: 'info' | 'warning'; text: string }>
@@ -241,7 +243,9 @@ export function SellerDrawer({ sellerId, onClose, period }: SellerDrawerProps) {
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                      <ScoreBadge score={conv.overall_score || 0} />
+                      {conv.is_scorable === false
+                        ? <span className="tag tag-neutral" title="Нецелевой/сервисный звонок — не влияет на рейтинг">Не оценивается</span>
+                        : <ScoreBadge score={conv.overall_score || 0} />}
                       {conv.outcome && <OutcomeTag outcome={conv.outcome as any} />}
                       <ExternalLink size={13} style={{ color: 'var(--text-muted)' }} />
                     </div>

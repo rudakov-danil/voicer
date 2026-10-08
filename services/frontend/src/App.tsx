@@ -5,6 +5,7 @@ import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { LoginPage } from '@/pages/LoginPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ConversationsPage } from '@/pages/ConversationsPage'
+import { ConversationPage } from '@/pages/ConversationPage'
 import { TeamPage } from '@/pages/TeamPage'
 import { ScriptsPage } from '@/pages/ScriptsPage'
 import { AnalyticsPage } from '@/pages/AnalyticsPage'
@@ -32,6 +33,7 @@ export default function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="conversations" element={<ConversationsPage />} />
+              <Route path="conversations/:id" element={<ConversationPage />} />
               <Route path="team" element={<TeamPage />} />
               <Route path="scripts" element={<ScriptsPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />

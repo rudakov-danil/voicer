@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/auth'
 import { VoicerLogo } from '@/components/VoicerLogo'
+import { t, isEn, setLang } from '@/i18n'
 
 const loginSchema = z.object({
   email: z.string().email('Некорректный email'),
@@ -45,23 +46,22 @@ export function LoginPage() {
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      background: 'var(--bg)'
-    }}>
-      <div className="card" style={{ width: '360px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-            <VoicerLogo size={40} />
-          </div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text)' }}>Voicer</h1>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Речевая аналитика для розницы
-          </p>
+    <div className="login-page">
+      <button
+        type="button"
+        className="lang-btn login-lang"
+        translate="no"
+        aria-label={isEn ? 'Переключить на русский' : 'Switch to English'}
+        onClick={() => setLang(isEn ? 'ru' : 'en')}
+      >
+        {isEn ? 'RU' : 'EN'}
+      </button>
+      <div className="login-card">
+        <div className="login-brand">
+          <VoicerLogo size={28} />
+          <span className="brand-name" translate="no">{t('Войсер')}</span>
         </div>
+        <p className="login-sub">Речевая аналитика для розницы</p>
 
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="form-group">
@@ -70,12 +70,11 @@ export function LoginPage() {
               type="email"
               className="form-input"
               placeholder="name@example.com"
+              autoComplete="username"
               {...register('email')}
             />
             {errors.email && (
-              <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>
-                {errors.email.message}
-              </p>
+              <p className="login-error-text">{errors.email.message}</p>
             )}
           </div>
 
@@ -85,49 +84,25 @@ export function LoginPage() {
               type="password"
               className="form-input"
               placeholder="••••••••"
+              autoComplete="current-password"
               {...register('password')}
             />
             {errors.password && (
-              <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>
-                {errors.password.message}
-              </p>
+              <p className="login-error-text">{errors.password.message}</p>
             )}
           </div>
 
-          {generalError && (
-            <div
-              style={{
-                fontSize: '13px',
-                color: 'var(--danger)',
-                background: 'var(--danger-light)',
-                border: '1px solid var(--danger-100)',
-                borderRadius: '6px',
-                padding: '10px 12px',
-                marginBottom: '16px'
-              }}
-            >
-              {generalError}
-            </div>
-          )}
+          {generalError && <div className="login-error">{generalError}</div>}
 
           <button
             type="submit"
             className="btn btn-primary"
-            style={{ width: '100%' }}
+            style={{ width: '100%', height: 38 }}
             disabled={loading}
           >
             {loading ? 'Вход...' : 'Войти'}
           </button>
         </form>
-
-        <p style={{
-          fontSize: '12px',
-          color: 'var(--text-muted)',
-          textAlign: 'center',
-          marginTop: '16px'
-        }}>
-          Тестовые учетные данные: admin@voicer.ru / password123
-        </p>
       </div>
     </div>
   )

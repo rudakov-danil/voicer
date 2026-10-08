@@ -1,19 +1,18 @@
-import { jsx as _jsx } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { outcomeLabel } from '@/lib/outcomes';
+/** Исход разговора: форма значка + подпись (не только цвет), как в концепте. */
+const OUTCOME_GLYPH = {
+    purchase: 'is-win',
+    deferred: 'is-pending',
+    price_refusal: 'is-lost',
+    competitor: 'is-gone',
+    // Исходы телефонии
+    appointment: 'is-win',
+    resolved: 'is-win',
+    callback: 'is-pending',
+    refusal: 'is-lost',
+};
 export function OutcomeTag({ outcome }) {
-    const outcomesMap = {
-        purchase: { label: 'Покупка', class: 'tag-success' },
-        deferred: { label: 'Отложено', class: 'tag-warning' },
-        price_refusal: { label: 'Отказ по цене', class: 'tag-danger' },
-        competitor: { label: 'Ушёл к конкурентам', class: 'tag-purple' },
-        // Исходы телефонии
-        appointment: { label: 'Встреча назначена', class: 'tag-success' },
-        callback: { label: 'Перезвон', class: 'tag-warning' },
-        refusal: { label: 'Отказ', class: 'tag-danger' },
-        transfer: { label: 'Перевод звонка', class: 'tag-neutral' },
-        non_target: { label: 'Нецелевой', class: 'tag-neutral' },
-        voicemail: { label: 'Недозвон', class: 'tag-neutral' },
-        unknown: { label: 'Не определён', class: 'tag-neutral' }
-    };
-    const config = outcomesMap[outcome] || outcomesMap.unknown;
-    return _jsx("span", { className: `tag ${config.class}`, children: config.label });
+    const glyph = OUTCOME_GLYPH[outcome] || 'is-neutral';
+    return (_jsxs("span", { className: `outcome ${glyph}`, children: [_jsx("span", { className: "outcome-glyph", "aria-hidden": "true" }), outcomeLabel(outcome)] }));
 }

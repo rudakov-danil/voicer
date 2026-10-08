@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '@/api/admin'
+import { useTerms } from '@/lib/terms'
 import { Store, Building2, Smartphone, Users, Plus, X, Check, Pencil, Power } from 'lucide-react'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -9,16 +10,20 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function AdminPage() {
   const [activeTab, setActiveTab] = useState('stores')
+  const terms = useTerms()
+
+  // «Устройства» (бейджи) — только для розницы; в телефонии их скрываем.
+  const tabs = [
+    { key: 'stores', label: terms.storePlural, icon: Store },
+    { key: 'sellers', label: terms.sellerPlural, icon: Building2 },
+    ...(terms.isTelephony ? [] : [{ key: 'devices', label: 'Устройства', icon: Smartphone }]),
+    { key: 'users', label: 'Пользователи', icon: Users },
+  ]
 
   return (
     <div>
       <div className="tabs fade-in">
-        {[
-          { key: 'stores', label: 'Магазины', icon: Store },
-          { key: 'sellers', label: 'Продавцы', icon: Building2 },
-          { key: 'devices', label: 'Устройства', icon: Smartphone },
-          { key: 'users', label: 'Пользователи', icon: Users },
-        ].map((tab) => (
+        {tabs.map((tab) => (
           <button key={tab.key} className={`tab ${activeTab === tab.key ? 'active' : ''}`}
             onClick={() => setActiveTab(tab.key)}>
             <tab.icon size={14} style={{ marginRight: 6 }} />
@@ -29,7 +34,7 @@ export function AdminPage() {
 
       {activeTab === 'stores' && <StoresTab />}
       {activeTab === 'sellers' && <SellersTab />}
-      {activeTab === 'devices' && <DevicesTab />}
+      {activeTab === 'devices' && !terms.isTelephony && <DevicesTab />}
       {activeTab === 'users' && <UsersTab />}
     </div>
   )
@@ -104,6 +109,7 @@ function ActionButtons({ isActive, onEdit, onToggle }: { isActive: boolean; onEd
 // ─── Stores Tab ─────────────────────────────────────────────
 function StoresTab() {
   const qc = useQueryClient()
+  const terms = useTerms()
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', address: '' })
@@ -136,8 +142,8 @@ function StoresTab() {
     <div className="card fade-in" style={{ marginTop: 16 }}>
       <div className="card-header">
         <div>
-          <div className="card-title">Магазины</div>
-          <div className="card-subtitle">{stores.length} магазинов</div>
+          <div className="card-title">{terms.storePlural}</div>
+          <div className="card-subtitle">{stores.length} · {terms.storePlural.toLowerCase()}</div>
         </div>
         <button className="btn btn-primary btn-sm" onClick={startCreate}>
           <Plus size={14} /> Добавить
@@ -203,6 +209,7 @@ function StoresTab() {
 // ─── Sellers Tab ────────────────────────────────────────────
 function SellersTab() {
   const qc = useQueryClient()
+  const terms = useTerms()
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState({ store_id: '', first_name: '', last_name: '' })
@@ -237,8 +244,8 @@ function SellersTab() {
     <div className="card fade-in" style={{ marginTop: 16 }}>
       <div className="card-header">
         <div>
-          <div className="card-title">Продавцы</div>
-          <div className="card-subtitle">{sellers.length} продавцов</div>
+          <div className="card-title">{terms.sellerPlural}</div>
+          <div className="card-subtitle">{sellers.length} · {terms.sellerPlural.toLowerCase()}</div>
         </div>
         <button className="btn btn-primary btn-sm" onClick={startCreate}>
           <Plus size={14} /> Добавить
@@ -247,9 +254,9 @@ function SellersTab() {
 
       {showForm && (
         <FormRow onSubmit={() => createMut.mutate()} onCancel={() => setShowForm(false)} disabled={!form.store_id || !form.first_name || createMut.isPending}>
-          <Field label="Магазин">
+          <Field label={terms.store}>
             <select className="form-input" value={form.store_id} onChange={(e) => setForm({ ...form, store_id: e.target.value })}>
-              <option value="">Выберите магазин</option>
+              <option value="">Выберите {terms.store.toLowerCase()}</option>
               {stores.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </Field>
@@ -268,7 +275,7 @@ function SellersTab() {
         <div className="table-wrapper">
           <table>
             <thead>
-              <tr><th>Имя</th><th>Фамилия</th><th>Магазин</th><th>Статус</th><th style={{ width: 80 }}></th></tr>
+              <tr><th>Имя</th><th>Фамилия</th><th>{terms.store}</th><th>Статус</th><th style={{ width: 80 }}></th></tr>
             </thead>
             <tbody>
               {sellers.map((s: any) => (
@@ -276,7 +283,7 @@ function SellersTab() {
                   <tr key={s.id} style={{ background: 'var(--bg)' }}>
                     <td colSpan={5} style={{ padding: 0 }}>
                       <FormRow onSubmit={() => updateMut.mutate({ id: s.id, data: form })} onCancel={() => setEditId(null)} disabled={!form.first_name || updateMut.isPending}>
-                        <Field label="Магазин">
+                        <Field label={terms.store}>
                           <select className="form-input" value={form.store_id} onChange={(e) => setForm({ ...form, store_id: e.target.value })}>
                             {stores.map((st: any) => <option key={st.id} value={st.id}>{st.name}</option>)}
                           </select>
@@ -454,6 +461,7 @@ function DevicesTab() {
 // ─── Users Tab ──────────────────────────────────────────────
 function UsersTab() {
   const qc = useQueryClient()
+  const terms = useTerms()
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState({ email: '', password: '', role: 'manager', first_name: '', last_name: '', store_id: '' })
@@ -526,9 +534,9 @@ function UsersTab() {
             </select>
           </Field>
           {(form.role === 'manager' || form.role === 'rop') && (
-            <Field label="Магазин" flex="0 1 160px">
+            <Field label={terms.store} flex="0 1 160px">
               <select className="form-input" value={form.store_id} onChange={(e) => setForm({ ...form, store_id: e.target.value })}>
-                <option value="">Все магазины</option>
+                <option value="">{terms.allStores}</option>
                 {stores.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </Field>
@@ -542,7 +550,7 @@ function UsersTab() {
         <div className="table-wrapper">
           <table>
             <thead>
-              <tr><th>Имя</th><th>Email</th><th>Роль</th><th>Магазин</th><th>Статус</th><th style={{ width: 80 }}></th></tr>
+              <tr><th>Имя</th><th>Email</th><th>Роль</th><th>{terms.store}</th><th>Статус</th><th style={{ width: 80 }}></th></tr>
             </thead>
             <tbody>
               {users.map((u: any) => {
@@ -569,9 +577,9 @@ function UsersTab() {
                               <option value="director">Директор</option>
                             </select>
                           </Field>
-                          <Field label="Магазин" flex="0 1 160px">
+                          <Field label={terms.store} flex="0 1 160px">
                             <select className="form-input" value={form.store_id} onChange={(e) => setForm({ ...form, store_id: e.target.value })}>
-                              <option value="">Все магазины</option>
+                              <option value="">{terms.allStores}</option>
                               {stores.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
                             </select>
                           </Field>

@@ -1,3 +1,5 @@
+import { useTerms } from '@/lib/terms'
+import { outcomeColor, outcomeLabel } from '@/lib/outcomes'
 import { useOutletContext, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
@@ -13,26 +15,11 @@ interface OutletContext {
   period: number
 }
 
-const OUTCOME_COLORS: Record<string, string> = {
-  purchase: '#16A34A',
-  deferred: '#D97706',
-  price_refusal: '#DC2626',
-  competitor: '#7C3AED',
-  unknown: '#94A3B8',
-}
-
-const OUTCOME_LABELS: Record<string, string> = {
-  purchase: 'Покупка',
-  deferred: 'Отложено',
-  price_refusal: 'Отказ по цене',
-  competitor: 'Ушёл к конкурентам',
-  unknown: 'Не определён',
-}
-
 const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1']
 
 export function DashboardPage() {
   const { period } = useOutletContext<OutletContext>()
+  const terms = useTerms()
   const navigate = useNavigate()
 
   const { data: overview, isLoading } = useQuery({
@@ -46,8 +33,8 @@ export function DashboardPage() {
   })
 
   const { data: sellers } = useQuery({
-    queryKey: ['sellers-for-dashboard'],
-    queryFn: () => dashboardApi.getSellers(),
+    queryKey: ['sellers-for-dashboard', period],
+    queryFn: () => dashboardApi.getSellers({ period }),
   })
 
   const { data: notifications } = useQuery({
@@ -82,9 +69,9 @@ export function DashboardPage() {
 
   // Outcomes donut
   const outcomesDonutData = (overview?.outcomes || []).map((o) => ({
-    name: OUTCOME_LABELS[o.outcome] || o.outcome,
+    name: outcomeLabel(o.outcome),
     value: o.count,
-    color: OUTCOME_COLORS[o.outcome] || '#94A3B8',
+    color: outcomeColor(o.outcome),
   }))
 
   // Сводка по уведомлениям (нарушения комплаенса + низкий скор)
@@ -99,17 +86,14 @@ export function DashboardPage() {
         <div className="metric-card">
           <div className="metric-label">Разговоров за период</div>
           <div className="metric-value">{(overview?.total_conversations || 0).toLocaleString('ru-RU')}</div>
-          <div className="metric-change up">↑ 12%</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Средний скоринг скрипта</div>
           <div className="metric-value">{Math.round(overview?.avg_score || 0)}%</div>
-          <div className="metric-change up">↑ 3%</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Конверсия в покупку</div>
           <div className="metric-value">{Math.round((overview?.conversion_rate || 0) * 100)}%</div>
-          <div className="metric-change up">↑ 5%</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Требуют внимания</div>
@@ -137,7 +121,7 @@ export function DashboardPage() {
           <div className="card-header">
             <div>
               <div className="card-title">Скоринг скриптов</div>
-              <div className="card-subtitle">Средний балл по магазинам</div>
+              <div className="card-subtitle">Средний балл {terms.isTelephony ? 'по отделам' : 'по магазинам'}</div>
             </div>
           </div>
           <BarChartWidget data={storesChartData} />
@@ -232,11 +216,11 @@ export function DashboardPage() {
               <tr>
                 <th>Дата и время</th>
                 <th>Продавец</th>
-                <th>Магазин</th>
+                <th>{terms.store}</th>
                 <th>Длительность</th>
                 <th>Тема</th>
-                <th>Скоринг</th>
-                <th>Исход</th>
+                <th style={{ textAlign: 'center' }}>Скоринг</th>
+                <th style={{ textAlign: 'center' }}>Исход</th>
               </tr>
             </thead>
             <tbody>
@@ -271,8 +255,12 @@ export function DashboardPage() {
                     <td style={{ color: 'var(--text-muted)' }}>{(c as any).store_name || c.store_id}</td>
                     <td>{mins}:{String(secs).padStart(2, '0')}</td>
                     <td style={{ color: 'var(--text-secondary)' }}>{c.topic || '—'}</td>
-                    <td><ScoreBadge score={c.overall_score} /></td>
-                    <td><OutcomeTag outcome={c.outcome} /></td>
+                    <td style={{ textAlign: 'center' }}>
+                      {(c as any).is_scorable === false
+                        ? <span className="tag tag-neutral" title="Нецелевой/сервисный звонок — не влияет на рейтинг">Не оценивается</span>
+                        : <ScoreBadge score={c.overall_score} />}
+                    </td>
+                    <td style={{ textAlign: 'center' }}><OutcomeTag outcome={c.outcome} /></td>
                   </tr>
                 )
               })}

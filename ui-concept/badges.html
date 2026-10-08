@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Бейджи · Войсер</title>
+<meta name="description" content="Концепт раздела «Бейджи»: смена сегодня, покрытие записью за неделю, проблемы с выгрузкой.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  /* ---------- Смена сегодня (консоль) ---------- */
+  .shift { padding: 22px 24px 18px; margin-bottom: 16px; }
+  .shift-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .shift-title { margin-top: 6px; font-size: 20px; line-height: 1.3; }
+  .shift-title em { font-style: normal; color: var(--console-ink-2); }
+  .shift-lead { margin-top: 4px; max-width: 70ch; color: var(--console-ink-2); line-height: 1.5; }
+  .counters { display: flex; gap: 8px; flex-wrap: wrap; }
+  .counter { min-width: 96px; padding: 10px 12px; border-radius: 14px; background: var(--console-2); border: 1px solid var(--console-line); }
+  .counter .display { display: block; font-size: 24px; line-height: 1.1; }
+  .counter span.lbl { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--console-ink-2); }
+  .counter .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .counter.is-warn .display { color: var(--warn-ink); }
+  .counter.is-crit .display { color: var(--console-signal); }
+
+  .gantt { margin-top: 20px; display: grid; grid-template-columns: 170px minmax(0, 1fr); row-gap: 5px; position: relative; }
+  .g-name { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--console-ink); min-width: 0; }
+  .g-name .avatar { width: 22px; height: 22px; font-size: 9px; background: var(--console-2); color: var(--console-ink-2); box-shadow: inset 0 0 0 1px var(--console-line); }
+  .g-name small { color: var(--console-ink-2); font-size: 11px; }
+  .g-lane { position: relative; height: 22px; border-radius: 6px; background: var(--console-2); }
+  .g-rec {
+    position: absolute; top: 4px; bottom: 4px; border-radius: 4px;
+    background: repeating-linear-gradient(90deg, var(--console-seller) 0 2px, transparent 2px 4px);
+    opacity: .9;
+  }
+  .g-rec.is-low { background: repeating-linear-gradient(90deg, var(--warn) 0 2px, transparent 2px 4px); }
+  .g-rest { position: absolute; top: 10px; height: 2px; border-radius: 1px; background: var(--console-line); }
+  .g-rest.is-low { background: repeating-linear-gradient(90deg, var(--warn) 0 3px, transparent 3px 6px); height: 2px; }
+  .g-tag { position: absolute; top: 3px; z-index: 1; display: inline-flex; align-items: center; gap: 5px; height: 16px; padding: 0 7px; border-radius: 5px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .g-tag .i { width: 12px; height: 12px; }
+  .g-tag.is-crit { background: var(--crit-soft); color: var(--crit-ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--crit) 35%, transparent); }
+  .g-tag.is-warn { background: var(--warn-soft); color: var(--warn-ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent); }
+  .g-tag.is-plain { background: var(--console-3); color: var(--console-ink-2); }
+  .g-axis { grid-column: 2; position: relative; height: 18px; margin-top: 4px; }
+  .g-axis span { position: absolute; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10.5px; color: var(--console-ink-2); }
+  .g-now, .g-eta { position: absolute; top: -6px; bottom: 22px; width: 0; pointer-events: none; }
+  .g-now { border-left: 1.5px solid var(--console-ink); }
+  .g-now::before { content: attr(data-label); position: absolute; top: -16px; left: -34px; font-size: 11px; font-weight: 600; color: var(--console-ink); white-space: nowrap; }
+  .g-eta { border-left: 1.5px dashed var(--console-ink-2); }
+  .g-eta::before { content: attr(data-label); position: absolute; top: -16px; left: -46px; font-size: 11px; color: var(--console-ink-2); white-space: nowrap; }
+  .g-overlay { position: absolute; top: 0; bottom: 0; left: 170px; right: 0; pointer-events: none; }
+  .shift-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+  .shift .legend { color: var(--console-ink-2); }
+  .key-rec { width: 14px; height: 8px; border-radius: 2px; background: repeating-linear-gradient(90deg, var(--console-seller) 0 2px, transparent 2px 4px); }
+
+  /* ---------- Покрытие и памятка ---------- */
+  .bd-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; align-items: start; }
+  .cov { width: 100%; border-collapse: separate; border-spacing: 3px; font-size: 12.5px; }
+  .cov th { font-weight: 500; font-size: 11.5px; color: var(--ink-3); padding: 4px; text-align: center; }
+  .cov th.row-h { text-align: left; }
+  .cov td.name { padding-right: 10px; white-space: nowrap; }
+  .cov td.c { height: 34px; border-radius: 7px; text-align: center; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; }
+  .c-ok { background: var(--accent-soft); color: var(--accent); }
+  .c-off { background: var(--panel-2); color: var(--ink-4); font-weight: 400 !important; }
+  .c-miss { background: var(--warn-soft); color: var(--warn-ink); box-shadow: inset 0 0 0 1.5px var(--warn); }
+  .c-never { background: var(--panel); color: var(--crit-ink); box-shadow: inset 0 0 0 1.5px var(--crit); }
+  .c-rec { background: repeating-linear-gradient(135deg, var(--accent-soft) 0 5px, transparent 5px 10px); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-line); }
+  .c .i { width: 14px; height: 14px; margin: auto; }
+  .cov-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; font-size: 12px; color: var(--ink-2); }
+  .cov-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .cov-legend i.k { width: 16px; height: 12px; border-radius: 3px; }
+
+  .guide { counter-reset: g; }
+  .g-step { position: relative; display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .g-step:first-child { border-top: 0; padding-top: 0; }
+  .g-step::before { counter-increment: g; content: counter(g); display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); font-weight: 600; font-size: 12.5px; }
+  .g-step b { display: block; font-weight: 600; margin-bottom: 2px; }
+  .g-step p { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+
+  /* ---------- Таблица ---------- */
+  .bd-table { min-width: 980px; }
+  .bd-table td { padding-top: 12px; padding-bottom: 12px; }
+  .serial { font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+  .bd-table td:first-child { white-space: nowrap; }
+  .charge { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+  .charge-bar { width: 34px; height: 12px; border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--ink-4); position: relative; padding: 2px; }
+  .charge-bar::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 6px; border-radius: 0 1px 1px 0; background: var(--ink-4); }
+  .charge-bar span { display: block; height: 100%; border-radius: 1.5px; background: var(--good); }
+  .charge.is-low .charge-bar span { background: var(--warn); }
+  .charge.is-low { color: var(--warn-ink); font-weight: 600; }
+  .note-cell { font-size: 12.5px; color: var(--ink-2); min-width: 240px; max-width: 320px; line-height: 1.45; }
+
+  @media (max-width: 1240px) { .bd-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 760px) {
+    .shift { padding: 18px 16px 14px; }
+    .shift-title { font-size: 18px; }
+    .gantt { grid-template-columns: 96px minmax(0, 1fr); }
+    .g-overlay { left: 96px; }
+    .g-name small { display: none; }
+    .g-tag { display: none; }
+    .cov { min-width: 520px; }
+  }
+</style>
+</head>
+<body data-page="badges">
+<div class="app">
+  <aside class="sidebar"></aside>
+  <main class="main" id="main">
+    <div class="page">
+
+      <header class="page-head">
+        <div>
+          <h1 class="page-title">Бейджи</h1>
+          <p class="page-meta">12 бейджей Fonemica F2 в трёх магазинах · записи уходят на сервер с док-станций после смены</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn" type="button" data-soon="1"><i data-lucide="book-open" class="i"></i>Памятка продавцу</button>
+          <button class="btn btn-primary" type="button" data-soon="1"><i data-lucide="qr-code" class="i"></i>Добавить бейдж</button>
+        </div>
+      </header>
+
+      <!-- Смена сегодня -->
+      <section class="console shift reveal" aria-labelledby="shift-title">
+        <div class="shift-head">
+          <div>
+            <div class="eyebrow">Воскресенье, 27 сентября · 16:30</div>
+            <h2 id="shift-title" class="shift-title display">9 бейджей пишут смену <em>— 3 требуют внимания</em></h2>
+            <p class="shift-lead">Бейдж записывает весь день на карту памяти. Разговоры появятся в Войсере, когда продавцы поставят бейджи на док-станции после закрытия.</p>
+          </div>
+          <div class="counters" id="counters"></div>
+        </div>
+        <div class="gantt" id="gantt"></div>
+        <div class="shift-foot">
+          <div class="legend" aria-hidden="true">
+            <span class="legend-item"><span class="key-rec"></span>Идёт запись — с момента, когда бейдж сняли с док-станции</span>
+            <span class="legend-item"><span class="key-bar" style="background:var(--console-line);height:2px"></span>До закрытия магазина</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="bd-grid">
+        <section class="panel" aria-labelledby="cov-title">
+          <div class="panel-head">
+            <div><h2 id="cov-title" class="panel-title">Покрытие записью за неделю</h2><p class="panel-sub">Часов записи в смену по дням · пропуск = разговоры этого дня не попали в аналитику</p></div>
+          </div>
+          <div class="panel-body">
+            <div class="table-wrap"><table class="cov" id="cov"></table></div>
+            <div class="cov-legend" aria-hidden="true">
+              <span><i class="k c-ok"></i>записано, часов</span>
+              <span><i class="k c-off"></i>выходной</span>
+              <span><i class="k c-miss"></i>не выгружен</span>
+              <span><i class="k c-never"></i>нет связи</span>
+              <span><i class="k c-rec"></i>сегодня, идёт запись</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="gd-title">
+          <div class="panel-head">
+            <div><h2 id="gd-title" class="panel-title">Если бейдж не выгружается</h2><p class="panel-sub">Короткая проверка для администратора магазина</p></div>
+          </div>
+          <div class="panel-body guide">
+            <div class="g-step"><div><b>Бейдж стоит на док-станции</b><p>Выгрузка начинается сама, как только бейдж встаёт в гнездо. Индикатор док-станции мигает, пока идёт передача.</p></div></div>
+            <div class="g-step"><div><b>Док-станция в сети</b><p>Она подключается к Wi-Fi магазина. Если сеть сменили, переподключите станцию в Настройки → Бейджи.</p></div></div>
+            <div class="g-step"><div><b>Бейдж привязан к продавцу</b><p>Записи без привязки не попадают в аналитику. Проверьте привязку в таблице ниже.</p></div></div>
+            <div class="g-step"><div><b>Индикатор записи горит</b><p>Если во время смены индикатор погас — бейдж разряжен или выключен. Замените его запасным.</p></div></div>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel" aria-labelledby="all-title">
+        <div class="panel-head">
+          <div><h2 id="all-title" class="panel-title">Все бейджи</h2><p class="panel-sub">Сначала — те, что требуют внимания</p></div>
+          <label class="input" style="width:260px"><i data-lucide="search" class="i i-s"></i><input type="search" id="bq" name="badge-q" autocomplete="off" spellcheck="false" placeholder="VIQ-DEV-005 или фамилия…" aria-label="Поиск бейджа"></label>
+        </div>
+        <div class="panel-body" style="padding-top:6px">
+          <div class="table-wrap">
+            <table class="table bd-table">
+              <thead><tr>
+                <th scope="col">Бейдж</th>
+                <th scope="col">Продавец</th>
+                <th scope="col">Сегодня</th>
+                <th scope="col">Последняя выгрузка</th>
+                <th scope="col">Заряд при выдаче</th>
+                <th scope="col">Что сделать</th>
+                <th scope="col"><span class="sr-only">Действия</span></th>
+              </tr></thead>
+              <tbody id="bd"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  V.init();
+  const D = VD, NB = V.NB;
+  const ORDER = { never: 0, missed: 1, shift: 2, dock: 3 };
+  const needs = (s) => Number(s.bstate === 'never' || s.bstate === 'missed' || !!(D.fleet[s.id] && D.fleet[s.id].lowCharge));
+  const sellers = [...D.sellers].sort((a, b) => (needs(b) - needs(a)) || (ORDER[a.bstate] - ORDER[b.bstate]) || a.name.localeCompare(b.name, 'ru'));
+
+  /* ---------- Счётчики ---------- */
+  const count = (st) => D.sellers.filter((s) => s.bstate === st).length;
+  document.getElementById('counters').innerHTML = `
+    <div class="counter"><span class="display">${count('shift')}</span><span class="lbl"><i class="dot" style="background:var(--console-seller)"></i>на смене</span></div>
+    <div class="counter"><span class="display">${count('dock')}</span><span class="lbl"><i class="dot" style="background:var(--console-ink-2)"></i>на док-станции</span></div>
+    <div class="counter is-warn"><span class="display">${count('missed') + D.sellers.filter((s) => D.fleet[s.id].lowCharge).length}</span><span class="lbl"><i class="dot" style="background:var(--warn)"></i>риск потерь</span></div>
+    <div class="counter is-crit"><span class="display">${count('never')}</span><span class="lbl"><i class="dot" style="background:var(--console-signal)"></i>нет связи</span></div>`;
+
+  /* ---------- Смена сегодня ---------- */
+  const H0 = 9, H1 = 23, NOW = 16.5, ETA = 22.5, CLOSE = 22;
+  const P = (h) => ((h - H0) / (H1 - H0)) * 100;
+  const hm = (s) => { const [h, m] = s.split(':').map(Number); return h + m / 60; };
+  const gantt = document.getElementById('gantt');
+  gantt.innerHTML = sellers.map((s) => {
+    const f = D.fleet[s.id];
+    let lane = '';
+    if (s.bstate === 'shift' || s.bstate === 'missed') {
+      const start = hm(s.since);
+      lane += `<span class="g-rec${f.lowCharge ? ' is-low' : ''}" style="left:${P(start)}%;width:${P(NOW) - P(start)}%"></span>`;
+      lane += `<span class="g-rest${f.lowCharge ? ' is-low' : ''}" style="left:${P(NOW)}%;width:${P(CLOSE) - P(NOW)}%"></span>`;
+      if (s.bstate === 'missed') lane += `<span class="g-tag is-warn" style="left:${P(NOW) + 1}%"><i data-lucide="triangle-alert" class="i"></i>вчерашние записи ещё на карте</span>`;
+      if (f.lowCharge) lane += `<span class="g-tag is-warn" style="left:${P(NOW) + 1}%"><i data-lucide="battery-low" class="i"></i>${V.L('заряда хватит до ≈19:00', 'battery lasts until ≈19:00')}</span>`;
+    } else if (s.bstate === 'dock') {
+      lane += `<span class="g-tag is-plain" style="left:1%"><i data-lucide="battery-charging" class="i"></i>выходной, заряжается</span>`;
+    } else {
+      lane += `<span class="g-tag is-crit" style="left:1%"><i data-lucide="wifi-off" class="i"></i>ни одной выгрузки с 6 сентября</span>`;
+    }
+    return `<div class="g-name"><span class="avatar" aria-hidden="true">${s.initials}</span><span class="ellipsis">${s.name} <small>${D.storeById[s.store].short}</small></span></div>
+      <div class="g-lane" role="img" aria-label="${s.name}: ${D.BSTATE[s.bstate].label}${s.since ? V.L(', с ', ', since ') + s.since : ''}">${lane}</div>`;
+  }).join('') + `<div class="g-axis" aria-hidden="true">${[9, 11, 13, 15, 17, 19, 21, 23].map((h) => `<span style="left:${P(h)}%">${h}:00</span>`).join('')}</div>
+    <div class="g-overlay" aria-hidden="true"><span class="g-now" style="left:${P(NOW)}%" data-label="${V.L('сейчас 16:30', 'now 16:30')}"></span><span class="g-eta" style="left:${P(ETA)}%" data-label="${V.L('выгрузка ≈ 22:30', 'upload ≈ 22:30')}"></span></div>`;
+
+  /* ---------- Покрытие за неделю ---------- */
+  const DAYS = D.week.map((w) => `${w.d} ${w.num}`);
+  document.getElementById('cov').innerHTML = `
+    <caption class="sr-only">Часы записи бейджей по дням недели</caption>
+    <thead><tr><th class="row-h" scope="col">Продавец</th>${DAYS.map((d) => `<th scope="col">${d}</th>`).join('')}<th scope="col">Неделя</th></tr></thead>
+    <tbody>${sellers.map((s) => {
+      const f = D.fleet[s.id];
+      const hours = f.week.filter((v) => typeof v === 'number').reduce((a, v) => a + v, 0);
+      return `<tr><td class="name">${V.person(s, s.badge)}</td>${f.week.map((v, i) => {
+        if (typeof v === 'number') return `<td class="c c-ok" title="${DAYS[i]}: ${V.dec(v)} ${V.L('ч записи', 'h recorded')}">${V.dec(v)}</td>`;
+        if (v === null) return `<td class="c c-off" title="${DAYS[i]}: ${V.t('выходной')}">—</td>`;
+        if (v === 'missed') return `<td class="c c-miss" title="${DAYS[i]}: ${V.t('записи не выгружены')}"><i data-lucide="triangle-alert" class="i"></i><span class="sr-only">не выгружен</span></td>`;
+        if (v === 'rec') return `<td class="c c-rec" title="${DAYS[i]}: ${V.t('идёт запись')}"><i data-lucide="mic" class="i"></i><span class="sr-only">идёт запись</span></td>`;
+        return `<td class="c c-never" title="${DAYS[i]}: ${V.t('нет связи')}"><i data-lucide="wifi-off" class="i"></i><span class="sr-only">нет связи</span></td>`;
+      }).join('')}<td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">${hours ? V.dec(hours, 0) + V.L(NB + 'ч', ' h') : '—'}</td></tr>`;
+    }).join('')}</tbody>`;
+
+  /* ---------- Таблица ---------- */
+  const ACTION = {
+    never: 'Проверить, что бейдж ставят на док-станцию и она в сети',
+    missed: 'Сегодня вечером поставить на док-станцию — выгрузятся обе смены',
+  };
+  function drawTable(q = '') {
+    const list = sellers.filter((s) => !q || (s.name + ' ' + s.badge).toLowerCase().includes(q));
+    document.getElementById('bd').innerHTML = list.map((s) => {
+      const f = D.fleet[s.id];
+      const today = s.bstate === 'shift' || s.bstate === 'missed' ? V.L(`пишет с ${s.since}`, `recording since ${s.since}`) : s.bstate === 'dock' ? V.t('выходной') : '—';
+      const note = ACTION[s.bstate] || (f.lowCharge ? 'Оставлять бейдж на док-станции на ночь — полная зарядка занимает 12 часов' : '');
+      return `<tr>
+        <td><span class="serial">${s.badge}</span><div class="muted" style="font-size:11.5px">${D.badges.model}</div></td>
+        <td>${V.person(s, D.storeById[s.store].name)}</td>
+        <td>${V.badgeState(s.bstate)}<div class="muted" style="font-size:12px;margin-top:4px">${today}</div></td>
+        <td>${f.upload}</td>
+        <td>${f.charge == null ? '<span class="muted">—</span>' : `<span class="charge${f.lowCharge ? ' is-low' : ''}"><span class="charge-bar"><span style="width:${f.charge}%"></span></span>${f.charge}${NB}%</span>`}</td>
+        <td class="note-cell">${note || '<span class="muted">Всё в порядке</span>'}</td>
+        <td><button class="btn btn-s btn-ghost" type="button" data-soon="1">Переназначить</button></td>
+      </tr>`;
+    }).join('');
+    V.icons();
+  }
+  document.getElementById('bq').addEventListener('input', (e) => drawTable(e.target.value.trim().toLowerCase()));
+  drawTable();
+  V.icons();
+})();
+</script>
+</body>
+</html>

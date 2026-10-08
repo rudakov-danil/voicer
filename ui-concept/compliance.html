@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Комплаенс · Войсер</title>
+<meta name="description" content="Концепт раздела «Комплаенс»: журнал нарушений, правила общения с покупателями, запись и приватность.">
+<meta name="theme-color" content="#F2F3F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/voicer.css">
+<style>
+  .cp-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+  .cp-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
+
+  .log-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .log-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .log-table td { padding-top: 12px; padding-bottom: 12px; vertical-align: top; }
+  .log-when b { display: block; font-weight: 500; white-space: nowrap; }
+  .log-when span { font-size: 12px; color: var(--ink-3); }
+  .log-rule { display: flex; align-items: center; gap: 7px; font-weight: 500; }
+  .log-rule .i { width: 15px; height: 15px; flex: none; }
+  .log-rule.is-crit .i { color: var(--crit-ink); }
+  .log-rule.is-warn .i { color: var(--warn-ink); }
+  .log-quote { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-2); color: var(--ink-2); font-size: 13px; line-height: 1.45; }
+  .log-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+
+  .rule { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .rule:first-child { border-top: 0; padding-top: 2px; }
+  .rule-sev { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; }
+  .rule-sev .i { width: 14px; height: 14px; }
+  .rule-sev.is-crit { background: var(--crit-soft); color: var(--crit-ink); }
+  .rule-sev.is-warn { background: var(--warn-soft); color: var(--warn-ink); }
+  .rule-sev.is-low { background: var(--panel-2); color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line); }
+  .rule-title { font-weight: 500; line-height: 1.3; }
+  .rule-desc { margin-top: 2px; font-size: 12.5px; color: var(--ink-3); line-height: 1.45; }
+  .rule-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); }
+  .rule-count { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .rule-count.is-hot { color: var(--crit-ink); }
+  .rule.is-off .rule-title, .rule.is-off .rule-desc { opacity: .55; }
+
+  .privacy { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .pv { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 14px; border-radius: 12px; background: var(--panel-2); font-size: 13px; line-height: 1.5; }
+  .pv .i { color: var(--good-ink); margin-top: 2px; }
+  .pv b { display: block; font-weight: 600; margin-bottom: 2px; }
+
+  @media (max-width: 1240px) { .cp-grid { grid-template-columns: minmax(0, 1fr); } .privacy { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 760px) {
+    .cp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .privacy { grid-template-columns: minmax(0, 1fr); }
+    .log-table { min-width: 640px; }
+  }
+</style>
+</head>
+<body data-page="compliance">
+<div class="app">
+  <aside class="sidebar"></aside>
+  <main class="main" id="main">
+    <div class="page">
+
+      <header class="page-head">
+        <div>
+          <h1 class="page-title">Комплаенс</h1>
+          <p class="page-meta">Правила общения с покупателями · ИИ проверяет каждый разговор по смыслу, а не по словам</p>
+        </div>
+        <div class="page-actions">
+          <div class="seg" role="group" aria-label="Период">
+            <button type="button" aria-pressed="true">7 дней</button>
+            <button type="button" aria-pressed="false">30 дней</button>
+          </div>
+          <button class="btn btn-primary" type="button" data-soon="1"><i data-lucide="plus" class="i"></i>Новое правило</button>
+        </div>
+      </header>
+
+      <div class="cp-kpis" id="kpis"></div>
+
+      <div class="cp-grid">
+        <section class="panel" aria-labelledby="log-title">
+          <div class="log-head">
+            <div><h2 id="log-title" class="panel-title">Журнал нарушений</h2><p class="panel-sub">Каждая запись ведёт к моменту разговора</p></div>
+            <div class="log-filters" role="group" aria-label="Статус" id="log-filters"></div>
+          </div>
+          <div class="table-wrap">
+            <table class="table log-table">
+              <thead><tr>
+                <th scope="col">Когда</th>
+                <th scope="col">Продавец</th>
+                <th scope="col">Правило и цитата</th>
+                <th scope="col">Статус</th>
+                <th scope="col"><span class="sr-only">Действия</span></th>
+              </tr></thead>
+              <tbody id="log"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="rules-title">
+          <div class="panel-head">
+            <div><h2 id="rules-title" class="panel-title">Правила</h2><p class="panel-sub">Сначала — высокая важность · число — нарушений за неделю</p></div>
+          </div>
+          <div class="panel-body" id="rules"></div>
+        </section>
+      </div>
+
+      <section class="panel" aria-labelledby="pv-title">
+        <div class="panel-head">
+          <div><h2 id="pv-title" class="panel-title">Запись и приватность</h2><p class="panel-sub">Как соблюдается закон о персональных данных</p></div>
+          <a class="link" href="settings.html#privacy">Настройки приватности<i data-lucide="arrow-right" class="i i-s"></i></a>
+        </div>
+        <div class="panel-body">
+          <div class="privacy">
+            <div class="pv"><i data-lucide="circle-check" class="i"></i><div><b>Покупатели предупреждены</b>Табличка у входа в каждый магазин и индикатор записи на бейдже.</div></div>
+            <div class="pv"><i data-lucide="circle-check" class="i"></i><div><b>Лишнее скрывается</b>Номера карт, телефонов и паспортов не попадают в расшифровку.</div></div>
+            <div class="pv"><i data-lucide="circle-check" class="i"></i><div><b>Записи — 90 дней</b>Потом аудио и расшифровки удаляются, аналитика остаётся.</div></div>
+            <div class="pv"><i data-lucide="circle-check" class="i"></i><div><b>Данные в России</b>Серверы в РФ, шифрование при хранении и передаче.</div></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/en.js"></script>
+<script src="assets/voicer.js"></script>
+<script>
+(function () {
+  'use strict';
+  V.init();
+  const D = VD, NB = V.NB;
+  const log = D.violationLog;
+  const STATUS = {
+    new: { label: 'Ждёт разбора', cls: 'is-crit', icon: 'circle-dot' },
+    reviewed: { label: 'Разобрано', cls: 'is-good', icon: 'circle-check' },
+    disputed: { label: 'Оспорено', cls: 'is-plain', icon: 'message-circle-question' },
+  };
+  const count = (st) => log.filter((l) => l.status === st).length;
+
+  /* ---------- Показатели ---------- */
+  const active = D.rules.filter((r) => r.on).length;
+  const tiles = [
+    { label: 'Нарушений за неделю', value: log.length, foot: V.delta(1, { goodWhenUp: false }) + `<span>${V.t('к прошлой неделе')}</span>` },
+    { label: 'Разговоров без нарушений', value: V.dec(99.3), unit: '%', foot: `<span>${V.L('из', 'of')} ${V.int(D.summary.totalConvs)}</span>` },
+    { label: 'Ждут разбора', value: count('new'), foot: `<span>${V.t('самое старое — 1 день')}</span>` },
+    { label: 'Активных правил', value: active, foot: `<span>${V.L('из', 'of')} ${D.rules.length}</span>` },
+  ];
+  document.getElementById('kpis').innerHTML = tiles.map((k) => `
+    <section class="panel" aria-label="${k.label}"><div class="kpi">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value">${k.value}${k.unit ? `<small>${V.lang === 'en' ? '' : NB}${k.unit}</small>` : ''}</div>
+      <div class="kpi-foot">${k.foot}</div>
+    </div></section>`).join('');
+
+  /* ---------- Журнал ---------- */
+  let filter = 'all';
+  const FILTERS = [['all', 'Все', log.length], ['new', 'Ждут разбора', count('new')], ['reviewed', 'Разобрано', count('reviewed')], ['disputed', 'Оспорено', count('disputed')]];
+  function drawFilters() {
+    document.getElementById('log-filters').innerHTML = FILTERS.map(([id, label, n]) => `<button class="chip" type="button" aria-pressed="${filter === id}" data-f="${id}">${label}<span class="count">${n}</span></button>`).join('');
+  }
+  function drawLog() {
+    const rows = log.filter((l) => filter === 'all' || l.status === filter);
+    document.getElementById('log').innerHTML = rows.map((l) => {
+      const s = D.byId[l.seller];
+      const st = STATUS[l.status];
+      const secs = l.at.split(':').reduce((m, x) => m * 60 + +x, 0);
+      const [day, time] = l.when.split(' · ');
+      return `<tr>
+        <td class="log-when"><b>${time}</b><span>${day}</span></td>
+        <td>${V.person(s, D.storeById[s.store].short)}</td>
+        <td><div class="log-rule is-${l.sev}"><i data-lucide="${l.sev === 'crit' ? 'octagon-alert' : 'triangle-alert'}" class="i"></i>${l.rule}</div><div class="log-quote">${l.quote}</div></td>
+        <td><span class="flag ${st.cls}"><i data-lucide="${st.icon}" class="i"></i>${st.label}</span></td>
+        <td><div class="log-actions"><a class="btn btn-s" href="conversation.html?from=${l.id}#t=${secs}" aria-label="${V.L('Прослушать с', 'Listen from')} ${l.at}"><i data-lucide="play" class="i i-s"></i><span class="mono">${l.at}</span></a></div></td>
+      </tr>`;
+    }).join('');
+    V.icons();
+  }
+  document.getElementById('log-filters').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-f]');
+    if (!b) return;
+    filter = b.dataset.f;
+    drawFilters(); drawLog();
+  });
+
+  /* ---------- Правила ---------- */
+  const SEV_ORDER = { crit: 0, warn: 1, low: 2 };
+  const SEV_LABEL = { crit: 'Высокая важность', warn: 'Средняя важность', low: 'Низкая важность' };
+  const SEV_ICON = { crit: 'octagon-alert', warn: 'triangle-alert', low: 'info' };
+  const rules = [...D.rules].sort((a, b) => SEV_ORDER[a.sev] - SEV_ORDER[b.sev] || b.week - a.week);
+  document.getElementById('rules').innerHTML = rules.map((r, i) => `
+    <div class="rule${r.on ? '' : ' is-off'}" data-rule="${i}">
+      <span class="rule-sev is-${r.sev}" title="${SEV_LABEL[r.sev]}"><i data-lucide="${SEV_ICON[r.sev]}" class="i"></i><span class="sr-only">${SEV_LABEL[r.sev]}</span></span>
+      <div style="min-width:0">
+        <div class="rule-title">${r.title}</div>
+        <div class="rule-desc">${r.desc}</div>
+        <div class="rule-meta"><span class="tag">${r.how}</span><span><span class="rule-count${r.week ? ' is-hot' : ''}">${r.week}</span> ${V.L('за неделю', 'this week')}</span></div>
+      </div>
+      <button type="button" class="switch" role="switch" aria-checked="${r.on}" aria-label="${r.title}"><span class="switch-track" aria-hidden="true"></span></button>
+    </div>`).join('');
+  document.getElementById('rules').addEventListener('click', (e) => {
+    const sw = e.target.closest('[role="switch"]');
+    if (!sw) return;
+    const on = sw.getAttribute('aria-checked') !== 'true';
+    sw.setAttribute('aria-checked', String(on));
+    sw.closest('.rule').classList.toggle('is-off', !on);
+    V.toast(on ? V.t('Правило включено — проверяем с новых разговоров') : V.t('Правило выключено'), on ? 'check' : 'pause');
+  });
+
+  drawFilters();
+  drawLog();
+  V.icons();
+})();
+</script>
+</body>
+</html>

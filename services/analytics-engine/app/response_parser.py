@@ -1,6 +1,6 @@
 import json
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class StepScoreSchema(BaseModel):
@@ -29,17 +29,45 @@ RETAIL_OUTCOMES = {"purchase", "deferred", "price_refusal", "competitor", "unkno
 #: думает, отказ, перевод на другого, нецелевой/спам, автоответчик
 TELEPHONY_OUTCOMES = {
     "purchase", "appointment", "callback", "deferred", "refusal",
-    "transfer", "non_target", "voicemail", "unknown",
+    "transfer", "non_target", "voicemail", "resolved", "unknown",
 }
 ALL_OUTCOMES = RETAIL_OUTCOMES | TELEPHONY_OUTCOMES
 
 
+#: Категории обращения (для решения, оценивать ли звонок в рейтинге менеджера):
+#: sales — продажный диалог (есть намерение/потенциал сделки),
+#: service — обслуживание существующего клиента (статус заказа, поддержка),
+#: non_target — нецелевой (ошиблись номером, спам, не наш профиль, вакансии),
+#: other — прочее / не удалось определить.
+CALL_CATEGORIES = {"sales", "service", "non_target", "other"}
+
+
 class GeneralAnalysisResponse(BaseModel):
-    outcome: str = Field(pattern=r"^(purchase|appointment|callback|deferred|refusal|transfer|non_target|voicemail|price_refusal|competitor|unknown)$")
+    # ВАЖНО: не жёсткая regex-валидация, а мягкая коэрция. Раньше pattern ронял ВЕСЬ
+    # объект, если LLM возвращала исход вне списка (частый случай на сервисных звонках,
+    # где «продажный» исход не подходит и модель выдумывает свой) — и вместе с ним
+    # терялся call_category, из-за чего сервисный звонок ошибочно уходил в скоринг.
+    outcome: str = "unknown"
     outcome_confidence: float = Field(ge=0.0, le=1.0)
     topic: Optional[str] = None
     sentiment_avg: float = Field(ge=-1.0, le=1.0)
     objections: list[ObjectionSchema] = []
+    # Категория обращения — заполняется только для звонков (телефония). Для розницы
+    # остаётся None (в промпте не запрашивается). Невалидное значение → None (см. валидатор).
+    call_category: Optional[str] = None
+    # Краткая причина обращения клиента (тегирование причин звонков), свободный текст.
+    contact_reason: Optional[str] = None
+
+    @field_validator("outcome", mode="before")
+    @classmethod
+    def _valid_outcome(cls, v) -> str:
+        # Неизвестный/некорректный исход не рушит анализ — схлопываем в 'unknown'.
+        return v if isinstance(v, str) and v in ALL_OUTCOMES else "unknown"
+
+    @field_validator("call_category")
+    @classmethod
+    def _valid_category(cls, v: Optional[str]) -> Optional[str]:
+        return v if v in CALL_CATEGORIES else None
 
 
 class BlockResultSchema(BaseModel):

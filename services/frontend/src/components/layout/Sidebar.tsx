@@ -1,191 +1,138 @@
-import { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useAuthStore } from '@/store/authStore'
 import {
   LayoutGrid,
-  Mic2,
+  AudioLines,
   Users,
-  CheckSquare,
+  ScrollText,
+  ShieldAlert,
   BarChart3,
-  Globe,
-  GraduationCap,
-  Shield,
   Settings as SettingsIcon,
+  Wrench,
   LogOut,
-  ChevronUp,
-  Wrench
+  type LucideIcon,
 } from 'lucide-react'
+import { useAuthStore } from '@/store/authStore'
+import { useOrganization } from '@/lib/terms'
 import { VoicerLogo } from '@/components/VoicerLogo'
+import { t, isEn, setLang } from '@/i18n'
 
-const COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981']
+interface NavItem {
+  path: string
+  label: string
+  icon: LucideIcon
+}
+
+const MAIN: NavItem[] = [
+  { path: '/dashboard', label: 'Обзор', icon: LayoutGrid },
+  { path: '/conversations', label: 'Разговоры', icon: AudioLines },
+  { path: '/team', label: 'Команда', icon: Users },
+  { path: '/scripts', label: 'Скрипты', icon: ScrollText },
+]
+
+const CONTROL: NavItem[] = [
+  { path: '/compliance', label: 'Комплаенс', icon: ShieldAlert },
+  { path: '/analytics', label: 'Аналитика', icon: BarChart3 },
+  { path: '/settings', label: 'Настройки', icon: SettingsIcon },
+]
+
+const ADMIN: NavItem = { path: '/admin', label: 'Администрирование', icon: Wrench }
+
+const ROLE_LABELS: Record<string, string> = {
+  director: 'Директор',
+  admin: 'Админ',
+  rop: 'РОП',
+  manager: 'Менеджер',
+}
+
+function initials(text: string) {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase()
+}
 
 export function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  const isActive = (path: string) => location.pathname === path
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
+  const { data: org } = useOrganization()
 
   const isAdmin = user?.role === 'director' || user?.role === 'admin'
+  const control = isAdmin ? [...CONTROL, ADMIN] : CONTROL
+  const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ')
 
-  const navigationItems: Array<{
-    path: string
-    label: string
-    icon: typeof LayoutGrid
-    group: string
-    comingSoon?: boolean
-  }> = [
-    { path: '/dashboard', label: 'Обзор', icon: LayoutGrid, group: 'Основное' },
-    { path: '/conversations', label: 'Разговоры', icon: Mic2, group: 'Основное' },
-    { path: '/team', label: 'Команда', icon: Users, group: 'Основное' },
-    { path: '/scripts', label: 'Скрипты', icon: CheckSquare, group: 'Основное' },
-    { path: '/analytics', label: 'Аналитика', icon: BarChart3, group: 'Аналитика' },
-    { path: '/intelligence', label: 'Разведка', icon: Globe, group: 'Аналитика', comingSoon: true },
-    { path: '/training', label: 'Обучение', icon: GraduationCap, group: 'Управление', comingSoon: true },
-    { path: '/compliance', label: 'Комплаенс', icon: Shield, group: 'Управление' },
-    { path: '/settings', label: 'Настройки', icon: SettingsIcon, group: 'Управление' }
-  ]
-
-  const groupedItems = navigationItems.reduce(
-    (acc, item) => {
-      if (!acc[item.group]) acc[item.group] = []
-      acc[item.group].push(item)
-      return acc
-    },
-    {} as Record<string, typeof navigationItems>
-  )
-
-  const getInitials = () => {
-    if (!user) return '?'
-    return (user.first_name[0] + user.last_name[0]).toUpperCase()
-  }
-
-  const getAvatarColor = () => {
-    if (!user) return COLORS[0]
-    const index = user.id.charCodeAt(0) % COLORS.length
-    return COLORS[index]
+  const renderItem = (item: NavItem) => {
+    const active = location.pathname === item.path
+    return (
+      <button
+        key={item.path}
+        type="button"
+        className="nav-item"
+        aria-current={active ? 'page' : undefined}
+        title={t(item.label)}
+        onClick={() => navigate(item.path)}
+      >
+        <item.icon aria-hidden="true" />
+        <span>{t(item.label)}</span>
+      </button>
+    )
   }
 
   return (
-    <div className="sidebar">
-      <div className="sidebar-header">
-        <div className="logo">
-          <VoicerLogo size={22} light />
-          <span className="logo-text">Voicer</span>
-        </div>
-      </div>
+    <aside className="sidebar" aria-label={t('Навигация')}>
+      <a className="brand" href="/dashboard" onClick={(e) => { e.preventDefault(); navigate('/dashboard') }}>
+        <VoicerLogo size={18} />
+        <span className="brand-name" translate="no">{t('Войсер')}</span>
+      </a>
 
-      <nav className="sidebar-nav">
-        {Object.entries(groupedItems).map(([group, items]) => (
-          <div key={group}>
-            <div className="nav-group-label">{group}</div>
-            {items.map((item) => (
-              <button
-                key={item.path}
-                onClick={() => { if (!item.comingSoon) navigate(item.path) }}
-                disabled={item.comingSoon}
-                className={`nav-item ${isActive(item.path) ? 'active' : ''} ${item.comingSoon ? 'coming-soon' : ''}`}
-                style={item.comingSoon ? { cursor: 'not-allowed', opacity: 0.55 } : undefined}
-                title={item.comingSoon ? 'Раздел в разработке' : undefined}
-              >
-                <item.icon size={16} />
-                <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>
-                {item.comingSoon && (
-                  <span style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    letterSpacing: 0.4,
-                    padding: '2px 6px',
-                    borderRadius: 6,
-                    background: 'var(--warning)',
-                    color: '#fff',
-                    textTransform: 'uppercase',
-                    lineHeight: 1,
-                  }}>
-                    Скоро
-                  </span>
-                )}
-              </button>
-            ))}
+      {org && (
+        <div className="org-switch">
+          <span className="org-logo" aria-hidden="true" translate="no">{initials(org.name) || 'V'}</span>
+          <div className="ellipsis">
+            <div className="org-name ellipsis" translate="no">{org.name}</div>
+            <div className="org-unit ellipsis">{t('Розница')}</div>
           </div>
-        ))}
+        </div>
+      )}
+
+      <nav className="nav" aria-label={t('Разделы')}>
+        {MAIN.map(renderItem)}
+        <div className="nav-label">{t('Контроль')}</div>
+        {control.map(renderItem)}
       </nav>
 
-      <div className="sidebar-footer" ref={menuRef} style={{ position: 'relative' }}>
-        {menuOpen && (
-          <div style={{
-            position: 'absolute', bottom: '100%', left: 8, right: 8,
-            background: 'var(--bg-card)', border: '1px solid var(--border)',
-            borderRadius: 8, boxShadow: '0 -4px 12px rgba(0,0,0,0.1)',
-            overflow: 'hidden', zIndex: 50, marginBottom: 4,
-          }}>
-            {isAdmin && (
-              <button
-                onClick={() => { navigate('/admin'); setMenuOpen(false) }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  width: '100%', padding: '10px 14px', border: 'none',
-                  background: isActive('/admin') ? 'var(--bg)' : 'transparent',
-                  color: 'var(--text)', cursor: 'pointer', fontSize: 13,
-                  textAlign: 'left',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = isActive('/admin') ? 'var(--bg)' : 'transparent')}
-              >
-                <Wrench size={14} />
-                Администрирование
-              </button>
-            )}
-            <button
-              onClick={() => { logout(); navigate('/login') }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                width: '100%', padding: '10px 14px', border: 'none',
-                background: 'transparent', color: 'var(--danger)',
-                cursor: 'pointer', fontSize: 13, textAlign: 'left',
-                borderTop: isAdmin ? '1px solid var(--border)' : 'none',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              <LogOut size={14} />
-              Выйти
-            </button>
+      <div className="sidebar-foot">
+        <div className="me">
+          <span className="avatar" aria-hidden="true" translate="no">{initials(fullName) || '?'}</span>
+          <div className="me-meta">
+            <div className="me-name ellipsis" translate="no">{fullName || user?.email}</div>
+            <div className="me-role">{t(ROLE_LABELS[user?.role ?? ''] ?? 'Менеджер')}</div>
           </div>
-        )}
-
-        <div
-          className="user-info"
-          style={{ cursor: 'pointer' }}
-          onClick={() => setMenuOpen(!menuOpen)}
-        >
-          <div className="user-avatar" style={{ background: getAvatarColor() }}>
-            {getInitials()}
-          </div>
-          <div className="user-meta">
-            <div className="user-name">
-              {user?.first_name} {user?.last_name}
-            </div>
-            <div className="user-role">{user?.role === 'director' ? 'Директор' : user?.role === 'admin' ? 'Админ' : user?.role === 'rop' ? 'РОП' : 'Менеджер'}</div>
-          </div>
-          <div className="icon-btn user-more" style={{ transform: menuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-            <ChevronUp size={16} />
-          </div>
+          <button
+            type="button"
+            className="lang-btn"
+            translate="no"
+            aria-label={isEn ? 'Переключить на русский' : 'Switch to English'}
+            title={isEn ? 'Переключить на русский' : 'Switch to English'}
+            onClick={() => setLang(isEn ? 'ru' : 'en')}
+          >
+            {isEn ? 'RU' : 'EN'}
+          </button>
+          <button
+            type="button"
+            className="btn-icon"
+            aria-label={t('Выйти')}
+            title={t('Выйти')}
+            onClick={() => { logout(); navigate('/login') }}
+          >
+            <LogOut size={16} aria-hidden="true" />
+          </button>
         </div>
       </div>
-    </div>
+    </aside>
   )
 }

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTerms } from '@/lib/terms'
 import { useOutletContext } from 'react-router-dom'
 import { dashboardApi } from '@/api/dashboard'
 import { SellerDrawer } from '@/components/SellerDrawer'
@@ -11,6 +12,7 @@ const AVATAR_COLORS = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#
 
 export function TeamPage() {
   const { period } = useOutletContext<OutletContext>()
+  const terms = useTerms()
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null)
 
   const { data: sellers } = useQuery({
@@ -49,7 +51,6 @@ export function TeamPage() {
         <div className="metric-card">
           <div className="metric-label">Средний скоринг</div>
           <div className="metric-value">{avgScore}%</div>
-          <div className="metric-change up">↑ 3%</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Разброс конверсии (лучший/худший)</div>
@@ -111,14 +112,14 @@ export function TeamPage() {
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Сравнение по магазинам</div>
+              <div className="card-title">Сравнение {terms.isTelephony ? 'по отделам' : 'по магазинам'}</div>
             </div>
           </div>
           <div className="table-wrapper">
             <table>
               <thead>
                 <tr>
-                  <th>Магазин</th>
+                  <th>{terms.store}</th>
                   <th>Продавцов</th>
                   <th>Ср. скоринг</th>
                   <th>Ср. конверсия</th>
