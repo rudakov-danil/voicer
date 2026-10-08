@@ -9,6 +9,7 @@
 #   logs    — ошибки сервисов $SERVICES за 30 минут, очереди, последние записи
 #   rediarize — записи ($REANALYZE) или застрявшие за сутки снова в диаризацию и анализ
 #   reprocess — записи ($REANALYZE) с нуля: Deepgram, диаризация, анализ
+#   reupload — копии записей ($REANALYZE) как новые загрузки, исходные не меняются
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -334,6 +335,91 @@ PY
     $DC logs --since 10m --no-log-prefix "$svc" 2>&1 \
       | grep -iE 'error|exception|traceback|denied|forbidden|40[013]|failed' | cut -c1-240 | tail -15 || true
   done
+  ;;
+reupload)
+  # Копия записи как новая загрузка: новый id, аудио копируется в MinIO, время — сейчас.
+  # Исходная запись не меняется. REANALYZE: id записей или «--latest N».
+  need_dc
+  $DC exec -T -e REANALYZE="$REANALYZE" recorder-service python - <<'PY' || true
+import asyncio, os, re, time, uuid
+from datetime import date, datetime, timezone
+from pathlib import Path
+from sqlalchemy import text
+from app.database import async_session_maker
+from app.deepgram_client import _language_params
+from app.minio_client import download_bytes, upload_bytes
+from app.rabbitmq import close as rabbitmq_close
+from app.routers.mobile import MIME_TYPES
+from app.routers.upload import BUCKET, CONTENT_TYPE_MAP, _transcribe_and_enqueue
+
+COLS = "id, organization_id, store_id, seller_id, audio_path, source, created_at"
+
+async def main():
+    arg = os.environ.get("REANALYZE", "")
+    ids = [uuid.UUID(x) for x in re.findall(r"[0-9a-f-]{36}", arg)]
+    m = re.search(r"--latest (\d+)", arg)
+    async with async_session_maker() as db:
+        if ids:
+            rows = (await db.execute(text(f"SELECT {COLS} FROM recorder.recordings WHERE id = ANY(:ids)"), {"ids": ids})).all()
+        else:
+            rows = (await db.execute(text(f"SELECT {COLS} FROM recorder.recordings ORDER BY created_at DESC LIMIT :n"),
+                                     {"n": int(m.group(1)) if m else 1})).all()
+    if not rows:
+        print("Записи не найдены")
+        return
+    started = datetime.now(timezone.utc)
+    today = date.today()
+    print(f"Deepgram: {_language_params()}")
+    copies = {}
+    for r in rows:
+        obj = r.audio_path[len(BUCKET) + 1:] if r.audio_path.startswith(BUCKET + "/") else r.audio_path
+        audio = await asyncio.to_thread(download_bytes, BUCKET, obj)
+        ext = Path(obj).suffix or ".wav"
+        new_id = uuid.uuid4()
+        new_obj = f"{r.organization_id}/{r.store_id}/{r.seller_id}/{today}/{new_id}{ext}"
+        ctype = MIME_TYPES.get(ext) or CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
+        await asyncio.to_thread(upload_bytes, BUCKET, new_obj, audio, ctype)
+        new_path = f"{BUCKET}/{new_obj}"
+        async with async_session_maker() as db:
+            await db.execute(text("""
+                INSERT INTO recorder.recordings
+                    (id, organization_id, store_id, seller_id, device_id, session_date, started_at,
+                     audio_path, file_size_bytes, status, source, created_at, updated_at)
+                SELECT :new_id, organization_id, store_id, seller_id, device_id, :today, now(),
+                       :path, :size, 'processing', source, now(), now()
+                FROM recorder.recordings WHERE id = :src"""),
+                {"new_id": new_id, "today": today, "path": new_path, "size": len(audio), "src": r.id})
+            await db.commit()
+        copies[new_id] = r.id
+        print(f"Копия записи {r.id} ({r.source}, {len(audio)} байт, {ext}) -> новая запись {new_id}")
+        await _transcribe_and_enqueue(new_id, audio, ext, str(r.organization_id), str(r.store_id),
+                                      str(r.seller_id), str(today), new_path)
+    await rabbitmq_close()
+
+    pending = set(copies)
+    deadline = time.monotonic() + 300
+    while pending and time.monotonic() < deadline:
+        await asyncio.sleep(10)
+        async with async_session_maker() as db:
+            done = (await db.execute(text("""
+                SELECT c.recording_id, c.outcome, c.overall_score, c.topic, t.language,
+                       (SELECT string_agg(x.r || ':' || x.n, ' ') FROM (
+                          SELECT s.speaker_role r, count(*) n FROM transcription.transcript_segments s
+                          WHERE s.transcript_id = t.id GROUP BY 1) x) AS roles,
+                       (SELECT count(DISTINCT s.speaker_id) FROM transcription.transcript_segments s
+                          WHERE s.transcript_id = t.id) AS speakers
+                FROM analytics.conversations c JOIN transcription.transcripts t ON t.id = c.transcript_id
+                WHERE c.recording_id = ANY(:ids)"""), {"ids": list(pending)})).all()
+        for d in done:
+            score = f"{float(d.overall_score):.0f}" if d.overall_score is not None else "—"
+            print(f"Готово: новая запись {d.recording_id} (копия {copies[d.recording_id]}): язык {d.language}, "
+                  f"спикеров Deepgram {d.speakers}, роли {d.roles}; исход {d.outcome}, балл {score}, тема «{d.topic or '—'}»")
+            pending.discard(d.recording_id)
+    for rid in pending:
+        print(f"Не дождался анализа за 5 минут: новая запись {rid}")
+
+asyncio.run(main())
+PY
   ;;
 logs)
   # Ошибки сервисов за 30 минут, очереди и последние записи. Строки обрезаем: в логах бывает текст разговоров

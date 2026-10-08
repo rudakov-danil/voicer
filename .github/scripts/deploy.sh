@@ -103,6 +103,11 @@ case $MODE in
   conv-info)
     remote conv-info
     ;;
+  reupload)
+    [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
+      || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }
+    remote reupload
+    ;;
   reprocess)
     [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
       || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }
