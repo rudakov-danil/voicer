@@ -10,6 +10,7 @@
 #   rediarize — записи ($REANALYZE) или застрявшие за сутки снова в диаризацию и анализ
 #   reprocess — записи ($REANALYZE) с нуля: Deepgram, диаризация, анализ
 #   reupload — копии записей ($REANALYZE) как новые загрузки, исходные не меняются
+#   roles-compare — роли по репликам: сохранённые, по Deepgram и от LLM
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -418,6 +419,43 @@ async def main():
             pending.discard(d.recording_id)
     for rid in pending:
         print(f"Не дождался анализа за 5 минут: новая запись {rid}")
+
+asyncio.run(main())
+PY
+  ;;
+roles-compare)
+  # Роли по репликам: сохранённые, по правилу Deepgram (дольше всех говорит — продавец) и от LLM. Без текста
+  need_dc
+  $DC exec -T -e REANALYZE="$REANALYZE" diarize-worker python - <<'PY' || true
+import asyncio, os, re, uuid
+from sqlalchemy import select
+from app.database import async_session_maker
+from app.diarization import identify_speaker_roles, roles_by_talk_time
+from app.llm_client import get_llm_client
+from app.models import Transcript, TranscriptSegment
+import worker.diarize_worker as w
+
+async def main():
+    print(f"ROLES_BY_LLM в работающем diarize-worker: {w.ROLES_BY_LLM}")
+    ids = [uuid.UUID(x) for x in re.findall(r"[0-9a-f-]{36}", os.environ.get("REANALYZE", ""))]
+    async with async_session_maker() as db:
+        q = select(Transcript)
+        q = q.where(Transcript.recording_id.in_(ids)) if ids else q.order_by(Transcript.created_at.desc()).limit(1)
+        for t in (await db.execute(q)).scalars().all():
+            segs = (await db.execute(select(TranscriptSegment).where(TranscriptSegment.transcript_id == t.id)
+                                     .order_by(TranscriptSegment.segment_index))).scalars().all()
+            d = [{"text": s.text, "start_ms": s.start_ms, "end_ms": s.end_ms, "speaker_id": s.speaker_id} for s in segs]
+            dg = roles_by_talk_time(d)
+            llm_map = await identify_speaker_roles(d, "Продавец", get_llm_client())
+            llm = [llm_map.get(x["speaker_id"], "unknown") for x in d]
+            print(f"== запись {t.recording_id}, расшифровка от {t.created_at:%Y-%m-%d %H:%M} UTC, язык {t.language}")
+            print(" #  спикер  начало-конец, с   сохранено  Deepgram  LLM")
+            for i, (s, a, b) in enumerate(zip(segs, dg, llm)):
+                print(f"{i:2}  {str(s.speaker_id):6}  {s.start_ms / 1000:6.1f}-{s.end_ms / 1000:6.1f}  "
+                      f"{s.speaker_role:9}  {a:8}  {b}")
+            same = sum(s.speaker_role == a for s, a in zip(segs, dg))
+            print(f"Сохранённые роли совпадают с Deepgram-правилом в {same} из {len(segs)}, "
+                  f"Deepgram и LLM расходятся в {sum(a != b for a, b in zip(dg, llm))}")
 
 asyncio.run(main())
 PY

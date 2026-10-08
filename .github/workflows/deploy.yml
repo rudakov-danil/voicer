@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "check — только посмотреть, deploy — выкатить, verify — проверить выкаченное, reanalyze — повторный анализ, llm-test — тестовый запрос к модели, server-diff — отличия кода на сервере, deepgram-test — проверка Deepgram, logs — ошибки сервисов и очереди, rediarize — повторить диаризацию застрявших записей, worker-log — полный журнал сервисов, conv-info — служебные поля последних разговоров, reprocess — запись с нуля на месте, reupload — копия записи как новая загрузка"
+        description: "check — только посмотреть, deploy — выкатить, verify — проверить выкаченное, reanalyze — повторный анализ, llm-test — тестовый запрос к модели, server-diff — отличия кода на сервере, deepgram-test — проверка Deepgram, logs — ошибки сервисов и очереди, rediarize — повторить диаризацию застрявших записей, worker-log — полный журнал сервисов, conv-info — служебные поля последних разговоров, reprocess — запись с нуля на месте, reupload — копия записи как новая загрузка, roles-compare — роли: сохранённые, Deepgram, LLM"
         type: choice
-        options: [check, deploy, verify, reanalyze, llm-test, server-diff, deepgram-test, logs, rediarize, worker-log, conv-info, reprocess, reupload]
+        options: [check, deploy, verify, reanalyze, llm-test, server-diff, deepgram-test, logs, rediarize, worker-log, conv-info, reprocess, reupload, roles-compare]
         default: check
       services:
         description: "Сервисы для пересборки и перезапуска"
