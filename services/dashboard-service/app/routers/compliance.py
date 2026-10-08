@@ -93,9 +93,16 @@ async def compliance_summary(
             v.id, v.rule_id, v.rule_title, v.severity, v.evidence, v.explanation,
             c.id AS conv_id, c.session_date, c.topic, c.outcome,
             s.first_name AS seller_first_name, s.last_name AS seller_last_name,
-            st.name AS store_name
+            st.name AS store_name, r.started_at,
+            -- Разбор с продавцом: done — разобран, open — в плане, NULL — ещё не брали
+            (
+                SELECT CASE WHEN COUNT(*) = 0 THEN NULL
+                            WHEN bool_or(ci.status = 'open') THEN 'open' ELSE 'done' END
+                FROM analytics.coaching_items ci WHERE ci.conversation_id = c.id
+            ) AS review
         FROM analytics.conversation_compliance_violations v
         JOIN analytics.conversations c ON c.id = v.conversation_id
+        LEFT JOIN recorder.recordings r ON r.id = c.recording_id
         LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
         LEFT JOIN admin_schema.stores st ON st.id = c.store_id
         WHERE {where}
@@ -117,6 +124,8 @@ async def compliance_summary(
             "outcome": r.outcome,
             "seller_name": f"{r.seller_first_name or ''} {r.seller_last_name or ''}".strip() or None,
             "store_name": r.store_name,
+            "recorded_at": r.started_at,
+            "review": r.review,
         }
         for r in recent_rows
     ]

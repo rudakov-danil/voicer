@@ -1,20 +1,4 @@
 import { jsx as _jsx } from "react/jsx-runtime";
-export const AVATAR_PALETTE = [
-    '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B',
-    '#10B981', '#EF4444', '#6366F1', '#14B8A6',
-    '#F97316', '#06B6D4', '#A855F7', '#D946EF',
-];
-/** Стабильный цвет аватара по id (или имени, если id нет). */
-export function avatarColorFor(idOrName) {
-    const s = (idOrName || '').toString();
-    if (!s)
-        return '#94A3B8';
-    let h = 0;
-    for (let i = 0; i < s.length; i++)
-        h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-    const idx = Math.abs(h) % AVATAR_PALETTE.length;
-    return AVATAR_PALETTE[idx];
-}
 /** Нормализует текст для нестрогого поиска: lowercase, без знаков препинания,
  * множественные пробелы → один пробел. Возвращает (normalized, indexMap),
  * где indexMap[i] — индекс i-го символа normalized в оригинале.

@@ -1,21 +1,64 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Copy, RefreshCw, Check } from 'lucide-react';
 import { adminApi } from '@/api/admin';
 import { authApi } from '@/api/auth';
 import { recorderApi } from '@/api/recorder';
 import { TELEPHONY_ENABLED, useOrganization, useTerms } from '@/lib/terms';
+import { initials } from '@/lib/format';
+import { t, L, isEn, setLang, plural } from '@/i18n';
+/* «Настройки» по концепту (ui-concept/settings.html): одна страница с разделами
+   и навигацией слева. Док-станций и интеграций нет — эти разделы концепта не переносим. */
+const SECTIONS = [
+    { id: 'org', label: 'Организация' },
+    { id: 'stores', label: 'Магазины' },
+    { id: 'users', label: 'Пользователи и роли' },
+    { id: 'alerts', label: 'Оповещения' },
+    { id: 'privacy', label: 'Приватность и хранение' },
+];
+const ROLE_LABELS = { director: 'Директор', admin: 'Администратор', rop: 'РОП', manager: 'Менеджер магазина' };
+const ROLE_NOTES = [
+    ['Директор', 'Видит всю сеть и все разделы.'],
+    ['Администратор', 'Пользователи, магазины, продавцы и настройки.'],
+    ['РОП', 'Аналитика и разборы по назначенным магазинам.'],
+    ['Менеджер магазина', 'Свой магазин: разговоры, продавцы и скрипты.'],
+];
 export function SettingsPage() {
-    const [activeTab, setActiveTab] = useState('privacy');
     const terms = useTerms();
-    return (_jsxs("div", { className: "card fade-in", children: [_jsx("div", { className: "tabs", children: [
-                    { key: 'privacy', label: 'Приватность' },
-                    { key: 'notifications', label: 'Уведомления' },
-                    // «Организация» сейчас содержит только выбор «магазины / телефония» — скрыта вместе с контуром
-                    ...(TELEPHONY_ENABLED ? [{ key: 'organization', label: 'Организация' }] : []),
-                    ...(terms.isTelephony ? [{ key: 'telephony', label: 'Телефония' }] : []),
-                ].map((tab) => (_jsx("button", { className: `tab ${activeTab === tab.key ? 'active' : ''}`, onClick: () => setActiveTab(tab.key), children: tab.label }, tab.key))) }), _jsxs("div", { style: { padding: '24px' }, children: [activeTab === 'privacy' && _jsx(PrivacyTab, {}), activeTab === 'notifications' && _jsx(NotificationsTab, {}), activeTab === 'organization' && TELEPHONY_ENABLED && _jsx(OrganizationTab, {}), activeTab === 'telephony' && terms.isTelephony && _jsx(TelephonyTab, {})] })] }));
+    const [current, setCurrent] = useState('org');
+    const go = (id) => {
+        setCurrent(id);
+        document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    const sections = [
+        ...SECTIONS,
+        ...(terms.isTelephony ? [{ id: 'telephony', label: 'Телефония' }] : []),
+    ];
+    return (_jsxs("div", { className: "set-grid", children: [_jsx("nav", { className: "set-nav", "aria-label": t('Разделы настроек'), children: sections.map((s) => (_jsx("button", { type: "button", "aria-current": current === s.id ? 'true' : undefined, onClick: () => go(s.id), children: t(s.label) }, s.id))) }), _jsxs("div", { className: "set-body", children: [_jsx(OrgSection, {}), _jsx(StoresSection, {}), _jsx(UsersSection, {}), _jsxs("section", { id: "set-alerts", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Оповещения') }), _jsx("div", { className: "panel-sub", children: t('Когда разговор попадает в очередь на разбор и в уведомления') })] }) }), _jsx("div", { className: "panel-body", children: _jsx(NotificationsTab, {}) })] }), _jsxs("section", { id: "set-privacy", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Приватность и хранение') }), _jsx("div", { className: "panel-sub", children: t('Запись разговоров в магазинах по 152-ФЗ') })] }) }), _jsx("div", { className: "panel-body", children: _jsx(PrivacyTab, {}) })] }), TELEPHONY_ENABLED && (_jsxs("section", { className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsx("h2", { className: "panel-title", children: t('Тип продаж') }) }), _jsx("div", { className: "panel-body", children: _jsx(OrganizationTab, {}) })] })), terms.isTelephony && (_jsxs("section", { id: "set-telephony", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsx("h2", { className: "panel-title", children: t('Телефония') }) }), _jsx("div", { className: "panel-body", children: _jsx(TelephonyTab, {}) })] }))] })] }));
+}
+function SetRow({ title, desc, children }) {
+    return (_jsxs("div", { className: "set-row", children: [_jsxs("div", { children: [_jsx("div", { className: "set-row-title", children: t(title) }), desc && _jsx("div", { className: "set-row-desc", children: t(desc) })] }), _jsx("div", { className: "set-row-ctl", children: children })] }));
+}
+function OrgSection() {
+    const { data: org } = useOrganization();
+    return (_jsxs("section", { id: "set-org", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Организация') }), _jsx("div", { className: "panel-sub", children: t('Общие данные и вид интерфейса') })] }) }), _jsxs("div", { className: "panel-body", children: [_jsx(SetRow, { title: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435", desc: "\u0412\u0438\u0434\u043D\u043E \u0432 \u043E\u0442\u0447\u0451\u0442\u0430\u0445 \u0438 \u043F\u0438\u0441\u044C\u043C\u0430\u0445", children: _jsx("b", { translate: "no", children: org?.name || '—' }) }), _jsx(SetRow, { title: "\u0427\u0430\u0441\u043E\u0432\u043E\u0439 \u043F\u043E\u044F\u0441", desc: "\u0414\u043B\u044F \u0433\u0440\u0430\u0444\u0438\u043A\u043E\u0432 \u043F\u043E \u0447\u0430\u0441\u0430\u043C \u0438 \u0434\u043D\u044F\u043C", children: _jsx("span", { children: t('Москва, UTC+3') }) }), _jsx(SetRow, { title: "\u042F\u0437\u044B\u043A \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0430", desc: "\u041C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u0441\u0440\u0430\u0437\u0443 \u0434\u043B\u044F \u0432\u0430\u0448\u0435\u0439 \u0443\u0447\u0451\u0442\u043D\u043E\u0439 \u0437\u0430\u043F\u0438\u0441\u0438", children: _jsxs("div", { className: "seg", role: "group", "aria-label": t('Язык интерфейса'), children: [_jsx("button", { type: "button", "aria-pressed": !isEn, onClick: () => isEn && setLang('ru'), translate: "no", children: "\u0420\u0443\u0441\u0441\u043A\u0438\u0439" }), _jsx("button", { type: "button", "aria-pressed": isEn, onClick: () => !isEn && setLang('en'), translate: "no", children: "English" })] }) })] })] }));
+}
+function StoresSection() {
+    const { data } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() });
+    const stores = data?.items || [];
+    return (_jsxs("section", { id: "set-stores", className: "panel set-sec", children: [_jsxs("div", { className: "panel-head", children: [_jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Магазины') }), _jsx("div", { className: "panel-sub", children: L(`${stores.length} ${plural(stores.length, ['магазин', 'магазина', 'магазинов'], ['', ''])} в сети`, `${stores.length} stores in the network`) })] }), _jsx(Link, { className: "btn btn-sm", to: "/admin", children: t('Добавить магазин') })] }), _jsx("div", { className: "panel-body", style: { paddingTop: 6 }, children: _jsx("div", { className: "table-wrap", children: _jsxs("table", { className: "table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { scope: "col", children: t('Магазин') }), _jsx("th", { scope: "col", children: t('Адрес') }), _jsx("th", { scope: "col", className: "t-right", children: t('Продавцов') })] }) }), _jsx("tbody", { children: stores.map((s) => (_jsxs("tr", { children: [_jsxs("td", { children: [_jsx("b", { translate: "no", children: s.name }), !s.is_active && _jsxs("span", { className: "muted", children: [" \u00B7 ", t('отключён')] })] }), _jsx("td", { translate: "no", children: s.address || '—' }), _jsx("td", { className: "t-right t-num", children: s.seller_count ?? 0 })] }, s.id))) })] }) }) })] }));
+}
+function UsersSection() {
+    const { data } = useQuery({ queryKey: ['admin-users'], queryFn: () => adminApi.getUsers() });
+    const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() });
+    const storeName = new Map((stores?.items || []).map((s) => [s.id, s.name]));
+    const users = data?.items || [];
+    return (_jsxs("section", { id: "set-users", className: "panel set-sec", children: [_jsxs("div", { className: "panel-head", children: [_jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Пользователи и роли') }), _jsx("div", { className: "panel-sub", children: t('Кто работает с аналитикой · продавцы добавляются в разделе «Администрирование»') })] }), _jsx(Link, { className: "btn btn-sm", to: "/admin", children: t('Пригласить') })] }), _jsxs("div", { className: "panel-body", style: { paddingTop: 6 }, children: [_jsx("div", { className: "table-wrap", children: _jsxs("table", { className: "table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { scope: "col", children: t('Пользователь') }), _jsx("th", { scope: "col", children: t('Роль') }), _jsx("th", { scope: "col", children: t('Доступ') })] }) }), _jsx("tbody", { children: users.map((u) => {
+                                        const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email;
+                                        return (_jsxs("tr", { className: u.is_active ? '' : 'is-off', children: [_jsx("td", { children: _jsxs("span", { className: "person", children: [_jsx("span", { className: "avatar", "aria-hidden": "true", translate: "no", children: initials(name) }), _jsxs("span", { children: [_jsx("span", { className: "person-name", translate: "no", children: name }), _jsx("span", { className: "person-sub", translate: "no", children: u.email })] })] }) }), _jsx("td", { children: t(ROLE_LABELS[u.role] || u.role) }), _jsx("td", { children: u.store_id ? _jsx("span", { translate: "no", children: storeName.get(u.store_id) || '—' }) : t('Вся сеть') })] }, u.id));
+                                    }) })] }) }), _jsx("div", { className: "set-roles", children: ROLE_NOTES.map(([role, note]) => _jsxs("div", { children: [_jsx("b", { children: t(role) }), _jsx("span", { children: t(note) })] }, role)) })] })] }));
 }
 function OrganizationTab() {
     const queryClient = useQueryClient();
@@ -138,6 +181,9 @@ function OperatorMappingEditor({ mapping, sellers, sellerLabel, onSave, isSaving
                     return (_jsxs("div", { style: { display: 'grid', gridTemplateColumns: '180px 1fr 32px', gap: 8, alignItems: 'center' }, children: [_jsx("input", { className: "form-input", placeholder: "101 \u0438\u043B\u0438 +7900...", value: r.phone, onChange: (e) => update(r.key, { phone: e.target.value }), style: isDup ? { borderColor: 'var(--danger)' } : undefined, title: isDup ? 'Этот номер указан несколько раз' : undefined }), _jsxs("select", { className: "form-input", value: r.sellerId, onChange: (e) => update(r.key, { sellerId: e.target.value }), children: [_jsx("option", { value: "", children: "\u2014 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u2014" }), sellers.map((s) => (_jsxs("option", { value: s.id, children: [s.first_name, " ", s.last_name] }, s.id))), r.sellerId && !sellers.some((s) => s.id === r.sellerId) && (_jsxs("option", { value: r.sellerId, children: [sellerName(r.sellerId), " (\u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D)"] }))] }), _jsx("button", { className: "btn-icon", onClick: () => remove(r.key), title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C", style: { color: 'var(--danger)' }, children: "\u2715" })] }, r.key));
                 }) }), hasDuplicates && (_jsx("div", { style: { fontSize: 12, color: 'var(--danger)', marginTop: 8 }, children: "\u041E\u0434\u0438\u043D \u0438 \u0442\u043E\u0442 \u0436\u0435 \u043D\u043E\u043C\u0435\u0440 \u0443\u043A\u0430\u0437\u0430\u043D \u0434\u043B\u044F \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u2014 \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442." })), dirty && (_jsxs("div", { style: { display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }, children: [_jsx("button", { className: "btn btn-primary btn-sm", onClick: save, disabled: !canSave || isSaving, children: isSaving ? 'Сохранение…' : 'Сохранить сопоставление' }), _jsx("button", { className: "btn btn-sm btn-outline", onClick: () => { setRows(toRows(mapping)); setDirty(false); }, children: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C" }), !canSave && !hasDuplicates && (_jsx("span", { style: { fontSize: 12, color: 'var(--text-muted)' }, children: "\u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043D\u043E\u043C\u0435\u0440 \u0438 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430 \u0432 \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0442\u0440\u043E\u043A\u0435" }))] }))] }));
 }
+function Switch({ on, onChange, label }) {
+    return (_jsx("button", { type: "button", role: "switch", "aria-checked": on, "aria-label": label, className: "cv-switch", onClick: onChange, children: _jsx("span", { className: "cv-switch-track", "aria-hidden": "true" }) }));
+}
 function PrivacyTab() {
     const queryClient = useQueryClient();
     const { data: settings, isLoading } = useQuery({
@@ -148,25 +194,17 @@ function PrivacyTab() {
         mutationFn: (data) => adminApi.updatePrivacySettings(data),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['privacy-settings'] }),
     });
-    const toggle = (key) => {
-        if (!settings)
-            return;
-        mutation.mutate({
-            retention_days: settings.retention_days,
-            anonymize_transcripts: settings.anonymize_transcripts,
-            [key]: !settings[key],
-        });
-    };
-    if (isLoading) {
-        return _jsx("div", { style: { display: 'flex', justifyContent: 'center', padding: '40px 0' }, children: _jsx("div", { className: "spinner" }) });
-    }
-    if (!settings) {
-        return _jsx("div", { style: { padding: '20px', color: 'var(--text-muted)' }, children: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" });
-    }
-    return (_jsxs("div", { children: [_jsxs("div", { className: "toggle-row", children: [_jsxs("div", { className: "toggle-label-group", children: [_jsx("div", { className: "toggle-title", children: "\u0410\u043D\u043E\u043D\u0438\u043C\u0438\u0437\u0430\u0446\u0438\u044F \u0442\u0440\u0430\u043D\u0441\u043A\u0440\u0438\u043F\u0442\u043E\u0432" }), _jsx("div", { className: "toggle-desc", children: "\u0423\u0434\u0430\u043B\u044F\u0442\u044C \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u0438\u0437 \u0440\u0430\u0441\u0448\u0438\u0444\u0440\u043E\u0432\u043E\u043A" })] }), _jsx("div", { className: `toggle-switch ${settings.anonymize_transcripts ? 'on' : ''}`, onClick: () => toggle('anonymize_transcripts') })] }), _jsxs("div", { className: "toggle-row", style: { borderTop: '1px solid var(--border)' }, children: [_jsxs("div", { className: "toggle-label-group", children: [_jsx("div", { className: "toggle-title", children: "\u0421\u0440\u043E\u043A \u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u0434\u0430\u043D\u043D\u044B\u0445" }), _jsx("div", { className: "toggle-desc", children: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0443\u0434\u0430\u043B\u044F\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u0438 \u0447\u0435\u0440\u0435\u0437 \u0443\u043A\u0430\u0437\u0430\u043D\u043D\u044B\u0439 \u0441\u0440\u043E\u043A" })] }), _jsxs("select", { className: "select-pill", value: settings.retention_days, onChange: (e) => mutation.mutate({
-                            ...settings,
-                            retention_days: Number(e.target.value),
-                        }), children: [_jsx("option", { value: 30, children: "30 \u0434\u043D\u0435\u0439" }), _jsx("option", { value: 60, children: "60 \u0434\u043D\u0435\u0439" }), _jsx("option", { value: 90, children: "90 \u0434\u043D\u0435\u0439" }), _jsx("option", { value: 180, children: "180 \u0434\u043D\u0435\u0439" }), _jsx("option", { value: 365, children: "1 \u0433\u043E\u0434" })] })] }), mutation.isPending && (_jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }, children: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435..." }))] }));
+    if (isLoading)
+        return _jsx("div", { className: "muted", children: t('Загрузка...') });
+    if (!settings)
+        return _jsx("div", { className: "muted", children: t('Не удалось загрузить настройки') });
+    const save = (patch) => mutation.mutate({
+        retention_days: settings.retention_days,
+        anonymize_transcripts: settings.anonymize_transcripts,
+        consent_required: settings.consent_required,
+        ...patch,
+    });
+    return (_jsxs(_Fragment, { children: [_jsx(SetRow, { title: "\u0421\u043A\u0440\u044B\u0432\u0430\u0442\u044C \u043D\u043E\u043C\u0435\u0440\u0430 \u043A\u0430\u0440\u0442, \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u043E\u0432 \u0438 \u043F\u0430\u0441\u043F\u043E\u0440\u0442\u043E\u0432", desc: "\u0418\u0418 \u0443\u0431\u0438\u0440\u0430\u0435\u0442 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 \u0438\u0437 \u0440\u0430\u0441\u0448\u0438\u0444\u0440\u043E\u0432\u043E\u043A \u043F\u0440\u0438 \u0430\u043D\u0430\u043B\u0438\u0437\u0435", children: _jsx(Switch, { on: !!settings.anonymize_transcripts, label: t('Скрывать персональные данные'), onChange: () => save({ anonymize_transcripts: !settings.anonymize_transcripts }) }) }), _jsx(SetRow, { title: "\u0422\u0440\u0435\u0431\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u0435 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432 \u043D\u0430 \u0437\u0430\u043F\u0438\u0441\u044C", desc: "\u041E\u0442\u043C\u0435\u0442\u043A\u0430 \u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u0438 \u043F\u0440\u043E\u0434\u0430\u0432\u0446\u0430 \u0445\u0440\u0430\u043D\u0438\u0442\u0441\u044F \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445 \u043E\u0440\u0433\u0430\u043D\u0438\u0437\u0430\u0446\u0438\u0438", children: _jsx(Switch, { on: !!settings.consent_required, label: t('Требовать согласие на запись'), onChange: () => save({ consent_required: !settings.consent_required }) }) }), _jsx(SetRow, { title: "\u0425\u0440\u0430\u043D\u0438\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u0438 \u0438 \u0440\u0430\u0441\u0448\u0438\u0444\u0440\u043E\u0432\u043A\u0438", desc: "\u0421\u0440\u043E\u043A \u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432", children: _jsx("div", { className: "seg", role: "group", "aria-label": t('Срок хранения'), children: [[30, '30 дней'], [90, '90 дней'], [180, '180 дней'], [365, '1 год']].map(([d, label]) => (_jsx("button", { type: "button", "aria-pressed": settings.retention_days === d, onClick: () => save({ retention_days: d }), children: t(label) }, d))) }) }), mutation.isPending && _jsx("div", { className: "set-saving", children: t('Сохранение...') }), mutation.isError && _jsx("div", { className: "set-error", children: t('Не удалось сохранить — нужны права директора или администратора') })] }));
 }
 function NotificationsTab() {
     const queryClient = useQueryClient();
@@ -174,15 +212,46 @@ function NotificationsTab() {
         queryKey: ['alert-settings'],
         queryFn: () => adminApi.getAlertSettings(),
     });
+    const [threshold, setThreshold] = useState('');
+    const [emails, setEmails] = useState('');
+    useEffect(() => {
+        if (!settings)
+            return;
+        setThreshold(String(settings.score_threshold ?? ''));
+        setEmails((settings.email_recipients || []).join(', '));
+    }, [settings]);
     const mutation = useMutation({
         mutationFn: (data) => adminApi.updateAlertSettings(data),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['alert-settings'] }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['alert-settings'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-notifications'] });
+            queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        },
     });
-    if (isLoading) {
-        return _jsx("div", { style: { display: 'flex', justifyContent: 'center', padding: '40px 0' }, children: _jsx("div", { className: "spinner" }) });
-    }
-    if (!settings) {
-        return _jsx("div", { style: { padding: '20px', color: 'var(--text-muted)' }, children: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" });
-    }
-    return (_jsxs("div", { children: [_jsxs("div", { className: "toggle-row", children: [_jsxs("div", { className: "toggle-label-group", children: [_jsx("div", { className: "toggle-title", children: "\u0410\u043B\u0435\u0440\u0442\u044B \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u044B" }), _jsx("div", { className: "toggle-desc", children: "\u041F\u043E\u043B\u0443\u0447\u0430\u0442\u044C \u0443\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F \u043E \u0441\u043E\u0431\u044B\u0442\u0438\u044F\u0445" })] }), _jsx("div", { className: `toggle-switch ${settings.is_active ? 'on' : ''}`, onClick: () => mutation.mutate({ ...settings, is_active: !settings.is_active }) })] }), _jsxs("div", { className: "toggle-row", children: [_jsxs("div", { className: "toggle-label-group", children: [_jsx("div", { className: "toggle-title", children: "\u041F\u043E\u0440\u043E\u0433 \u043D\u0438\u0437\u043A\u043E\u0439 \u043E\u0446\u0435\u043D\u043A\u0438" }), _jsx("div", { className: "toggle-desc", children: "\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u044F\u0442\u044C, \u0435\u0441\u043B\u0438 \u043E\u0446\u0435\u043D\u043A\u0430 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0430 \u043D\u0438\u0436\u0435 \u043F\u043E\u0440\u043E\u0433\u0430" })] }), _jsxs("select", { className: "select-pill", value: settings.score_threshold, onChange: (e) => mutation.mutate({ ...settings, score_threshold: Number(e.target.value) }), children: [_jsx("option", { value: 40, children: "40" }), _jsx("option", { value: 50, children: "50" }), _jsx("option", { value: 60, children: "60" }), _jsx("option", { value: 70, children: "70" })] })] }), mutation.isPending && (_jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }, children: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435..." }))] }));
+    if (isLoading)
+        return _jsx("div", { className: "muted", children: t('Загрузка...') });
+    if (!settings)
+        return _jsx("div", { className: "muted", children: t('Не удалось загрузить настройки') });
+    const save = (patch) => mutation.mutate({
+        score_threshold: settings.score_threshold,
+        no_activity_hours: settings.no_activity_hours,
+        email_recipients: settings.email_recipients || [],
+        is_active: settings.is_active,
+        ...patch,
+    });
+    const saveThreshold = () => {
+        const v = Math.round(Number(threshold));
+        if (Number.isFinite(v) && v >= 0 && v <= 100 && v !== settings.score_threshold)
+            save({ score_threshold: v });
+        else
+            setThreshold(String(settings.score_threshold));
+    };
+    const saveEmails = () => {
+        const list = emails.split(/[\s,;]+/).map((e) => e.trim()).filter(Boolean);
+        if (list.join(',') !== (settings.email_recipients || []).join(','))
+            save({ email_recipients: list });
+    };
+    return (_jsxs(_Fragment, { children: [_jsx(SetRow, { title: "\u041E\u043F\u043E\u0432\u0435\u0449\u0435\u043D\u0438\u044F \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u044B", desc: "\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F \u043E \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0430\u0445, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F", children: _jsx(Switch, { on: !!settings.is_active, label: t('Оповещения включены'), onChange: () => save({ is_active: !settings.is_active }) }) }), _jsx(SetRow, { title: "\u0411\u0430\u043B\u043B \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0430 \u043D\u0438\u0436\u0435", desc: "\u0420\u0430\u0437\u0433\u043E\u0432\u043E\u0440 \u043F\u043E\u043F\u0430\u0434\u0451\u0442 \u0432 \u00AB\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F\u00BB \u0438 \u0432 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u043D\u0430 \u0440\u0430\u0437\u0431\u043E\u0440", children: _jsx("input", { className: "set-num", type: "number", min: 0, max: 100, value: threshold, "aria-label": t('Порог балла'), onChange: (e) => setThreshold(e.target.value), onBlur: saveThreshold, onKeyDown: (e) => { if (e.key === 'Enter')
+                        saveThreshold(); } }) }), _jsx(SetRow, { title: "\u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B \u043E\u0431\u0449\u0435\u043D\u0438\u044F", desc: "\u0420\u0430\u0437\u0433\u043E\u0432\u043E\u0440 \u0441 \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0435\u043C \u0432\u0441\u0435\u0433\u0434\u0430 \u043F\u043E\u043F\u0430\u0434\u0430\u0435\u0442 \u0432 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u043D\u0430 \u0440\u0430\u0437\u0431\u043E\u0440", children: _jsx("span", { className: "flag is-good", children: t('Всегда') }) }), _jsx(SetRow, { title: "\u041F\u0438\u0441\u044C\u043C\u0430 \u043D\u0430 \u0430\u0434\u0440\u0435\u0441\u0430", desc: "\u0427\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E. \u041F\u0443\u0441\u0442\u043E \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0435", children: _jsx("input", { className: "set-text", type: "text", value: emails, placeholder: "director@shop.ru", "aria-label": t('Адреса для писем'), onChange: (e) => setEmails(e.target.value), onBlur: saveEmails, onKeyDown: (e) => { if (e.key === 'Enter')
+                        saveEmails(); } }) }), mutation.isPending && _jsx("div", { className: "set-saving", children: t('Сохранение...') }), mutation.isError && _jsx("div", { className: "set-error", children: t('Не удалось сохранить — нужны права директора или администратора') })] }));
 }

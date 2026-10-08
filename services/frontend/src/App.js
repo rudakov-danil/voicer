@@ -1,18 +1,21 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { LoginPage } from '@/pages/LoginPage';
-import { DashboardPage } from '@/pages/DashboardPage';
-import { ConversationsPage } from '@/pages/ConversationsPage';
-import { ConversationPage } from '@/pages/ConversationPage';
-import { TeamPage } from '@/pages/TeamPage';
-import { ScriptsPage } from '@/pages/ScriptsPage';
-import { AnalyticsPage } from '@/pages/AnalyticsPage';
-import { CompliancePage } from '@/pages/CompliancePage';
-import { SettingsPage } from '@/pages/SettingsPage';
-import { AdminPage } from '@/pages/AdminPage';
+// Страницы грузятся отдельными чанками: так первый экран не тянет весь интерфейс
+const page = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })));
+const DashboardPage = page(() => import('@/pages/DashboardPage'), 'DashboardPage');
+const ConversationsPage = page(() => import('@/pages/ConversationsPage'), 'ConversationsPage');
+const ConversationPage = page(() => import('@/pages/ConversationPage'), 'ConversationPage');
+const TeamPage = page(() => import('@/pages/TeamPage'), 'TeamPage');
+const ScriptsPage = page(() => import('@/pages/ScriptsPage'), 'ScriptsPage');
+const AnalyticsPage = page(() => import('@/pages/AnalyticsPage'), 'AnalyticsPage');
+const CompliancePage = page(() => import('@/pages/CompliancePage'), 'CompliancePage');
+const SettingsPage = page(() => import('@/pages/SettingsPage'), 'SettingsPage');
+const AdminPage = page(() => import('@/pages/AdminPage'), 'AdminPage');
 const queryClient = new QueryClient({
     defaultOptions: {
         queries: {

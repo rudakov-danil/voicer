@@ -14,7 +14,7 @@ import {
 import { MultiSelect } from '@/components/scripts/MultiSelect'
 import { HelpTooltip } from '@/components/scripts/HelpTooltip'
 import { HelpModal } from '@/components/scripts/HelpModal'
-import { HeatmapStrip } from '@/components/scripts/HeatmapStrip'
+import { ScriptBreakdown } from '@/components/scripts/ScriptBreakdown'
 import { StructuralDiff } from '@/components/scripts/StructuralDiff'
 import { CommandPalette } from '@/components/scripts/CommandPalette'
 import { SkeletonScriptCard, SkeletonAnalyticsRow } from '@/components/scripts/Skeleton'
@@ -1431,7 +1431,7 @@ function LiveTestDialog({
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ fontWeight: 500 }}>{s.step_name}</div>
                       <div style={{
-                        color: s.score >= 70 ? 'var(--success)' : s.score >= 40 ? '#F59E0B' : 'var(--danger)',
+                        color: s.score >= 70 ? 'var(--success)' : s.score >= 40 ? 'var(--warn)' : 'var(--danger)',
                         fontWeight: 600, fontSize: 14,
                       }}>{s.score}% (вес {s.weight})</div>
                     </div>
@@ -1560,8 +1560,9 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
             </div>
           </div>
 
-          <HeatmapStrip rows={data.per_step} />
-
+          {(data as any).script_type !== 'fulltext' ? (
+            <ScriptBreakdown templateId={templateId} days={days} perStep={data.per_step} />
+          ) : (<>
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
             {(data as any).script_type === 'fulltext' ? 'Детально по блокам' : 'Детально по этапам'}
             <HelpTooltip content={
@@ -1598,7 +1599,7 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
                   </div>
                 )
               }
-              const color = s.pass_rate >= 70 ? 'var(--success)' : s.pass_rate >= 40 ? '#F59E0B' : 'var(--danger)'
+              const color = s.pass_rate >= 70 ? 'var(--success)' : s.pass_rate >= 40 ? 'var(--warn)' : 'var(--danger)'
               return (
                 <div key={s.step_id} className="step-analytics" style={{ borderLeft: `3px solid ${color}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1619,6 +1620,7 @@ function AnalyticsPanel({ templateId }: { templateId: string }) {
               )
             })}
           </div>
+          </>)}
         </>
       )}
     </div>

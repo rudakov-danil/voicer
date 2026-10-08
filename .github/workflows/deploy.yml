@@ -1,0 +1,76 @@
+name: Deploy
+
+# Выкатка на прод по SSH. Запуск вручную: Actions → Deploy → Run workflow (или через API).
+#   check  — сервер не меняется: его состояние и список файлов, которые изменятся;
+#   deploy — бэкап БД, файлы services/, сборка и перезапуск сервисов, миграции, фронтенд.
+# Секреты репозитория: DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS, DEPLOY_HOST, DEPLOY_USER.
+# Переменная DEPLOY_PATH — каталог проекта на сервере (по умолчанию /home/voicer/voiceiq).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check — только посмотреть, deploy — выкатить"
+        type: choice
+        options: [check, deploy]
+        default: check
+      services:
+        description: "Сервисы для пересборки и перезапуска"
+        type: string
+        default: "dashboard-service dashboard-worker analytics-engine analytics-worker"
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      APP_DIR: ${{ vars.DEPLOY_PATH || '/home/voicer/voiceiq' }}
+      SERVICES: ${{ inputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: services/frontend/package-lock.json
+
+      - name: Сборка фронтенда
+        working-directory: services/frontend
+        run: npm ci && npm run build
+
+      - name: Доступ по SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          for v in SSH_KEY KNOWN_HOSTS HOST DEPLOY_USER; do
+            [ -n "${!v}" ] || { echo "::error::Не задан секрет для $v (см. комментарий в начале deploy.yml)"; exit 1; }
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host prod
+            HostName $HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 20
+            ServerAliveInterval 30
+          EOF
+          ssh prod true
+
+      - name: ${{ inputs.mode == 'deploy' && 'Выкатка' || 'Проверка' }}
+        run: .github/scripts/deploy.sh "${{ inputs.mode }}"

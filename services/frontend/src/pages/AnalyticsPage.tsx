@@ -7,6 +7,11 @@ import { useQuery } from '@tanstack/react-query'
 import { analyticsApi } from '@/api/analytics'
 import { DonutChartWidget } from '@/components/charts/DonutChartWidget'
 import { BarChartWidget } from '@/components/charts/BarChartWidget'
+import { dashboardApi } from '@/api/dashboard'
+import {
+  useInsights, StoreConversion, Drivers, Funnel, HourlyLoad, PriceAnswers, TalkScatter,
+} from '@/components/analytics/Insights'
+import { t } from '@/i18n'
 
 interface OutletContext { period: number }
 
@@ -82,9 +87,10 @@ function InfoTooltip({ children }: { children: ReactNode }) {
   )
 }
 
+// Категориальная палитра концепта: три основных цвета, дальше — шкала и нейтральные
 const OBJECTION_COLORS: Record<string, string> = {
-  price: '#EF4444', not_ready: '#F59E0B', competitors: '#3B82F6',
-  functionality: '#8B5CF6', quality: '#EC4899', trust: '#10B981', timing: '#6366F1',
+  price: '#4C6EF5', competitors: '#EB6834', timing: '#1BAF7A',
+  functionality: '#5873EC', not_ready: '#E8A317', quality: '#97ADFC', trust: '#5F6778',
 }
 const OBJECTION_LABELS: Record<string, string> = {
   price: 'Цена', not_ready: 'Не готов сейчас', competitors: 'Конкуренты',
@@ -96,9 +102,27 @@ const FUNNEL_COLORS = ['#5873EC', '#7890F6', '#97ADFC', '#B4C4FF', '#D2DCFF', '#
 export function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState('objections')
   const { period } = useOutletContext<OutletContext>()
+  const { data: insights } = useInsights(period)
+  const { data: trends } = useQuery({ queryKey: ['trends'], queryFn: () => dashboardApi.getTrends({ weeks: 12 }) })
 
   return (
     <div>
+      {/* Раскладка концепта (ui-concept/analytics.html) */}
+      <div className="an-a">
+        <StoreConversion trends={trends} />
+        <Drivers data={insights} />
+      </div>
+      <div className="an-b">
+        <Funnel data={insights} />
+        <HourlyLoad data={insights} />
+      </div>
+      <div className="an-c">
+        <PriceAnswers data={insights} />
+        <TalkScatter data={insights} />
+      </div>
+
+      {/* Подробные отчёты прежнего экрана */}
+      <h2 className="an-section">{t('Подробные отчёты')}</h2>
       <div className="tabs fade-in">
         {['objections', 'conversion', 'sentiment'].map((tab) => (
           <button key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`}

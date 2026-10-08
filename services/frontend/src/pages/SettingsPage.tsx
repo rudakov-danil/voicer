@@ -1,41 +1,176 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Copy, RefreshCw, Check } from 'lucide-react'
 import { adminApi } from '@/api/admin'
 import { authApi } from '@/api/auth'
 import { recorderApi } from '@/api/recorder'
 import { TELEPHONY_ENABLED, useOrganization, useTerms } from '@/lib/terms'
+import { initials } from '@/lib/format'
+import { t, L, isEn, setLang, plural } from '@/i18n'
+
+/* «Настройки» по концепту (ui-concept/settings.html): одна страница с разделами
+   и навигацией слева. Док-станций и интеграций нет — эти разделы концепта не переносим. */
+const SECTIONS = [
+  { id: 'org', label: 'Организация' },
+  { id: 'stores', label: 'Магазины' },
+  { id: 'users', label: 'Пользователи и роли' },
+  { id: 'alerts', label: 'Оповещения' },
+  { id: 'privacy', label: 'Приватность и хранение' },
+]
+
+const ROLE_LABELS: Record<string, string> = { director: 'Директор', admin: 'Администратор', rop: 'РОП', manager: 'Менеджер магазина' }
+const ROLE_NOTES: Array<[string, string]> = [
+  ['Директор', 'Видит всю сеть и все разделы.'],
+  ['Администратор', 'Пользователи, магазины, продавцы и настройки.'],
+  ['РОП', 'Аналитика и разборы по назначенным магазинам.'],
+  ['Менеджер магазина', 'Свой магазин: разговоры, продавцы и скрипты.'],
+]
 
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('privacy')
   const terms = useTerms()
+  const [current, setCurrent] = useState('org')
+  const go = (id: string) => {
+    setCurrent(id)
+    document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  const sections = [
+    ...SECTIONS,
+    ...(terms.isTelephony ? [{ id: 'telephony', label: 'Телефония' }] : []),
+  ]
 
   return (
-    <div className="card fade-in">
-      <div className="tabs">
-        {[
-          { key: 'privacy', label: 'Приватность' },
-          { key: 'notifications', label: 'Уведомления' },
-          // «Организация» сейчас содержит только выбор «магазины / телефония» — скрыта вместе с контуром
-          ...(TELEPHONY_ENABLED ? [{ key: 'organization', label: 'Организация' }] : []),
-          ...(terms.isTelephony ? [{ key: 'telephony', label: 'Телефония' }] : []),
-        ].map((tab) => (
-          <button key={tab.key}
-            className={`tab ${activeTab === tab.key ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
-          </button>
+    <div className="set-grid">
+      <nav className="set-nav" aria-label={t('Разделы настроек')}>
+        {sections.map((s) => (
+          <button key={s.id} type="button" aria-current={current === s.id ? 'true' : undefined} onClick={() => go(s.id)}>{t(s.label)}</button>
         ))}
-      </div>
-
-      <div style={{ padding: '24px' }}>
-        {activeTab === 'privacy' && <PrivacyTab />}
-        {activeTab === 'notifications' && <NotificationsTab />}
-        {activeTab === 'organization' && TELEPHONY_ENABLED && <OrganizationTab />}
-        {activeTab === 'telephony' && terms.isTelephony && <TelephonyTab />}
+      </nav>
+      <div className="set-body">
+        <OrgSection />
+        <StoresSection />
+        <UsersSection />
+        <section id="set-alerts" className="panel set-sec">
+          <div className="panel-head"><div><h2 className="panel-title">{t('Оповещения')}</h2><div className="panel-sub">{t('Когда разговор попадает в очередь на разбор и в уведомления')}</div></div></div>
+          <div className="panel-body"><NotificationsTab /></div>
+        </section>
+        <section id="set-privacy" className="panel set-sec">
+          <div className="panel-head"><div><h2 className="panel-title">{t('Приватность и хранение')}</h2><div className="panel-sub">{t('Запись разговоров в магазинах по 152-ФЗ')}</div></div></div>
+          <div className="panel-body"><PrivacyTab /></div>
+        </section>
+        {TELEPHONY_ENABLED && (
+          <section className="panel set-sec">
+            <div className="panel-head"><h2 className="panel-title">{t('Тип продаж')}</h2></div>
+            <div className="panel-body"><OrganizationTab /></div>
+          </section>
+        )}
+        {terms.isTelephony && (
+          <section id="set-telephony" className="panel set-sec">
+            <div className="panel-head"><h2 className="panel-title">{t('Телефония')}</h2></div>
+            <div className="panel-body"><TelephonyTab /></div>
+          </section>
+        )}
       </div>
     </div>
+  )
+}
+
+function SetRow({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
+  return (
+    <div className="set-row">
+      <div><div className="set-row-title">{t(title)}</div>{desc && <div className="set-row-desc">{t(desc)}</div>}</div>
+      <div className="set-row-ctl">{children}</div>
+    </div>
+  )
+}
+
+function OrgSection() {
+  const { data: org } = useOrganization()
+  return (
+    <section id="set-org" className="panel set-sec">
+      <div className="panel-head"><div><h2 className="panel-title">{t('Организация')}</h2><div className="panel-sub">{t('Общие данные и вид интерфейса')}</div></div></div>
+      <div className="panel-body">
+        <SetRow title="Название" desc="Видно в отчётах и письмах"><b translate="no">{org?.name || '—'}</b></SetRow>
+        <SetRow title="Часовой пояс" desc="Для графиков по часам и дням"><span>{t('Москва, UTC+3')}</span></SetRow>
+        <SetRow title="Язык интерфейса" desc="Меняется сразу для вашей учётной записи">
+          <div className="seg" role="group" aria-label={t('Язык интерфейса')}>
+            <button type="button" aria-pressed={!isEn} onClick={() => isEn && setLang('ru')} translate="no">Русский</button>
+            <button type="button" aria-pressed={isEn} onClick={() => !isEn && setLang('en')} translate="no">English</button>
+          </div>
+        </SetRow>
+      </div>
+    </section>
+  )
+}
+
+function StoresSection() {
+  const { data } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
+  const stores = data?.items || []
+  return (
+    <section id="set-stores" className="panel set-sec">
+      <div className="panel-head">
+        <div><h2 className="panel-title">{t('Магазины')}</h2><div className="panel-sub">{L(`${stores.length} ${plural(stores.length, ['магазин', 'магазина', 'магазинов'], ['', ''])} в сети`, `${stores.length} stores in the network`)}</div></div>
+        <Link className="btn btn-sm" to="/admin">{t('Добавить магазин')}</Link>
+      </div>
+      <div className="panel-body" style={{ paddingTop: 6 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th scope="col">{t('Магазин')}</th><th scope="col">{t('Адрес')}</th><th scope="col" className="t-right">{t('Продавцов')}</th></tr></thead>
+            <tbody>
+              {stores.map((s: any) => (
+                <tr key={s.id}>
+                  <td><b translate="no">{s.name}</b>{!s.is_active && <span className="muted"> · {t('отключён')}</span>}</td>
+                  <td translate="no">{s.address || '—'}</td>
+                  <td className="t-right t-num">{s.seller_count ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function UsersSection() {
+  const { data } = useQuery({ queryKey: ['admin-users'], queryFn: () => adminApi.getUsers() })
+  const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
+  const storeName = new Map((stores?.items || []).map((s: any) => [s.id, s.name]))
+  const users = data?.items || []
+  return (
+    <section id="set-users" className="panel set-sec">
+      <div className="panel-head">
+        <div><h2 className="panel-title">{t('Пользователи и роли')}</h2><div className="panel-sub">{t('Кто работает с аналитикой · продавцы добавляются в разделе «Администрирование»')}</div></div>
+        <Link className="btn btn-sm" to="/admin">{t('Пригласить')}</Link>
+      </div>
+      <div className="panel-body" style={{ paddingTop: 6 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th scope="col">{t('Пользователь')}</th><th scope="col">{t('Роль')}</th><th scope="col">{t('Доступ')}</th></tr></thead>
+            <tbody>
+              {users.map((u) => {
+                const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email
+                return (
+                  <tr key={u.id} className={u.is_active ? '' : 'is-off'}>
+                    <td>
+                      <span className="person">
+                        <span className="avatar" aria-hidden="true" translate="no">{initials(name)}</span>
+                        <span><span className="person-name" translate="no">{name}</span><span className="person-sub" translate="no">{u.email}</span></span>
+                      </span>
+                    </td>
+                    <td>{t(ROLE_LABELS[u.role] || u.role)}</td>
+                    <td>{u.store_id ? <span translate="no">{storeName.get(u.store_id) || '—'}</span> : t('Вся сеть')}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="set-roles">
+          {ROLE_NOTES.map(([role, note]) => <div key={role}><b>{t(role)}</b><span>{t(note)}</span></div>)}
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -401,128 +536,112 @@ function OperatorMappingEditor({ mapping, sellers, sellerLabel, onSave, isSaving
   )
 }
 
+function Switch({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} className="cv-switch" onClick={onChange}>
+      <span className="cv-switch-track" aria-hidden="true" />
+    </button>
+  )
+}
+
 function PrivacyTab() {
   const queryClient = useQueryClient()
-
   const { data: settings, isLoading } = useQuery({
     queryKey: ['privacy-settings'],
     queryFn: () => adminApi.getPrivacySettings(),
   })
-
   const mutation = useMutation({
     mutationFn: (data: any) => adminApi.updatePrivacySettings(data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['privacy-settings'] }),
   })
-
-  const toggle = (key: string) => {
-    if (!settings) return
-    mutation.mutate({
-      retention_days: settings.retention_days,
-      anonymize_transcripts: settings.anonymize_transcripts,
-      [key]: !settings[key],
-    })
-  }
-
-  if (isLoading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}><div className="spinner" /></div>
-  }
-
-  if (!settings) {
-    return <div style={{ padding: '20px', color: 'var(--text-muted)' }}>Не удалось загрузить настройки</div>
-  }
+  if (isLoading) return <div className="muted">{t('Загрузка...')}</div>
+  if (!settings) return <div className="muted">{t('Не удалось загрузить настройки')}</div>
+  const save = (patch: Record<string, unknown>) => mutation.mutate({
+    retention_days: settings.retention_days,
+    anonymize_transcripts: settings.anonymize_transcripts,
+    consent_required: settings.consent_required,
+    ...patch,
+  })
 
   return (
-    <div>
-      <div className="toggle-row">
-        <div className="toggle-label-group">
-          <div className="toggle-title">Анонимизация транскриптов</div>
-          <div className="toggle-desc">Удалять персональные данные из расшифровок</div>
+    <>
+      <SetRow title="Скрывать номера карт, телефонов и паспортов" desc="ИИ убирает персональные данные из расшифровок при анализе">
+        <Switch on={!!settings.anonymize_transcripts} label={t('Скрывать персональные данные')} onChange={() => save({ anonymize_transcripts: !settings.anonymize_transcripts })} />
+      </SetRow>
+      <SetRow title="Требовать согласие сотрудников на запись" desc="Отметка о согласии продавца хранится в настройках организации">
+        <Switch on={!!settings.consent_required} label={t('Требовать согласие на запись')} onChange={() => save({ consent_required: !settings.consent_required })} />
+      </SetRow>
+      <SetRow title="Хранить записи и расшифровки" desc="Срок хранения записей разговоров">
+        <div className="seg" role="group" aria-label={t('Срок хранения')}>
+          {([[30, '30 дней'], [90, '90 дней'], [180, '180 дней'], [365, '1 год']] as const).map(([d, label]) => (
+            <button key={d} type="button" aria-pressed={settings.retention_days === d} onClick={() => save({ retention_days: d })}>{t(label)}</button>
+          ))}
         </div>
-        <div className={`toggle-switch ${settings.anonymize_transcripts ? 'on' : ''}`}
-          onClick={() => toggle('anonymize_transcripts')} />
-      </div>
-
-      <div className="toggle-row" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="toggle-label-group">
-          <div className="toggle-title">Срок хранения данных</div>
-          <div className="toggle-desc">Автоматически удалять записи через указанный срок</div>
-        </div>
-        <select
-          className="select-pill"
-          value={settings.retention_days}
-          onChange={(e) => mutation.mutate({
-            ...settings,
-            retention_days: Number(e.target.value),
-          })}
-        >
-          <option value={30}>30 дней</option>
-          <option value={60}>60 дней</option>
-          <option value={90}>90 дней</option>
-          <option value={180}>180 дней</option>
-          <option value={365}>1 год</option>
-        </select>
-      </div>
-
-      {mutation.isPending && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>Сохранение...</div>
-      )}
-    </div>
+      </SetRow>
+      {mutation.isPending && <div className="set-saving">{t('Сохранение...')}</div>}
+      {mutation.isError && <div className="set-error">{t('Не удалось сохранить — нужны права директора или администратора')}</div>}
+    </>
   )
 }
 
 function NotificationsTab() {
   const queryClient = useQueryClient()
-
   const { data: settings, isLoading } = useQuery({
     queryKey: ['alert-settings'],
     queryFn: () => adminApi.getAlertSettings(),
   })
-
+  const [threshold, setThreshold] = useState('')
+  const [emails, setEmails] = useState('')
+  useEffect(() => {
+    if (!settings) return
+    setThreshold(String(settings.score_threshold ?? ''))
+    setEmails((settings.email_recipients || []).join(', '))
+  }, [settings])
   const mutation = useMutation({
     mutationFn: (data: any) => adminApi.updateAlertSettings(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['alert-settings'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alert-settings'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-notifications'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    },
   })
-
-  if (isLoading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}><div className="spinner" /></div>
+  if (isLoading) return <div className="muted">{t('Загрузка...')}</div>
+  if (!settings) return <div className="muted">{t('Не удалось загрузить настройки')}</div>
+  const save = (patch: Record<string, unknown>) => mutation.mutate({
+    score_threshold: settings.score_threshold,
+    no_activity_hours: settings.no_activity_hours,
+    email_recipients: settings.email_recipients || [],
+    is_active: settings.is_active,
+    ...patch,
+  })
+  const saveThreshold = () => {
+    const v = Math.round(Number(threshold))
+    if (Number.isFinite(v) && v >= 0 && v <= 100 && v !== settings.score_threshold) save({ score_threshold: v })
+    else setThreshold(String(settings.score_threshold))
   }
-
-  if (!settings) {
-    return <div style={{ padding: '20px', color: 'var(--text-muted)' }}>Не удалось загрузить настройки</div>
+  const saveEmails = () => {
+    const list = emails.split(/[\s,;]+/).map((e) => e.trim()).filter(Boolean)
+    if (list.join(',') !== (settings.email_recipients || []).join(',')) save({ email_recipients: list })
   }
 
   return (
-    <div>
-      <div className="toggle-row">
-        <div className="toggle-label-group">
-          <div className="toggle-title">Алерты включены</div>
-          <div className="toggle-desc">Получать уведомления о событиях</div>
-        </div>
-        <div className={`toggle-switch ${settings.is_active ? 'on' : ''}`}
-          onClick={() => mutation.mutate({ ...settings, is_active: !settings.is_active })} />
-      </div>
-
-      <div className="toggle-row">
-        <div className="toggle-label-group">
-          <div className="toggle-title">Порог низкой оценки</div>
-          <div className="toggle-desc">Уведомлять, если оценка разговора ниже порога</div>
-        </div>
-        <select
-          className="select-pill"
-          value={settings.score_threshold}
-          onChange={(e) => mutation.mutate({ ...settings, score_threshold: Number(e.target.value) })}
-        >
-          <option value={40}>40</option>
-          <option value={50}>50</option>
-          <option value={60}>60</option>
-          <option value={70}>70</option>
-        </select>
-      </div>
-
-      {mutation.isPending && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>Сохранение...</div>
-      )}
-    </div>
+    <>
+      <SetRow title="Оповещения включены" desc="Уведомления о разговорах, которые требуют внимания">
+        <Switch on={!!settings.is_active} label={t('Оповещения включены')} onChange={() => save({ is_active: !settings.is_active })} />
+      </SetRow>
+      <SetRow title="Балл разговора ниже" desc="Разговор попадёт в «Требуют внимания» и в очередь на разбор">
+        <input className="set-num" type="number" min={0} max={100} value={threshold} aria-label={t('Порог балла')}
+          onChange={(e) => setThreshold(e.target.value)} onBlur={saveThreshold} onKeyDown={(e) => { if (e.key === 'Enter') saveThreshold() }} />
+      </SetRow>
+      <SetRow title="Нарушение правил общения" desc="Разговор с нарушением всегда попадает в очередь на разбор">
+        <span className="flag is-good">{t('Всегда')}</span>
+      </SetRow>
+      <SetRow title="Письма на адреса" desc="Через запятую. Пусто — только в интерфейсе">
+        <input className="set-text" type="text" value={emails} placeholder="director@shop.ru" aria-label={t('Адреса для писем')}
+          onChange={(e) => setEmails(e.target.value)} onBlur={saveEmails} onKeyDown={(e) => { if (e.key === 'Enter') saveEmails() }} />
+      </SetRow>
+      {mutation.isPending && <div className="set-saving">{t('Сохранение...')}</div>}
+      {mutation.isError && <div className="set-error">{t('Не удалось сохранить — нужны права директора или администратора')}</div>}
+    </>
   )
 }
-

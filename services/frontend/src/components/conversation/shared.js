@@ -8,7 +8,7 @@ import { dashboardApi } from '@/api/dashboard';
 import { analyticsApi } from '@/api/analytics';
 import { scriptsApi } from '@/api/scripts';
 import { OutcomeTag } from '@/components/OutcomeTag';
-import { ScoreBadge } from '@/components/ScoreBadge';
+import { Meter } from '@/components/ui/Meter';
 import { highlightRulesForSell, analyzeSell, } from '@/components/scripts/conversationHelpers';
 export const OUTCOME_LABELS = {
     purchase: 'Покупка',
@@ -41,7 +41,7 @@ export function DirectionIcon({ direction }) {
     if (direction === 'inbound')
         return _jsx(PhoneIncoming, { size: 13, style: { color: 'var(--success)', flexShrink: 0 }, "aria-label": "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0439" });
     if (direction === 'outbound')
-        return _jsx(PhoneOutgoing, { size: 13, style: { color: '#6366F1', flexShrink: 0 }, "aria-label": "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0439" });
+        return _jsx(PhoneOutgoing, { size: 13, style: { color: 'var(--accent)', flexShrink: 0 }, "aria-label": "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0439" });
     return null;
 }
 export const OBJECTION_TYPE_LABELS = {
@@ -134,6 +134,24 @@ export function SummaryMarkdown({ text }) {
     flushBullets();
     return _jsx("div", { style: { fontSize: 13.5, color: 'var(--text-secondary)' }, children: out });
 }
+// ─── Резюме по секциям ───────────────────────────────────────────────────────
+/* Резюме приходит Markdown-абзацами с заголовками (промпт analytics-engine, SUMMARY_SYSTEM_PROMPT):
+   «Итог», «Риск претензии», «Что сработало», «Что поправить». Старые резюме другого вида
+   показываем как есть. */
+const SUMMARY_SECTIONS = ['Итог', 'Риск претензии', 'Что сработало', 'Что поправить'];
+const SUMMARY_HEAD = /\*\*\s*(Итог|Риск претензии|Что сработало|Что поправить)\s*:?\s*\*\*\s*:?/gi;
+export function parseSummary(text) {
+    const parts = {};
+    const heads = [...text.matchAll(SUMMARY_HEAD)];
+    heads.forEach((m, i) => {
+        const key = SUMMARY_SECTIONS.find((k) => k.toLowerCase() === m[1].toLowerCase());
+        const body = text.slice((m.index ?? 0) + m[0].length, i + 1 < heads.length ? heads[i + 1].index : undefined).trim();
+        if (key && body)
+            parts[key] = body;
+    });
+    return Object.keys(parts).length >= 2 ? parts : null;
+}
+export const isNoneSection = (s) => !s || /^нет\.?$/i.test(s.trim());
 // ─── История обращений с того же номера клиента ──────────────────────────────
 export function ClientHistory({ conversationId, onSelect }) {
     const [open, setOpen] = useState(false);
@@ -161,7 +179,7 @@ export function ClientHistory({ conversationId, onSelect }) {
                             borderTop: '1px solid var(--border)',
                             cursor: it.is_current ? 'default' : 'pointer',
                             background: it.is_current ? 'var(--bg-active, rgba(99,102,241,0.08))' : 'transparent',
-                        }, children: [_jsx(DirectionIcon, { direction: it.call_direction }), _jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [_jsxs("div", { style: { fontSize: 13, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }, children: [dateStr, it.is_current && _jsx("span", { style: { fontSize: 11, color: 'var(--primary)', fontWeight: 600 }, children: "\u00B7 \u0442\u0435\u043A\u0443\u0449\u0438\u0439" })] }), _jsxs("div", { style: { fontSize: 11.5, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: [it.topic || '—', it.seller_name ? ` · ${it.seller_name}` : '', it.duration_seconds ? ` · ${mins}:${String(secs).padStart(2, '0')}` : ''] })] }), _jsx(OutcomeTag, { outcome: it.outcome || 'unknown' }), it.overall_score != null && _jsx(ScoreBadge, { score: it.overall_score })] }, it.id));
+                        }, children: [_jsx(DirectionIcon, { direction: it.call_direction }), _jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [_jsxs("div", { style: { fontSize: 13, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }, children: [dateStr, it.is_current && _jsx("span", { style: { fontSize: 11, color: 'var(--primary)', fontWeight: 600 }, children: "\u00B7 \u0442\u0435\u043A\u0443\u0449\u0438\u0439" })] }), _jsxs("div", { style: { fontSize: 11.5, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: [it.topic || '—', it.seller_name ? ` · ${it.seller_name}` : '', it.duration_seconds ? ` · ${mins}:${String(secs).padStart(2, '0')}` : ''] })] }), _jsx(OutcomeTag, { outcome: it.outcome || 'unknown' }), it.overall_score != null && _jsx(Meter, { score: it.overall_score })] }, it.id));
                 }) }))] }));
 }
 // ─── Вкладка «Резюме диалога» (генерируется LLM по запросу) ───────────────────

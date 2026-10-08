@@ -7,7 +7,7 @@ import { dashboardApi } from '@/api/dashboard'
 import { analyticsApi } from '@/api/analytics'
 import { scriptsApi } from '@/api/scripts'
 import { OutcomeTag } from '@/components/OutcomeTag'
-import { ScoreBadge } from '@/components/ScoreBadge'
+import { Meter } from '@/components/ui/Meter'
 import {
   highlightRulesForSell,
   analyzeSell,
@@ -46,7 +46,7 @@ export const CALL_CATEGORY_LABELS: Record<string, string> = {
 
 export function DirectionIcon({ direction }: { direction?: string | null }) {
   if (direction === 'inbound') return <PhoneIncoming size={13} style={{ color: 'var(--success)', flexShrink: 0 }} aria-label="Входящий" />
-  if (direction === 'outbound') return <PhoneOutgoing size={13} style={{ color: '#6366F1', flexShrink: 0 }} aria-label="Исходящий" />
+  if (direction === 'outbound') return <PhoneOutgoing size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} aria-label="Исходящий" />
   return null
 }
 
@@ -213,6 +213,29 @@ export function SummaryMarkdown({ text }: { text: string }) {
   return <div style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>{out}</div>
 }
 
+// ─── Резюме по секциям ───────────────────────────────────────────────────────
+/* Резюме приходит Markdown-абзацами с заголовками (промпт analytics-engine, SUMMARY_SYSTEM_PROMPT):
+   «Итог», «Риск претензии», «Что сработало», «Что поправить». Старые резюме другого вида
+   показываем как есть. */
+const SUMMARY_SECTIONS = ['Итог', 'Риск претензии', 'Что сработало', 'Что поправить'] as const
+type SummarySection = (typeof SUMMARY_SECTIONS)[number]
+const SUMMARY_HEAD = /\*\*\s*(Итог|Риск претензии|Что сработало|Что поправить)\s*:?\s*\*\*\s*:?/gi
+
+export type SummaryParts = Partial<Record<SummarySection, string>>
+
+export function parseSummary(text: string): SummaryParts | null {
+  const parts: SummaryParts = {}
+  const heads = [...text.matchAll(SUMMARY_HEAD)]
+  heads.forEach((m, i) => {
+    const key = SUMMARY_SECTIONS.find((k) => k.toLowerCase() === m[1].toLowerCase())
+    const body = text.slice((m.index ?? 0) + m[0].length, i + 1 < heads.length ? heads[i + 1].index : undefined).trim()
+    if (key && body) parts[key] = body
+  })
+  return Object.keys(parts).length >= 2 ? parts : null
+}
+
+export const isNoneSection = (s?: string) => !s || /^нет\.?$/i.test(s.trim())
+
 // ─── История обращений с того же номера клиента ──────────────────────────────
 export function ClientHistory({ conversationId, onSelect }: {
   conversationId: string
@@ -273,7 +296,7 @@ export function ClientHistory({ conversationId, onSelect }: {
                   </div>
                 </div>
                 <OutcomeTag outcome={it.outcome || 'unknown'} />
-                {it.overall_score != null && <ScoreBadge score={it.overall_score} />}
+                {it.overall_score != null && <Meter score={it.overall_score} />}
               </div>
             )
           })}

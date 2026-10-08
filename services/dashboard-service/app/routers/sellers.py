@@ -1,12 +1,13 @@
 import uuid
 from datetime import date, timedelta
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.database import get_db
 from app.dependencies import get_current_user, org_store_conditions
 from app import redis_client as rc
 from app.config import settings
+from app import fingerprint as fp
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["sellers"])
 
@@ -59,8 +60,13 @@ async def list_sellers(
                 COALESCE(
                     SUM(CASE WHEN is_scorable AND outcome = 'purchase' THEN 1 ELSE 0 END)::FLOAT
                     / NULLIF(SUM(CASE WHEN is_scorable THEN 1 ELSE 0 END), 0),
-                0) AS conversion_rate
-            FROM analytics.conversations
+                0) AS conversion_rate,
+                SUM(CASE WHEN is_scorable AND outcome = 'purchase' THEN 1 ELSE 0 END) AS purchases,
+                SUM(CASE WHEN is_scorable THEN 1 ELSE 0 END) AS scorable,
+                COUNT(*) FILTER (WHERE EXISTS(
+                    SELECT 1 FROM analytics.conversation_compliance_violations v WHERE v.conversation_id = cc.id
+                )) AS with_violations
+            FROM analytics.conversations cc
             WHERE organization_id = :org_id
               AND session_date BETWEEN :date_from AND :date_to
               {store_filter}
@@ -81,6 +87,9 @@ async def list_sellers(
             c.total_conversations,
             c.avg_score,
             c.conversion_rate,
+            c.purchases,
+            c.scorable,
+            c.with_violations,
             COALESCE(p.prev_avg_score, 0) AS prev_avg_score,
             s.first_name AS seller_first_name,
             s.last_name AS seller_last_name,
@@ -139,6 +148,9 @@ async def list_sellers(
             "total_conversations": row.total_conversations,
             "avg_score": round(curr, 1),
             "conversion_rate": round(float(row.conversion_rate), 4),
+            "purchases": int(row.purchases or 0),
+            "scorable": int(row.scorable or 0),
+            "with_violations": int(row.with_violations or 0),
             "score_trend": trend,
             "weakest_step": seller_steps.get(sid, {}).get("name"),
         })
@@ -363,4 +375,135 @@ async def seller_detail(
             {"date": str(r.session_date), "avg_score": round(float(r.avg_score), 1)}
             for r in chart_rows
         ],
+    }
+
+
+def _median(values: list[float]) -> float | None:
+    vals = sorted(values)
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    return vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
+
+
+@router.get("/sellers/{seller_id}/benchmark")
+async def seller_benchmark(
+    seller_id: uuid.UUID,
+    date_from: date = Query(default=None),
+    date_to: date = Query(default=None),
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Продавец против сети по этапам основного скрипта (ui-concept/team.html):
+    балл продавца, медиана сети, кто лучше всех и разговор-пример на этом этапе.
+    Зоны развития — самые слабые этапы продавца."""
+    org_id, forced_store_id = org_store_conditions(user)
+    date_to = date_to or date.today()
+    date_from = date_from or date_to - timedelta(days=30)
+    params: dict = {"org_id": uuid.UUID(org_id), "seller_id": seller_id, "date_from": date_from, "date_to": date_to}
+    scope = "c.organization_id = :org_id AND c.session_date BETWEEN :date_from AND :date_to AND c.is_scorable"
+    if forced_store_id:
+        scope += " AND c.store_id = :store_id"
+        params["store_id"] = forced_store_id
+
+    seller = (await db.execute(text("""
+        SELECT s.id, s.first_name, s.last_name, s.created_at, st.name AS store_name
+        FROM admin_schema.sellers s
+        LEFT JOIN admin_schema.stores st ON st.id = s.store_id
+        WHERE s.id = :seller_id AND s.organization_id = :org_id
+    """), params)).fetchone()
+    if not seller:
+        raise HTTPException(status_code=404, detail="Seller not found")
+
+    # Основной скрипт продавца за период — по числу оценённых разговоров
+    tpl = (await db.execute(text(f"""
+        SELECT cs.script_template_id AS id, t.name, COUNT(DISTINCT cs.conversation_id) AS n
+        FROM analytics.conversation_scores cs
+        JOIN analytics.conversations c ON c.id = cs.conversation_id
+        LEFT JOIN scripts.script_templates t ON t.id = cs.script_template_id
+        WHERE {scope} AND c.seller_id = :seller_id
+        GROUP BY 1, 2 ORDER BY n DESC LIMIT 1
+    """), params)).fetchone()
+    base = {"seller_since": seller.created_at, "script": None, "steps": []}
+    if not tpl:
+        return base
+    params["tpl"] = tpl.id
+
+    per_seller = (await db.execute(text(f"""
+        SELECT cs.step_name, c.seller_id, AVG(cs.score) AS avg_score, COUNT(*) AS n,
+               TRIM(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')) AS seller_name
+        FROM analytics.conversation_scores cs
+        JOIN analytics.conversations c ON c.id = cs.conversation_id
+        LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
+        WHERE {scope} AND cs.script_template_id = :tpl
+        GROUP BY cs.step_name, c.seller_id, s.first_name, s.last_name
+    """), params)).fetchall()
+    meta = {r.name: r for r in (await db.execute(text("""
+        SELECT name, step_order, COALESCE(recommendation_text, description) AS hint
+        FROM scripts.script_steps WHERE template_id = :tpl
+    """), params)).fetchall()}
+
+    by_step: dict = {}
+    for r in per_seller:
+        by_step.setdefault(r.step_name, []).append(r)
+
+    steps = []
+    for name, rows in by_step.items():
+        mine = next((r for r in rows if r.seller_id == seller_id), None)
+        if mine is None:
+            continue
+        others = [float(r.avg_score) for r in rows]
+        best = max(rows, key=lambda r: (float(r.avg_score), r.n))
+        steps.append({
+            "name": name,
+            "order": meta[name].step_order if name in meta else None,
+            "hint": meta[name].hint if name in meta else None,
+            "seller": round(float(mine.avg_score), 1),
+            "samples": mine.n,
+            "median": round(_median(others), 1) if others else None,
+            "best": {"seller_id": best.seller_id, "name": best.seller_name or None, "score": round(float(best.avg_score), 1)},
+        })
+    # Если в скрипте есть текущие этапы — убираем этапы прежних версий
+    if meta:
+        steps = [s for s in steps if s["name"] in meta]
+    steps.sort(key=lambda s: (s["order"] is None, s["order"] or 0, s["name"]))
+
+    # Зоны развития — до трёх самых слабых этапов с баллом ниже 90.
+    # Для каждой — разговор-пример: лучший балл этапа в сети, с цитатой.
+    weakest = sorted((s for s in steps if s["seller"] < 90), key=lambda s: s["seller"])[:3]
+    for st in weakest:
+        ex = (await db.execute(text(f"""
+            SELECT c.id, c.transcript_id, cs.score, cs.evidence_text,
+                   TRIM(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')) AS seller_name
+            FROM analytics.conversation_scores cs
+            JOIN analytics.conversations c ON c.id = cs.conversation_id
+            LEFT JOIN admin_schema.sellers s ON s.id = c.seller_id
+            WHERE {scope} AND cs.script_template_id = :tpl AND cs.step_name = :step
+              AND cs.evidence_text IS NOT NULL AND cs.evidence_text <> ''
+            ORDER BY cs.score DESC, c.session_date DESC
+            LIMIT 1
+        """), {**params, "step": st["name"]})).fetchone()
+        if not ex:
+            continue
+        t = None
+        if ex.transcript_id:
+            segs = (await db.execute(text("""
+                SELECT start_ms, text FROM transcription.transcript_segments
+                WHERE transcript_id = :tid ORDER BY segment_index
+            """), {"tid": ex.transcript_id})).fetchall()
+            t = fp.locate(ex.evidence_text, segs)
+        st["example"] = {
+            "conversation_id": ex.id,
+            "seller_name": ex.seller_name or None,
+            "score": round(float(ex.score), 1),
+            "evidence": ex.evidence_text,
+            "t": round(t) if t is not None else None,
+        }
+    zone_names = [s["name"] for s in weakest]
+
+    return {
+        "seller_since": seller.created_at,
+        "script": {"id": tpl.id, "name": tpl.name},
+        "steps": steps,
+        "zones": zone_names,
     }
