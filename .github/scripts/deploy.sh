@@ -97,6 +97,9 @@ case $MODE in
   logs)
     remote logs
     ;;
+  worker-log)
+    remote worker-log
+    ;;
   rediarize)
     [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
       || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }

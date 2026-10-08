@@ -236,6 +236,14 @@ PY
       | grep -iE 'error|exception|traceback|denied|forbidden|40[13]|failed' | cut -c1-240 | tail -15 || true
   done
   ;;
+worker-log)
+  # Полный журнал сервисов за 15 минут, строки обрезаны. Лог запуска стоит удалить после чтения
+  need_dc
+  for svc in $SERVICES; do
+    echo "== $svc"
+    $DC logs --since 15m --no-log-prefix "$svc" 2>&1 | cut -c1-200 | tail -80 || true
+  done
+  ;;
 logs)
   # Ошибки сервисов за 30 минут, очереди и последние записи. Строки обрезаем: в логах бывает текст разговоров
   need_dc
