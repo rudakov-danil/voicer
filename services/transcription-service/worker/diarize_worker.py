@@ -8,12 +8,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.diarization import diarize_segments, identify_speaker_roles
+from app.diarization import diarize_segments, identify_speaker_roles, roles_by_talk_time
 from app.llm_client import get_llm_client
 from app.models import Transcript, TranscriptSegment
 from app.rabbitmq import publish
 
 logger = logging.getLogger(__name__)
+
+# Временно: роли только по диаризации Deepgram, без LLM — проверяем, как она справляется одна.
+# Вернуть LLM: True.
+ROLES_BY_LLM = False
 
 
 async def process_diarize_message(
@@ -78,10 +82,16 @@ async def process_diarize_message(
             logger.info(
                 f"Starting diarization of {len(seg_dicts)} segments for transcript_id={transcript_id}, "
                 f"unique_speaker_ids={len(unique_speaker_ids)}, "
-                f"strategy={'cluster' if use_cluster else 'text-fallback'}"
+                f"strategy={'deepgram-only' if not ROLES_BY_LLM else 'cluster' if use_cluster else 'text-fallback'}"
             )
 
-            if use_cluster:
+            if not ROLES_BY_LLM:
+                roles = roles_by_talk_time(seg_dicts)
+                logger.info(
+                    f"Roles by Deepgram speakers only (no LLM): "
+                    f"seller={roles.count('seller')}, customer={roles.count('customer')}, unknown={roles.count('unknown')}"
+                )
+            elif use_cluster:
                 # Кластерная: один LLM-запрос «кто из спикеров — работник»
                 speaker_roles = await identify_speaker_roles(seg_dicts, seller_name, llm_client)
                 roles = []

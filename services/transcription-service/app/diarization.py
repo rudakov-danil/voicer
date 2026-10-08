@@ -223,6 +223,23 @@ DIARIZE_CHUNK_SIZE = 20
 ROLE_MAP = {"s": "seller", "c": "customer", "u": "unknown"}
 
 
+def roles_by_talk_time(segments: list[dict]) -> list[str]:
+    """Роли без LLM, только по спикерам Deepgram: продавец — тот, кто говорит дольше всех
+    (бейдж висит на продавце), остальные — покупатели. Сегменты без speaker_id — unknown."""
+    talk: dict = {}
+    for s in segments:
+        sid = s.get("speaker_id")
+        if sid is not None:
+            talk[sid] = talk.get(sid, 0) + max(0, (s.get("end_ms") or 0) - (s.get("start_ms") or 0))
+    if not talk:
+        return ["unknown"] * len(segments)
+    seller = max(talk, key=talk.get)
+    return [
+        "unknown" if s.get("speaker_id") is None else ("seller" if s.get("speaker_id") == seller else "customer")
+        for s in segments
+    ]
+
+
 # Если разговор длиннее этого — фолбэк на чанкинг (страховка от переполнения контекста LLM).
 # 250 сегментов это примерно 15-25 минут непрерывного диалога.
 DIARIZE_SINGLE_PASS_LIMIT = 250
