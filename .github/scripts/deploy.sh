@@ -88,6 +88,9 @@ case $MODE in
   verify)
     remote verify
     ;;
+  llm-test)
+    remote llm-test
+    ;;
   reanalyze)
     [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
       || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }

@@ -4,6 +4,7 @@
 #   apply   — сборка сервисов, миграции analytics-engine, перезапуск
 #   verify  — новые эндпоинты отвечают через nginx (без изменений на сервере)
 #   reanalyze — повторный анализ записей ($REANALYZE) и ошибки воркера
+#   llm-test — тестовый запрос к модели с текущими настройками .env
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -103,6 +104,39 @@ reanalyze)
   echo "== analytics-worker за 10 минут: ошибки и вызовы модели"
   $DC logs --since 10m --no-log-prefix analytics-worker 2>&1 \
     | grep -iE 'error|exception|traceback|failed|warn|llm|status code|analy[sz]ed' | tail -40 || true
+  ;;
+llm-test)
+  # Отдельный контейнер с текущим .env: работающие сервисы не трогаем
+  need_dc
+  $DC run --rm -T --no-deps analytics-engine python - <<'PY' || true
+import asyncio, time
+from app.config import settings
+from app.llm_client import get_llm_client
+
+async def ask(**kw):
+    t = time.monotonic()
+    try:
+        r = await get_llm_client().chat.completions.create(model=settings.LLM_MODEL_NAME, temperature=0, max_tokens=200, **kw)
+    except Exception as e:
+        print(f"  ошибка: {type(e).__name__}: {e}")
+        return
+    c = r.choices[0]
+    print(f"  за {time.monotonic() - t:.1f} с, finish_reason={c.finish_reason}, модель в ответе: {r.model}")
+    print(f"  ответ: {c.message.content!r}")
+    print(f"  токены: {r.usage.prompt_tokens if r.usage else '?'} на входе, {r.usage.completion_tokens if r.usage else '?'} на выходе")
+
+async def main():
+    print(f"Сервер: {settings.LLM_SERVER_URL}, модель: {settings.LLM_MODEL_NAME}, "
+          f"ключ задан: {bool(settings.LLM_API_KEY) and settings.LLM_API_KEY != 'ollama'}, folder: {settings.LLM_FOLDER_ID or 'пусто'}")
+    print("Обычный запрос:")
+    await ask(messages=[{"role": "user", "content": "Ответь одним словом: столица Казахстана?"}])
+    print("JSON-режим, как в анализе:")
+    await ask(messages=[{"role": "system", "content": "Отвечай только JSON."},
+                        {"role": "user", "content": 'Верни {"ok": true, "city": "<столица Казахстана>"}'}],
+              response_format={"type": "json_object"})
+
+asyncio.run(main())
+PY
   ;;
 *)
   echo "Неизвестный этап: $1"

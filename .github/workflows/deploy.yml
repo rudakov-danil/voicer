@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "check — только посмотреть, deploy — выкатить, verify — проверить выкаченное, reanalyze — повторный анализ"
+        description: "check — только посмотреть, deploy — выкатить, verify — проверить выкаченное, reanalyze — повторный анализ, llm-test — тестовый запрос к модели"
         type: choice
-        options: [check, deploy, verify, reanalyze]
+        options: [check, deploy, verify, reanalyze, llm-test]
         default: check
       services:
         description: "Сервисы для пересборки и перезапуска"
