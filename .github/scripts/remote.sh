@@ -127,7 +127,7 @@ from app.llm_client import get_llm_client
 async def ask(**kw):
     t = time.monotonic()
     try:
-        r = await get_llm_client().chat.completions.create(model=settings.LLM_MODEL_NAME, temperature=0, max_tokens=200, **kw)
+        r = await get_llm_client().chat.completions.create(model=settings.LLM_MODEL_NAME, temperature=0, **kw)
     except Exception as e:
         print(f"  ошибка: {type(e).__name__}: {e}")
         return
@@ -135,6 +135,7 @@ async def ask(**kw):
     print(f"  за {time.monotonic() - t:.1f} с, finish_reason={c.finish_reason}, модель в ответе: {r.model}")
     print(f"  ответ: {c.message.content!r}")
     print(f"  токены: {r.usage.prompt_tokens if r.usage else '?'} на входе, {r.usage.completion_tokens if r.usage else '?'} на выходе")
+    print(f"  рассуждения в ответе: {'да' if getattr(c.message, 'reasoning', None) else 'нет'}")
 
 def key_format(k: str) -> str:
     # Только признаки формата, сам ключ не печатаем
