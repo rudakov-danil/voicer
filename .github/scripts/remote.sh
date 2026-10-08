@@ -244,6 +244,21 @@ worker-log)
     $DC logs --since 15m --no-log-prefix "$svc" 2>&1 | cut -c1-200 | tail -80 || true
   done
   ;;
+conv-info)
+  # Служебные поля последних разговоров, без текста
+  need_dc
+  $DC exec -T postgres psql -U voiceiq -d voiceiq -x -c "
+    SELECT c.recording_id, c.analyzed_at, c.outcome, c.outcome_confidence, c.topic IS NOT NULL AS has_topic,
+           c.call_category, c.is_scorable, c.llm_model, c.sentiment_avg, c.overall_score,
+           (SELECT count(*) FROM transcription.transcript_segments s WHERE s.transcript_id = c.transcript_id) AS segments,
+           (SELECT string_agg(r || ':' || n, ' ') FROM (SELECT s.speaker_role r, count(*) n FROM transcription.transcript_segments s
+              WHERE s.transcript_id = c.transcript_id GROUP BY 1) x) AS roles,
+           (SELECT length(t.full_text) FROM transcription.transcripts t WHERE t.id = c.transcript_id) AS text_len,
+           (SELECT t.language FROM transcription.transcripts t WHERE t.id = c.transcript_id) AS lang,
+           (SELECT count(*) FROM analytics.conversation_script_results r WHERE r.conversation_id = c.id) AS scripts,
+           (SELECT count(*) FROM analytics.conversation_scores sc WHERE sc.conversation_id = c.id) AS step_scores
+    FROM analytics.conversations c ORDER BY c.analyzed_at DESC LIMIT 4" 2>&1 || true
+  ;;
 logs)
   # Ошибки сервисов за 30 минут, очереди и последние записи. Строки обрезаем: в логах бывает текст разговоров
   need_dc
