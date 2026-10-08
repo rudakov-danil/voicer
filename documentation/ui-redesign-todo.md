@@ -61,9 +61,10 @@
 ## Осталось сделать
 
 ### 1. Выкатка на прод (Yandex Cloud, 185.32.85.82)
-- [ ] Фронтенд: `npm run build` локально, затем rsync в `/home/voicer/voiceiq` (см. заметки по деплою).
+- [ ] Настроить выкатку через GitHub Actions: ключ, секреты, workflow в `main` (раздел «Выкатка через GitHub Actions» в `DEPLOY.md`). Дальше пункты ниже делает `deploy.yml` в режиме `deploy`; сначала запустить `check`.
+- [ ] Фронтенд: собрать и положить в `services/frontend/dist` на сервере.
 - [ ] Миграция: `docker compose run --rm analytics-engine alembic upgrade head` — без неё план разбора не работает.
-- [ ] Пересобрать `dashboard-service`, `analytics-engine` и `analytics-worker`.
+- [ ] Пересобрать `dashboard-service`, `dashboard-worker`, `analytics-engine` и `analytics-worker`, перезапустить nginx.
 - [ ] Если магазины не в московском времени — задать `LOCAL_TZ` для `dashboard-service`.
 - [ ] Проверить на проде под реальной учёткой: список, быстрый просмотр, страница разговора с аудио, план разбора, «Обзор», EN/RU.
 - [ ] Старые резюме показываются свободным текстом. Чтобы получить разбор по пунктам, резюме нужно составить заново (кнопка обновления в карточке).
