@@ -97,9 +97,9 @@ case $MODE in
     for d in "${DIRS[@]}"; do
       echo "== $d"
       rsync "${SYNC[@]}" -n -i "$d/" prod:"$APP_DIR/$d/" | awk '$1 ~ /^<f/ {print $2}' | while read -r f; do
-        ssh prod cat "$APP_DIR/$d/$f" 2>/dev/null \
+        ssh -n prod cat "$APP_DIR/$d/$f" 2>/dev/null \
           | diff -u --label "a/$d/$f" --label "b/$d/$f" "$d/$f" - \
-          | sed -E 's/(sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_+\/=-]{40,})/[скрыто]/g' || true
+          | sed -E 's/(sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_+=]{40,})/[скрыто]/g' || true
       done
     done
     ;;
