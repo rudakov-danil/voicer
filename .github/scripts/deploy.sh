@@ -102,7 +102,17 @@ case $MODE in
           | sed -E 's/(sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_+=]{40,})/[скрыто]/g' || true
       done
       echo "== Есть только на сервере в $d"
-      rsync "${SYNC[@]}" --delete -n -i "$d/" prod:"$APP_DIR/$d/" | awk '$1 == "*deleting" {print $2}' || true
+      rsync "${SYNC[@]}" --delete -n -i "$d/" prod:"$APP_DIR/$d/" | awk '$1 == "*deleting" {print $2}' | while read -r f; do
+        echo "$f"
+        # Исходники Python выводим целиком: строки с префиксом «| », чтобы сохранить отступы
+        case $f in
+          *.py)
+            echo "=== FILE $d/$f"
+            ssh -n prod cat "$APP_DIR/$d/$f" | sed -E 's/(sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_+=]{40,})/[скрыто]/g; s/^/| /'
+            echo "=== END $d/$f"
+            ;;
+        esac
+      done || true
     done
     ;;
   reanalyze)
