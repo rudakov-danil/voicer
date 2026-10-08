@@ -1,10 +1,20 @@
 import apiClient from './client';
+/** Период «последние N дней» → date_from / date_to для API. */
+export function periodRange(days) {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    const iso = (d) => d.toISOString().split('T')[0];
+    return { date_from: iso(from), date_to: iso(to) };
+}
 export const dashboardApi = {
     getOverview: async (params) => {
         // Backend expects date_from/date_to, not period
         const days = params.period || 30;
         const dateTo = new Date();
-        const dateFrom = new Date();
+        if (params.previous)
+            dateTo.setDate(dateTo.getDate() - days - 1);
+        const dateFrom = new Date(dateTo);
         dateFrom.setDate(dateFrom.getDate() - days);
         const apiParams = {
             date_from: dateFrom.toISOString().split('T')[0],
@@ -77,6 +87,28 @@ export const dashboardApi = {
     listCoaching: async (params = {}) => {
         const response = await apiClient.get('/api/v1/dashboard/coaching', { params });
         return response.data.items;
+    },
+    /** Пульс недели для «Обзора»: последние `days` дней по получасам. */
+    getPulse: async (params = {}) => {
+        const response = await apiClient.get('/api/v1/dashboard/overview/pulse', { params });
+        return response.data;
+    },
+    /** Недельные ряды за 12 недель: сеть, магазины, продавцы. */
+    getTrends: async (params = {}) => {
+        const response = await apiClient.get('/api/v1/dashboard/overview/trends', { params });
+        return response.data;
+    },
+    getViolationsByRule: async (params) => {
+        const response = await apiClient.get('/api/v1/dashboard/overview/violations', {
+            params: { ...periodRange(params.period), store_id: params.store_id },
+        });
+        return response.data;
+    },
+    getStepLosses: async (params) => {
+        const response = await apiClient.get('/api/v1/dashboard/overview/step-losses', {
+            params: { ...periodRange(params.period), store_id: params.store_id },
+        });
+        return response.data;
     },
     getSellers: async (params) => {
         const apiParams = {};

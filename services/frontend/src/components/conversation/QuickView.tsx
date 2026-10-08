@@ -74,7 +74,7 @@ export function QuickView({ id, row, fingerprint: fpFromList, markTitle, onClose
   const brief = parts?.['Итог'] || (c.summary ? String(c.summary).split('\n').find((l: string) => l.trim())?.replace(/\*\*/g, '') : null)
   const marks = fingerprint ? [...fingerprint.marks].sort((a, b) => a.t - b.t) : []
   const notScored = c.is_scorable === false
-  const sourceLabel = c.source === 'badge' ? t('Вырезан ИИ из записи смены с бейджа')
+  const sourceLabel = c.source === 'badge' ? t('Запись с бейджа')
     : c.source === 'transcript' ? t('Загружен текстом — без аудио')
     : t('Загруженное аудио')
 

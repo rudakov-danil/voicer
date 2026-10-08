@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = "changeme_smtp"
     SMTP_FROM: str = "noreply@voiceiq.ru"
     CACHE_TTL_SECONDS: int = 300
+    # Часовой пояс магазинов: по нему считаются получасы «Пульса недели»
+    LOCAL_TZ: str = "Europe/Moscow"
 
     class Config:
         env_file = ".env"

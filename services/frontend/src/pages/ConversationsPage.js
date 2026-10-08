@@ -127,6 +127,7 @@ const VIEWS = [
     { id: '', label: 'Все' },
     { id: 'attention', label: 'Требуют внимания', alert: true },
     { id: 'violations', label: 'Нарушения', alert: true },
+    { id: 'low_score', label: 'Низкий балл' },
     { id: 'price_open', label: '«Дорого» без ответа' },
     { id: 'competitor', label: 'Ушли к конкурентам' },
     { id: 'no_upsell', label: 'Без допродажи' },

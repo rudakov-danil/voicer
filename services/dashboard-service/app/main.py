@@ -5,7 +5,7 @@ from redis.asyncio import Redis
 from prometheus_fastapi_instrumentator import Instrumentator
 from app import redis_client as rc
 from app.config import settings
-from app.routers import overview, sellers, conversations, export, alert_settings, analytics, compliance, notifications, coaching
+from app.routers import overview, sellers, conversations, export, alert_settings, analytics, compliance, notifications, coaching, home
 
 
 async def _start_invalidation_worker():
@@ -39,6 +39,7 @@ app.include_router(analytics.router)
 app.include_router(compliance.router)
 app.include_router(notifications.router)
 app.include_router(coaching.router)
+app.include_router(home.router)
 
 
 @app.get("/health")

@@ -47,7 +47,7 @@ export function AppLayout() {
           />
         )}
         <div className="content">
-          <Outlet context={{ period }} />
+          <Outlet context={{ period, setPeriod }} />
         </div>
       </div>
       <Toaster />

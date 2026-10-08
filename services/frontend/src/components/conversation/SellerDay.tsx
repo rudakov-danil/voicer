@@ -5,9 +5,8 @@ import { dashboardApi } from '@/api/dashboard'
 import { outcomeColor, outcomeLabel } from '@/lib/outcomes'
 import { t, L, locale, plural } from '@/i18n'
 
-/* «День продавца» (ui-concept/conversation.html): где этот разговор в смене.
-   Полоса — часы смены, блоки — разговоры продавца за день, цвет — исход.
-   Смена и выгрузка известны, только если запись пришла с бейджа кусками. */
+/* «День продавца» (ui-concept/conversation.html): где этот разговор среди остальных
+   разговоров продавца за день. Блоки — разговоры, цвет — исход. */
 
 const hhmm = (d: Date) => d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
 const hoursOf = (d: Date) => d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600
@@ -43,11 +42,9 @@ export function SellerDayPanel({ conversationId }: { conversationId: string }) {
     const start = new Date(it.started_at)
     return { ...it, start, from: hoursOf(start), len: Math.max(1, it.duration_seconds || 60) / 3600 }
   })
-  const shiftStart = data.shift ? new Date(data.shift.start) : null
-  const shiftEnd = data.shift ? new Date(data.shift.end) : null
-  // Шкала: обычный день магазина 10–22, шире — если смена или разговоры за его пределами
-  const first = Math.min(...items.map((i) => i.from), shiftStart ? hoursOf(shiftStart) : 24)
-  const last = Math.max(...items.map((i) => i.from + i.len), shiftEnd ? hoursOf(shiftEnd) : 0)
+  // Шкала: обычный день магазина 10–22, шире — если разговоры за его пределами
+  const first = Math.min(...items.map((i) => i.from))
+  const last = Math.max(...items.map((i) => i.from + i.len))
   const X0 = Math.min(10, Math.floor(first))
   const X1 = Math.max(22, Math.ceil(last))
   const h = 64
@@ -60,7 +57,6 @@ export function SellerDayPanel({ conversationId }: { conversationId: string }) {
   const n = items.length
   const won = items.filter((i) => i.outcome === 'purchase').length
   const talk = items.reduce((a, i) => a + (i.duration_seconds || 0), 0)
-  const shiftSec = shiftStart && shiftEnd ? (shiftEnd.getTime() - shiftStart.getTime()) / 1000 : 0
   const day = new Date(`${data.date}T00:00:00`)
   const convWord = plural(n, ['разговор', 'разговора', 'разговоров'], ['conversation', 'conversations'])
   const wonWord = plural(won, ['покупка', 'покупки', 'покупок'], ['purchase', 'purchases'])
@@ -72,11 +68,8 @@ export function SellerDayPanel({ conversationId }: { conversationId: string }) {
         <div>
           <h2 id="cv-day-title" className="panel-title">{t('День продавца')}</h2>
           <div className="panel-sub">
-            {data.shift
-              ? L(`Разговоры, которые Войсер вырезал из записи смены ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`,
-                `Conversations Voicer cut from the ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })} shift recording`)
-              : L(`Все разговоры продавца за ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`,
-                `All of the seller’s conversations on ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`)}
+            {L(`Все разговоры продавца за ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`,
+              `All of the seller’s conversations on ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`)}
           </div>
         </div>
       </div>
@@ -84,9 +77,6 @@ export function SellerDayPanel({ conversationId }: { conversationId: string }) {
         <div ref={ref} className="cv-day">
           {w > 0 && (
             <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label}>
-              {shiftStart && shiftEnd && (
-                <rect className="cv-day-shift" x={x(hoursOf(shiftStart))} y={14} width={Math.max(2, x(hoursOf(shiftEnd)) - x(hoursOf(shiftStart)))} height={22} rx={5} />
-              )}
               <line className="cv-day-axis" x1={0} x2={w} y1={42.5} y2={42.5} />
               {ticks.map((hr) => (
                 <text key={hr} className="cv-day-lbl" x={x(hr)} y={58} textAnchor={hr === X0 ? 'start' : hr === X1 ? 'end' : 'middle'}>{`${hr}:00`}</text>
@@ -124,37 +114,8 @@ export function SellerDayPanel({ conversationId }: { conversationId: string }) {
         <div className="cv-day-stats">
           <span><b>{n}</b> {convWord}</span>
           <span><b>{won}</b> {wonWord}</span>
-          <span>
-            {shiftSec > 0
-              ? <>{L('в разговорах ', '')}<b>{duration(talk)}</b>{L(` из ${duration(shiftSec)} смены`, ` talking out of a ${duration(shiftSec)} shift`)}</>
-              : <>{L('в разговорах ', '')}<b>{duration(talk)}</b>{L('', ' talking')}</>}
-          </span>
+          <span>{L('в разговорах ', '')}<b>{duration(talk)}</b>{L('', ' talking')}</span>
         </div>
-        <dl className="cv-rec-list">
-          {data.badge ? (
-            <>
-              <dt>{t('Бейдж')}</dt>
-              <dd><span className="mono" translate="no">{data.badge.serial_number}</span>{data.badge.model && <> · <span translate="no">{data.badge.model}</span></>}</dd>
-            </>
-          ) : (
-            <>
-              <dt>{t('Источник')}</dt>
-              <dd>{data.source === 'transcript' ? t('Загружен текстом — без аудио') : t('Запись загружена вручную')}</dd>
-            </>
-          )}
-          {shiftStart && shiftEnd && (
-            <>
-              <dt>{t('Смена')}</dt>
-              <dd>{L(`запись с ${hhmm(shiftStart)} до ${hhmm(shiftEnd)}`, `recorded ${hhmm(shiftStart)}–${hhmm(shiftEnd)}`)}</dd>
-            </>
-          )}
-          {data.uploaded_at && (
-            <>
-              <dt>{t('Выгрузка')}</dt>
-              <dd>{new Date(data.uploaded_at).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</dd>
-            </>
-          )}
-        </dl>
       </div>
     </section>
   )

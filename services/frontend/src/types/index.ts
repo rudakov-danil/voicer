@@ -91,6 +91,12 @@ export interface DashboardOverview {
   score_by_store?: { store_name: string; avg_score: number }[]
   outcomes?: { outcome: string; count: number }[]
   alerts?: { severity: 'danger' | 'warning' | 'info'; message: string }[]
+  purchases?: number
+  /** Допродажа: разговоров, где сработало правило, и где продавец что-то предложил */
+  sell_need?: number
+  sell_done?: number
+  objections_total?: number
+  objections_resolved?: number
 }
 
 export interface ScriptTemplate {
@@ -367,7 +373,7 @@ export interface SellerDetail {
 }
 
 /** Подборки списка разговоров (вкладки над таблицей). */
-export type ConversationView = 'attention' | 'violations' | 'price_open' | 'competitor' | 'no_upsell'
+export type ConversationView = 'attention' | 'violations' | 'low_score' | 'price_open' | 'competitor' | 'no_upsell'
 
 /** Метка на «отпечатке»: crit / crit-mid — нарушение, warn / warn-ok — возражение
  *  (не отработано / отработано), ok — предложение допродажи. t — позиция 0..1. */
@@ -411,9 +417,6 @@ export interface SellerDay {
   seller_id: string | null
   seller_name: string | null
   source: string | null
-  badge: { serial_number: string; model: string | null } | null
-  shift: { start: string; end: string; recorded_seconds: number } | null
-  uploaded_at: string | null
   items: Array<{
     id: string
     started_at: string
@@ -423,5 +426,72 @@ export interface SellerDay {
     is_scorable: boolean | null
     topic: string | null
     is_current: boolean
+  }>
+}
+
+/** Пульс недели: разговоры по дням и получасам (bin = номер получаса от полуночи). */
+export interface PulseData {
+  date_from: string
+  date_to: string
+  timezone: string
+  days: Array<{ date: string; total: number; flagged: number; bins: Array<[number, number, number]> }>
+  totals: {
+    conversations: number
+    attention: number
+    violations: number
+    low_score: number
+    talk_seconds: number
+  }
+}
+
+/** Недельные ряды (12 недель, неделя с понедельника). null — нет данных за неделю. */
+export interface TrendsData {
+  weeks: string[]
+  network: Record<'total' | 'scorable' | 'purchases' | 'sell_need' | 'sell_done' | 'objections' | 'objections_resolved', number[]> & {
+    avg_score: Array<number | null>
+  }
+  stores: Array<{
+    store_id: string
+    store_name: string | null
+    total: number[]
+    scorable: number[]
+    purchases: number[]
+    avg_score: Array<number | null>
+  }>
+  sellers: Array<{
+    seller_id: string
+    seller_name: string | null
+    store_name: string | null
+    total: number[]
+    avg_score: Array<number | null>
+  }>
+}
+
+export interface ViolationsByRule {
+  conversations: number
+  items: Array<{
+    rule_id: string
+    rule_title: string
+    severity: 'high' | 'medium' | 'low'
+    count: number
+    prev: number
+    sellers_count: number
+    sellers: string[]
+  }>
+}
+
+export interface StepLosses {
+  script: { id: string; name: string } | null
+  conversations: number
+  steps: Array<{
+    name: string
+    order: number | null
+    required: boolean
+    weight: number | null
+    total: number
+    weak: number
+    weak_share: number
+    avg_score: number | null
+    hint: string | null
   }>
 }
