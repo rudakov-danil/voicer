@@ -108,6 +108,12 @@ reanalyze)
 llm-test)
   # Отдельный контейнер с текущим .env: работающие сервисы не трогаем
   need_dc
+  echo "== Откуда берутся настройки модели (ключи не показываем)"
+  ls -la --time-style=long-iso .env* docker-compose.override.yml 2>/dev/null
+  grep -nE '^[[:space:]]*(export[[:space:]]+)?LLM_(SERVER_URL|MODEL_NAME)=' .env 2>/dev/null
+  echo "Строк LLM_API_KEY в .env: $(grep -cE '^[[:space:]]*(export[[:space:]]+)?LLM_API_KEY=' .env 2>/dev/null)"
+  echo "LLM в docker-compose.override.yml:"; grep -n 'LLM' docker-compose.override.yml 2>/dev/null || echo "  нет"
+  echo "LLM в окружении shell: $(env | grep -o '^LLM_[A-Z_]*' | tr '\n' ' ')"
   $DC run --rm -T --no-deps analytics-engine python - <<'PY' || true
 import asyncio, time
 from app.config import settings
@@ -127,7 +133,7 @@ async def ask(**kw):
 
 async def main():
     print(f"Сервер: {settings.LLM_SERVER_URL}, модель: {settings.LLM_MODEL_NAME}, "
-          f"ключ задан: {bool(settings.LLM_API_KEY) and settings.LLM_API_KEY != 'ollama'}, folder: {settings.LLM_FOLDER_ID or 'пусто'}")
+          f"ключ задан: {bool(settings.LLM_API_KEY) and settings.LLM_API_KEY != 'ollama'}, folder задан: {bool(settings.LLM_FOLDER_ID)}")
     print("Обычный запрос:")
     await ask(messages=[{"role": "user", "content": "Ответь одним словом: столица Казахстана?"}])
     print("JSON-режим, как в анализе:")
