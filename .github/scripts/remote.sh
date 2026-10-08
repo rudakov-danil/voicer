@@ -49,8 +49,11 @@ check)
   ls -la --time-style=long-iso services/frontend/dist 2>&1 | head -6
   echo "== Веб-сервер машины (80/443)"
   for c in nginx caddy apache2 haproxy traefik; do command -v "$c" >/dev/null && echo "$c: $(command -v "$c")"; done
-  grep -rhoE '^[[:space:]]*server_name[^;]+' /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | sed 's/^[[:space:]]*//' | sort -u
-  [ -r /etc/caddy/Caddyfile ] && grep -vE '^[[:space:]]*(#|$)' /etc/caddy/Caddyfile | head -30
+  # sites-enabled — симлинки, поэтому -R
+  grep -Rh -v '^[[:space:]]*#' /etc/nginx/nginx.conf /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null \
+    | grep -oE '(server_name|listen|ssl_certificate|proxy_pass)[[:space:]][^;]+' | sort | uniq -c
+  if [ -r /etc/caddy/Caddyfile ]; then grep -vE '^[[:space:]]*(#|$)' /etc/caddy/Caddyfile | head -30; fi
+  true
   ;;
 backup)
   need_dc
