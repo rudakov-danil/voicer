@@ -48,6 +48,7 @@ check_domain() {
   echo "CNAME: $(dig +short CNAME "$d" | tr '\n' ' ')"
   echo "NS зоны ${d#*.}: $(dig +short NS "${d#*.}" | tr '\n' ' ')"
   if [[ " $a " == *" $ip "* ]]; then echo "Указывает на этот сервер: да"; else echo "Указывает на этот сервер: нет"; fi
+  echo "http://$d по DNS: $(curl -sS -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' "http://$d/" 2>&1)"
   echo "https://$d по DNS: $(curl -sS -o /dev/null -m 15 -w '%{http_code}' "https://$d/" 2>&1)"
   echo "https://$d напрямую на этом сервере: $(curl -sSk -o /dev/null -m 15 -w '%{http_code}' --resolve "$d:443:$ip" "https://$d/" 2>&1)"
   echo "Сертификат, который этот сервер отдаёт для $d:"
