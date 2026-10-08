@@ -22,6 +22,7 @@ import {
   type SummaryParts,
 } from '@/components/conversation/shared'
 import { ReviewButton, CoachingComments } from '@/components/conversation/Coaching'
+import { ReanalyzeButton } from '@/components/conversation/Reanalyze'
 import { SellerDayPanel } from '@/components/conversation/SellerDay'
 import { outcomeLabel } from '@/lib/outcomes'
 import { t, L, locale } from '@/i18n'
@@ -319,6 +320,7 @@ export function ConversationPage() {
               <Link2 size={15} aria-hidden="true" />{copied ? t('Ссылка скопирована') : t('Ссылка на момент')}
             </button>
             <ReviewButton conversationId={id} sellerName={c.seller_name} />
+            <ReanalyzeButton conversationId={id} recordingId={c.recording_id} />
             <button type="button" className="btn btn-ghost cv-danger" onClick={handleDelete} disabled={deleting}>
               <Trash2 size={15} aria-hidden="true" />{deleting ? t('Удаление…') : t('Удалить')}
             </button>

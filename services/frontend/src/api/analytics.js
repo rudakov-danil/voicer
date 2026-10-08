@@ -9,6 +9,16 @@ export const analyticsApi = {
         { timeout: 180000 });
         return response.data;
     },
+    // Повторный анализ записи: воркер пересоздаёт разговор с новым id
+    reanalyze: async (recordingId) => {
+        const response = await apiClient.post(`/api/v1/analytics/reanalyze/${recordingId}`);
+        return response.data;
+    },
+    // Разговор по записи — чтобы найти его после повторного анализа
+    findByRecording: async (recordingId) => {
+        const response = await apiClient.get('/api/v1/analytics/conversations', { params: { recording_id: recordingId, limit: 1 } });
+        return response.data.items[0] ?? null;
+    },
     // Полное удаление диалога (разговор + транскрипт + запись)
     deleteConversation: async (conversationId) => {
         const response = await apiClient.delete(`/api/v1/analytics/conversations/${conversationId}`);
