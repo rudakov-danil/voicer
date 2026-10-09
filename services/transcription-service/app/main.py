@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     from app.database import async_session_maker
     from worker.transcribe_worker import run_transcribe_worker
-    from worker.diarize_worker import run_diarize_worker
 
+    # queue.diarize слушает только контейнер diarize-worker: он загружает модель голосов,
+    # и второй слушатель здесь удвоил бы память и делил бы записи между версиями кода
     tasks = []
     try:
         tasks.append(asyncio.create_task(run_transcribe_worker(async_session_maker)))
-        tasks.append(asyncio.create_task(run_diarize_worker(async_session_maker)))
         logger.info("Workers started")
     except Exception as e:
         logger.warning(f"Could not start workers: {e}")
