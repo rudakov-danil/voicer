@@ -15,6 +15,7 @@
 #   deepgram-compare — запись в вариантах nova-3 / whisper / whisper-large (лог удалить после чтения)
 #   llm-usage — расход токенов LLM по строкам «LLM usage» за 30 минут
 #   summary-cost — токены на резюме последнего разговора (резюме не сохраняется)
+#   roles-test — спикеры и роли кодом diarization.py из репозитория на сохранённой записи, без записи в базу
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -520,6 +521,69 @@ llm-usage)
 summary-cost)
   need_dc
   summary_cost
+  ;;
+roles-test)
+  # deploy.sh кладёт diarization.py из репозитория в /tmp/voicer-diarization-test.py; прогоняем его
+  # на сохранённой записи $REANALYZE внутри diarize-worker. В базу ничего не пишется, текст не выводится
+  need_dc
+  $DC cp /tmp/voicer-diarization-test.py diarize-worker:/tmp/diarization_test.py
+  $DC exec -T -e REANALYZE="$REANALYZE" diarize-worker python - <<'PY' 2>&1 | grep -v Warning || true
+import asyncio, importlib.util, logging, os, re, uuid
+import httpx
+from sqlalchemy import select
+from app.config import settings
+from app.database import async_session_maker
+from app.llm_client import get_llm_client
+from app.models import Transcript, TranscriptSegment
+
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
+for name in ("app.llm_client", "diarization_test"):
+    logging.getLogger(name).setLevel(logging.INFO)
+spec = importlib.util.spec_from_file_location("diarization_test", "/tmp/diarization_test.py")
+d = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(d)
+
+
+async def seller_name_for(seller_id) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            r = await http.get(f"{settings.ADMIN_SERVICE_URL}/api/v1/admin/sellers/{seller_id}",
+                               headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY})
+        if r.status_code == 200:
+            full = f"{r.json().get('first_name', '')} {r.json().get('last_name', '')}".strip()
+            if full:
+                return full
+    except Exception as e:
+        print(f"Имя продавца не получено: {type(e).__name__}")
+    return "Продавец"
+
+
+async def main():
+    rid = uuid.UUID(re.findall(r"[0-9a-f-]{36}", os.environ["REANALYZE"])[0])
+    async with async_session_maker() as db:
+        t = (await db.execute(select(Transcript).where(Transcript.recording_id == rid))).scalar_one()
+        segs = (await db.execute(select(TranscriptSegment).where(TranscriptSegment.transcript_id == t.id)
+                                 .order_by(TranscriptSegment.segment_index))).scalars().all()
+    name = await seller_name_for(t.seller_id)
+    words = " ".join(s.text for s in segs).lower()
+    print(f"Имя продавца в профиле: {'есть' if name != 'Продавец' else 'нет'}, "
+          f"первое слово имени есть в тексте: {'да' if name.split()[0].lower() in words else 'нет'}")
+    dicts = [{"text": s.text, "start_ms": s.start_ms, "end_ms": s.end_ms, "speaker_id": s.speaker_id,
+              "speaker_confidence": s.speaker_confidence} for s in segs]
+    res = await d.resolve_speakers_and_roles(dicts, name, get_llm_client())
+    if res is None:
+        print("Модель не назвала работника: роли определились бы отдельным запросом, как раньше")
+        return
+    print(" #  начало-конец, с  уверенность  сохранено: спикер, роль  новое: спикер, роль")
+    for i, (s, sid, role) in enumerate(zip(segs, *res)):
+        conf = f"{float(s.speaker_confidence):.2f}" if s.speaker_confidence is not None else "—"
+        print(f"{i:2}  {s.start_ms / 1000:6.2f}-{s.end_ms / 1000:6.2f}  {conf:>4}  "
+              f"{s.speaker_id} {s.speaker_role:9}  {sid} {role}")
+
+asyncio.run(main())
+PY
+  $DC exec -T diarize-worker rm -f /tmp/diarization_test.py || true
+  rm -f /tmp/voicer-diarization-test.py
   ;;
 roles-compare)
   # Роли по репликам: сохранённые, по правилу Deepgram (дольше всех говорит — продавец) и от LLM. Без текста

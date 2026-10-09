@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.diarization import (
-    diarize_segments, identify_speaker_roles, recheck_uncertain_speakers, roles_by_talk_time,
+    diarize_segments, identify_speaker_roles, recheck_uncertain_speakers, resolve_speakers_and_roles,
+    roles_by_talk_time,
 )
 from app.llm_client import get_llm_client
 from app.models import Transcript, TranscriptSegment
@@ -17,9 +18,16 @@ from app.rabbitmq import publish
 
 logger = logging.getLogger(__name__)
 
-# Временно: роли только по диаризации Deepgram, без LLM — проверяем, как она справляется одна.
-# Вернуть LLM: True.
-ROLES_BY_LLM = False
+# Роли определяет LLM. False — роли по времени речи спикеров Deepgram, без LLM
+# (сомнительные фразы при этом всё равно проверяются через LLM, но без ролей).
+ROLES_BY_LLM = True
+
+
+def _apply_speakers(segments, seg_dicts: list[dict], speaker_ids: list) -> None:
+    """Исправленные спикеры — в сегменты БД и в словари, по которым считаются роли."""
+    for seg, d, sid in zip(segments, seg_dicts, speaker_ids):
+        if sid != d["speaker_id"]:
+            seg.speaker_id = d["speaker_id"] = sid
 
 
 async def process_diarize_message(
@@ -81,20 +89,28 @@ async def process_diarize_message(
                 for s in segments
             ]
             # Где Deepgram не уверен в спикере (перебивания), LLM по смыслу решает, кто говорил.
-            # Исправленный спикер сохраняем: по нему считаются роли и строится диалог.
-            checked = await recheck_uncertain_speakers(seg_dicts, llm_client)
-            for seg, d, sid in zip(segments, seg_dicts, checked):
-                if sid != d["speaker_id"]:
-                    seg.speaker_id = d["speaker_id"] = sid
+            # С ролями от LLM это один запрос вместе с вопросом «кто работник»: по тексту
+            # фраза часто читается двояко, а имя работника и его роль подсказывают ответ.
+            # Исправленный спикер сохраняем: по нему строится диалог.
+            resolved = None
+            if ROLES_BY_LLM:
+                resolved = await resolve_speakers_and_roles(seg_dicts, seller_name, llm_client)
+                if resolved:
+                    _apply_speakers(segments, seg_dicts, resolved[0])
+            else:
+                _apply_speakers(segments, seg_dicts, await recheck_uncertain_speakers(seg_dicts, llm_client))
             unique_speaker_ids = {s["speaker_id"] for s in seg_dicts if s["speaker_id"] is not None}
             use_cluster = len(unique_speaker_ids) >= 2
+            strategy = ("resolve" if resolved else "deepgram-only" if not ROLES_BY_LLM
+                        else "cluster" if use_cluster else "text-fallback")
             logger.info(
                 f"Starting diarization of {len(seg_dicts)} segments for transcript_id={transcript_id}, "
-                f"unique_speaker_ids={len(unique_speaker_ids)}, "
-                f"strategy={'deepgram-only' if not ROLES_BY_LLM else 'cluster' if use_cluster else 'text-fallback'}"
+                f"unique_speaker_ids={len(unique_speaker_ids)}, strategy={strategy}"
             )
 
-            if not ROLES_BY_LLM:
+            if resolved:
+                roles = resolved[1]
+            elif not ROLES_BY_LLM:
                 roles = roles_by_talk_time(seg_dicts)
                 logger.info(
                     f"Roles by Deepgram speakers only (no LLM): "

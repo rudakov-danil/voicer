@@ -645,3 +645,150 @@ async def identify_speaker_roles(
                 return {}
 
     return {}
+
+
+# ─── Сомнительные фразы и роли одним запросом ────────────────────────────────
+# Когда Deepgram не уверен в спикере, по одному тексту часто не понять, чья фраза:
+# «Не, я думаю…» после вопроса читается и как ответ, и как продолжение мысли.
+# Помогает знать, кто работник: к нему обращаются по имени, он отвечает про товар.
+# Поэтому одним запросом решаем и то, кто сказал сомнительные фразы, и кто из спикеров
+# работник. Номер спикера Deepgram для сомнительных фраз модели не показываем: он
+# ненадёжен и часто указывает на лишний кластер, которого нет среди уверенных реплик.
+
+RESOLVE_SYSTEM_PROMPT = """Ты разбираешь расшифровку разговора РАБОТНИКА (продавец, консультант, оператор, менеджер) с КЛИЕНТОМ.
+Имя работника: {seller_name}
+
+Голоса разделила система распознавания речи и пронумеровала спикеров. В строках «спикер ?» она не смогла
+надёжно определить, кто говорит: так бывает, когда люди перебивают друг друга.
+
+Нужно определить:
+1. Кто из спикеров — работник (их может быть несколько, остальные — клиенты).
+2. Кто из спикеров сказал каждую строку «спикер ?».
+
+Как определять:
+- работник говорит от имени компании («у нас», «можем предложить»), уточняет потребность, рассказывает о товаре;
+- если в фразе к собеседнику обращаются по имени работника, эту фразу говорит клиент, а работник — тот, к кому обращаются;
+- на вопрос обычно отвечает другой человек, а реакцию на ответ («ладно», «хорошо», «понятно») говорит тот, кто спрашивал;
+- начало ответа («Не», «Нет», «Да», «Ну») система часто приклеивает к концу чужой реплики: если строка «спикер ?»
+  идёт сразу после вопроса и звучит как ответ на него, её говорит не тот, кто спросил;
+- строки с номером спикера размечены надёжно, опирайся на них.
+Выбирай только из перечисленных номеров спикеров.
+
+ФОРМАТ ОТВЕТА — только строки:
+WORKERS: номера спикеров-работников через запятую
+номер строки: номер спикера — по одной на каждую строку «спикер ?»
+Пример:
+WORKERS: 1
+4: 1
+5: 0
+БЕЗ комментариев и пояснений."""
+
+
+def _resolve_choices(segments: list[dict], uncertain: list[int]) -> list[int]:
+    """Спикеры, из которых модель выбирает: те, у кого есть уверенные реплики.
+    Спикер только из сомнительных фраз — обычно лишний кластер на перекрытии голосов."""
+    marked = set(uncertain)
+    confident = sorted({s["speaker_id"] for i, s in enumerate(segments)
+                        if i not in marked and s.get("speaker_id") is not None})
+    if len(confident) >= 2:
+        return confident
+    return sorted({s["speaker_id"] for s in segments if s.get("speaker_id") is not None})
+
+
+def build_resolve_prompt(segments: list[dict], uncertain: list[int], speakers: list[int]) -> str:
+    """Сомнительные фразы с соседями; если разговор длиннее окон — ещё примеры реплик каждого спикера."""
+    shown = sorted({
+        j for i in uncertain
+        for j in range(max(0, i - RECHECK_CONTEXT), min(len(segments), i + RECHECK_CONTEXT + 1))
+    })
+    marked = set(uncertain)
+    lines = []
+    prev = -1
+    for j in shown:
+        if j != prev + 1:
+            lines.append("…")
+        s = segments[j]
+        who = "спикер ?" if j in marked or s.get("speaker_id") is None else f"спикер {s['speaker_id']}"
+        lines.append(f"[{j}] {who}: {(s.get('text') or '').strip()}")
+        prev = j
+    if prev != len(segments) - 1:
+        lines.append("…")
+
+    parts = [f"Спикеры: {', '.join(map(str, speakers))}"]
+    in_window = set(shown)
+    rest = [s for i, s in enumerate(segments) if i not in marked and i not in in_window]
+    if rest:
+        examples, _ = _build_speaker_examples(rest, max_per_speaker=8)
+        blocks = [f"Спикер {sid}:\n" + "\n".join(f"  - {t}" for t in examples[sid])
+                  for sid in speakers if examples.get(sid)]
+        if blocks:
+            parts.append("Другие реплики спикеров:\n" + "\n".join(blocks))
+    parts.append("Фрагменты разговора:\n" + "\n".join(lines))
+    parts.append(f"Строки «спикер ?»: {', '.join(map(str, uncertain))}. "
+                 "Кто из спикеров работник и кто сказал строки «спикер ?»?")
+    return "\n\n".join(parts)
+
+
+def parse_resolve_answer(raw: str, uncertain: list[int], speakers: list[int]) -> tuple[set[int], dict[int, int]]:
+    """«WORKERS: 0» и «5: 1» → ({0}, {5: 1}). Только известные спикеры и сомнительные строки."""
+    raw = raw or ""
+    workers: set[int] = set()
+    match = re.search(r"WORKERS[ \t]*:[ \t]*([\d, \t]+)", raw, re.IGNORECASE)
+    if match:
+        workers = {int(x) for x in re.findall(r"\d+", match.group(1))} & set(speakers)
+        raw = raw[:match.start()] + raw[match.end():]
+    return workers, parse_speaker_recheck(raw, uncertain, set(speakers))
+
+
+async def resolve_speakers_and_roles(
+    segments: list[dict], seller_name: str, llm_client,
+) -> tuple[list[int | None], list[str]] | None:
+    """Спикеры после проверки сомнительных фраз и роли по ним — одним запросом к модели.
+    None — модель не дала работника; вызывающий код определяет роли по-старому."""
+    uncertain = uncertain_speaker_indexes(segments)
+    speakers = _resolve_choices(segments, uncertain)
+    if not uncertain or len(speakers) < 2:
+        return None
+
+    user_prompt = build_resolve_prompt(segments, uncertain, speakers)
+    for attempt in range(2):
+        try:
+            response = await _create_no_reasoning(
+                llm_client,
+                model=settings.LLM_MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": RESOLVE_SYSTEM_PROMPT.format(seller_name=seller_name)},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+                timeout=120,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+            logger.info(f"Speaker resolve response: {raw[:200]!r}")
+            workers, answer = parse_resolve_answer(raw, uncertain, speakers)
+            if workers:
+                break
+        except Exception as e:
+            logger.warning(f"Speaker resolve error (attempt {attempt + 1}/2): {e}")
+    else:
+        logger.warning("Speaker resolve gave no workers, falling back to separate role detection")
+        return None
+
+    current = [s.get("speaker_id") for s in segments]
+    ids = [answer.get(i, sid) for i, sid in enumerate(current)]
+    if workers >= set(speakers):
+        # В разговоре всегда есть клиент: работник — тот, кто сказал больше слов
+        words: dict[int, int] = {}
+        for s, sid in zip(segments, ids):
+            if sid is not None:
+                words[sid] = words.get(sid, 0) + len((s.get("text") or "").split())
+        workers = {max(words, key=words.get)}
+        logger.warning(f"Speaker resolve marked all speakers as workers, keeping the most talkative: {workers}")
+
+    changed = {i: (current[i], sid) for i, sid in enumerate(ids) if sid != current[i]}
+    logger.info(
+        f"Speaker resolve: uncertain={len(uncertain)}, answered={len(answer)}, workers={sorted(workers)}, "
+        f"changed={len(changed)} " + " ".join(f"#{i}:{a}->{b}" for i, (a, b) in sorted(changed.items()))
+    )
+    roles = ["unknown" if sid is None else ("seller" if sid in workers else "customer") for sid in ids]
+    return ids, roles

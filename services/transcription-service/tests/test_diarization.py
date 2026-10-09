@@ -2,7 +2,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from app.diarization import (
-    build_speaker_recheck_prompt, diarize_segments, parse_speaker_recheck, recheck_uncertain_speakers,
+    build_resolve_prompt, build_speaker_recheck_prompt, diarize_segments, parse_resolve_answer,
+    parse_speaker_recheck, recheck_uncertain_speakers, resolve_speakers_and_roles,
     roles_by_talk_time, segment_conversations, uncertain_speaker_indexes,
 )
 
@@ -176,4 +177,70 @@ async def test_recheck_uncertain_speakers_no_llm_when_confident():
     llm = make_mock_llm("")
     confident = [dict(s, speaker_confidence=1.0) for s in INTERRUPTED]
     assert await recheck_uncertain_speakers(confident, llm) == [0, 1, 2, 2, 2]
+    llm.chat.completions.create.assert_not_called()
+
+
+# Как на записи с перебиванием: Deepgram отдал сомнительные фразы лишнему кластеру 2
+PHANTOM = [
+    {"text": "Добрый день, проверяем запись.", "speaker_id": 0, "speaker_confidence": 1.0},
+    {"text": "Да, слышно.", "speaker_id": 1, "speaker_confidence": 0.99},
+    {"text": "А если они будут перебивать друг друга? Не,", "speaker_id": 1, "speaker_confidence": 1.0},
+    {"text": "Я думаю, вообще без проблем будет.", "speaker_id": 2, "speaker_confidence": 0.77},
+    {"text": "Ладно, хорошо, проверим, господин Даниил.", "speaker_id": 2, "speaker_confidence": 0.75},
+]
+
+
+def test_resolve_prompt_hides_unreliable_speakers():
+    prompt = build_resolve_prompt(PHANTOM, [3, 4], [0, 1])
+    assert "Спикеры: 0, 1" in prompt
+    assert "[3] спикер ?: Я думаю" in prompt and "[4] спикер ?: Ладно" in prompt
+    assert "[2] спикер 1: А если" in prompt
+    assert "спикер 2" not in prompt
+    assert "Другие реплики" not in prompt
+
+
+def test_resolve_prompt_adds_examples_for_long_conversation():
+    segs = [{"text": f"реплика {i}", "speaker_id": i % 2, "speaker_confidence": 1.0} for i in range(30)]
+    segs[20]["speaker_confidence"] = 0.5
+    prompt = build_resolve_prompt(segs, [20], [0, 1])
+    assert "Другие реплики спикеров" in prompt and "  - реплика 0" in prompt
+    assert "[20] спикер ?: реплика 20" in prompt
+
+
+def test_parse_resolve_answer():
+    workers, lines = parse_resolve_answer("WORKERS: 0\n3: 0\n4: 1\n5: 2", [3, 4], [0, 1])
+    assert workers == {0}
+    assert lines == {3: 0, 4: 1}
+
+
+@pytest.mark.asyncio
+async def test_resolve_speakers_and_roles_one_request():
+    llm = make_mock_llm("WORKERS: 0\n3: 0\n4: 1")
+    ids, roles = await resolve_speakers_and_roles(PHANTOM, "Даниил Рудаков", llm)
+    assert ids == [0, 1, 1, 0, 1]
+    assert roles == ["seller", "customer", "customer", "seller", "customer"]
+    llm.chat.completions.create.assert_awaited_once()
+    system = llm.chat.completions.create.await_args.kwargs["messages"][0]["content"]
+    assert "Имя работника: Даниил Рудаков" in system
+
+
+@pytest.mark.asyncio
+async def test_resolve_speakers_and_roles_all_workers_keeps_most_talkative():
+    llm = make_mock_llm("WORKERS: 0, 1\n3: 0\n4: 1")
+    _, roles = await resolve_speakers_and_roles(PHANTOM, "Даниил", llm)
+    assert roles.count("seller") in (2, 3) and "customer" in roles
+
+
+@pytest.mark.asyncio
+async def test_resolve_speakers_and_roles_without_workers_returns_none():
+    llm = make_mock_llm("3: 0\n4: 1")
+    assert await resolve_speakers_and_roles(PHANTOM, "Даниил", llm) is None
+    assert llm.chat.completions.create.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_resolve_speakers_and_roles_skips_confident_conversation():
+    llm = make_mock_llm("")
+    confident = [dict(s, speaker_confidence=1.0) for s in PHANTOM]
+    assert await resolve_speakers_and_roles(confident, "Даниил", llm) is None
     llm.chat.completions.create.assert_not_called()
