@@ -14,6 +14,7 @@
 #   deepgram-words — сырой ответ Deepgram по записи: абзацы, utterances, слова (лог удалить после чтения)
 #   deepgram-compare — запись в вариантах nova-3 / whisper / whisper-large (лог удалить после чтения)
 #   llm-usage — расход токенов LLM по строкам «LLM usage» за 30 минут
+#   summary-cost — токены на резюме последнего разговора (резюме не сохраняется)
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -52,6 +53,40 @@ llm_usage() {
       if (!n) { print "  Строк «LLM usage» нет"; exit }
       printf "Итого: запросов %d, вход %d, выход %d, всего %d токенов%s\n", n, P, C, T, (priced ? sprintf(", $%.5f", S) : "")
     }'
+}
+
+# Сколько токенов стоит резюме по кнопке на последнем разговоре: запрос к модели, ответ не сохраняется
+summary_cost() {
+  echo "== Резюме по кнопке на последнем разговоре: только подсчёт, не сохраняется"
+  $DC exec -T analytics-engine python - <<'PY' 2>&1 | grep -v Warning || true
+import asyncio, logging
+from sqlalchemy import text
+from app.config import settings
+from app.database import AsyncSessionLocal
+from app.llm_client import get_llm_client
+from app.prompt_builder import build_summary_prompt
+
+async def summary_on_click():
+    async with AsyncSessionLocal() as db:
+        c = (await db.execute(text("SELECT id, recording_id FROM analytics.conversations ORDER BY analyzed_at DESC LIMIT 1"))).first()
+        rows = (await db.execute(text("""
+            SELECT ts.speaker_role, ts.text, ts.start_ms FROM transcription.transcripts t
+            JOIN transcription.transcript_segments ts ON ts.transcript_id = t.id
+            WHERE t.recording_id = :r ORDER BY ts.segment_index"""), {"r": c.recording_id})).all()
+        ctx = (await db.execute(text("SELECT source, call_direction FROM recorder.recordings WHERE id = :r"),
+                                {"r": c.recording_id})).first()
+    system, user = build_summary_prompt(
+        [{"speaker_role": r.speaker_role, "text": r.text, "start_ms": r.start_ms or 0} for r in rows],
+        {"source": ctx.source, "call_direction": ctx.call_direction} if ctx else None)
+    r = await get_llm_client().chat.completions.create(
+        model=settings.LLM_MODEL_NAME, temperature=0.2, timeout=settings.LLM_GENERAL_TIMEOUT,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+    print(f"Разговор {c.id}: резюме {len(r.choices[0].message.content or '')} символов")
+
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("app.llm_client").setLevel(logging.INFO)
+asyncio.run(summary_on_click())
+PY
 }
 
 case $1 in
@@ -472,36 +507,7 @@ async def main():
 
 asyncio.run(main())
 PY
-  echo "== Резюме по кнопке на последнем разговоре: только подсчёт, не сохраняется"
-  $DC exec -T analytics-engine python - <<'PY' 2>&1 | grep -v Warning || true
-import asyncio, logging
-from sqlalchemy import text
-from app.config import settings
-from app.database import async_session_maker
-from app.llm_client import get_llm_client
-from app.prompt_builder import build_summary_prompt
-
-async def summary_on_click():
-    async with async_session_maker() as db:
-        c = (await db.execute(text("SELECT id, recording_id FROM analytics.conversations ORDER BY analyzed_at DESC LIMIT 1"))).first()
-        rows = (await db.execute(text("""
-            SELECT ts.speaker_role, ts.text, ts.start_ms FROM transcription.transcripts t
-            JOIN transcription.transcript_segments ts ON ts.transcript_id = t.id
-            WHERE t.recording_id = :r ORDER BY ts.segment_index"""), {"r": c.recording_id})).all()
-        ctx = (await db.execute(text("SELECT source, call_direction FROM recorder.recordings WHERE id = :r"),
-                                {"r": c.recording_id})).first()
-    system, user = build_summary_prompt(
-        [{"speaker_role": r.speaker_role, "text": r.text, "start_ms": r.start_ms or 0} for r in rows],
-        {"source": ctx.source, "call_direction": ctx.call_direction} if ctx else None)
-    r = await get_llm_client().chat.completions.create(
-        model=settings.LLM_MODEL_NAME, temperature=0.2, timeout=settings.LLM_GENERAL_TIMEOUT,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
-    print(f"Разговор {c.id}: резюме {len(r.choices[0].message.content or '')} символов")
-
-logging.basicConfig(level=logging.WARNING)
-logging.getLogger("app.llm_client").setLevel(logging.INFO)
-asyncio.run(summary_on_click())
-PY
+  summary_cost
   echo "== Расход токенов LLM за прогон (с $since UTC)"
   llm_usage "$since"
   echo "== Проверка спикеров в diarize-worker"
@@ -510,6 +516,10 @@ PY
 llm-usage)
   need_dc
   llm_usage 30m
+  ;;
+summary-cost)
+  need_dc
+  summary_cost
   ;;
 roles-compare)
   # Роли по репликам: сохранённые, по правилу Deepgram (дольше всех говорит — продавец) и от LLM. Без текста
