@@ -15,8 +15,7 @@
 #   deepgram-compare — запись в вариантах nova-3 / whisper / whisper-large (лог удалить после чтения)
 #   llm-usage — расход токенов LLM по строкам «LLM usage» за 30 минут
 #   summary-cost — токены на резюме последнего разговора (резюме не сохраняется)
-#   roles-test — спикеры и роли кодом diarization.py из репозитория на сохранённой записи, без записи в базу
-#   voice-test — сходство голосов сомнительных фраз со спикерами (временный контейнер, без записи в базу)
+#   voice-test — проверка спикеров по голосу и роли на сохранённой записи, без записи в базу
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -513,7 +512,7 @@ PY
   echo "== Расход токенов LLM за прогон (с $since UTC)"
   llm_usage "$since"
   echo "== Проверка спикеров в diarize-worker"
-  $DC logs --since "$since" --no-log-prefix diarize-worker 2>&1 | grep -E "Speaker recheck|Roles by|error" | cut -c1-200 || true
+  $DC logs --since "$since" --no-log-prefix diarize-worker 2>&1 | grep -E "Voice recheck|Speaker roles|Roles by|error" | cut -c1-200 || true
   ;;
 llm-usage)
   need_dc
@@ -523,263 +522,53 @@ summary-cost)
   need_dc
   summary_cost
   ;;
-roles-test)
-  # deploy.sh кладёт diarization.py из репозитория в /tmp/voicer-diarization-test.py; прогоняем его
-  # на сохранённой записи $REANALYZE внутри diarize-worker. В базу ничего не пишется, текст не выводится
-  need_dc
-  $DC cp /tmp/voicer-diarization-test.py diarize-worker:/tmp/diarization_test.py
-  $DC exec -T -e REANALYZE="$REANALYZE" diarize-worker python - <<'PY' 2>&1 | grep -v Warning || true
-import asyncio, importlib.util, logging, os, re, uuid
-import httpx
-from sqlalchemy import select
-from app.config import settings
-from app.database import async_session_maker
-from app.llm_client import get_llm_client
-from app.models import Transcript, TranscriptSegment
-
-logging.basicConfig(level=logging.WARNING, format="%(message)s")
-for name in ("app.llm_client", "diarization_test"):
-    logging.getLogger(name).setLevel(logging.INFO)
-spec = importlib.util.spec_from_file_location("diarization_test", "/tmp/diarization_test.py")
-d = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(d)
-
-
-async def seller_name_for(seller_id) -> str:
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as http:
-            r = await http.get(f"{settings.ADMIN_SERVICE_URL}/api/v1/admin/sellers/{seller_id}",
-                               headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY})
-        if r.status_code == 200:
-            full = f"{r.json().get('first_name', '')} {r.json().get('last_name', '')}".strip()
-            if full:
-                return full
-    except Exception as e:
-        print(f"Имя продавца не получено: {type(e).__name__}")
-    return "Продавец"
-
-
-async def main():
-    rid = uuid.UUID(re.findall(r"[0-9a-f-]{36}", os.environ["REANALYZE"])[0])
-    async with async_session_maker() as db:
-        t = (await db.execute(select(Transcript).where(Transcript.recording_id == rid))).scalar_one()
-        segs = (await db.execute(select(TranscriptSegment).where(TranscriptSegment.transcript_id == t.id)
-                                 .order_by(TranscriptSegment.segment_index))).scalars().all()
-    name = await seller_name_for(t.seller_id)
-    words = " ".join(s.text for s in segs).lower()
-    print(f"Имя продавца в профиле: {'есть' if name != 'Продавец' else 'нет'}, "
-          f"первое слово имени есть в тексте: {'да' if name.split()[0].lower() in words else 'нет'}")
-    dicts = [{"text": s.text, "start_ms": s.start_ms, "end_ms": s.end_ms, "speaker_id": s.speaker_id,
-              "speaker_confidence": s.speaker_confidence} for s in segs]
-    await run("Без рассуждений модели, как в проде", segs, dicts, name)
-    # Второй проход — с рассуждениями (thinking): сколько стоят и меняют ли ответ
-    settings.LLM_DISABLE_THINKING = False
-
-    async def with_reasoning(client, **kwargs):
-        return await client.chat.completions.create(**kwargs)
-
-    d._create_no_reasoning = with_reasoning
-    await run("С рассуждениями модели", segs, dicts, name)
-
-
-async def run(label, segs, dicts, name):
-    print(f"== {label}")
-    res = await d.resolve_speakers_and_roles(dicts, name, get_llm_client())
-    if res is None:
-        print("Модель не назвала работника: роли определились бы отдельным запросом, как раньше")
-        return
-    print(" #  начало-конец, с  уверенность  сохранено: спикер, роль  новое: спикер, роль")
-    for i, (s, sid, role) in enumerate(zip(segs, *res)):
-        conf = f"{float(s.speaker_confidence):.2f}" if s.speaker_confidence is not None else "—"
-        print(f"{i:2}  {s.start_ms / 1000:6.2f}-{s.end_ms / 1000:6.2f}  {conf:>4}  "
-              f"{s.speaker_id} {s.speaker_role:9}  {sid} {role}")
-
-asyncio.run(main())
-PY
-  $DC exec -T diarize-worker rm -f /tmp/diarization_test.py || true
-  rm -f /tmp/voicer-diarization-test.py
-  ;;
 voice-test)
-  # Сравнение по голосу: отпечаток (ECAPA, SpeechBrain) каждой реплики против голосов спикеров
-  # из уверенных реплик. Временный контейнер из образа transcription-service с ограничением памяти
-  # и процессора; рабочие сервисы и база не меняются. Текст в лог не выводится. REANALYZE: id записи
+  # Проверка спикеров по голосу кодом diarize-worker на сохранённой записи $REANALYZE:
+  # сходство сомнительных реплик с голосами спикеров и роли от LLM по исправленным спикерам.
+  # В базу ничего не пишется, текст не выводится
   need_dc
-  dir=~/voice-test
-  mkdir -p "$dir/cache"
-  $DC exec -T -e REANALYZE="$REANALYZE" recorder-service python - > "$dir/export.txt" <<'PY'
-import asyncio, base64, json, os, re, uuid
-from pathlib import Path
-from sqlalchemy import text
-from app.database import async_session_maker
-from app.minio_client import download_bytes
-from app.routers.upload import BUCKET
-
-async def main():
-    rid = uuid.UUID(re.findall(r"[0-9a-f-]{36}", os.environ["REANALYZE"])[0])
-    async with async_session_maker() as db:
-        path = (await db.execute(text("SELECT audio_path FROM recorder.recordings WHERE id = :id"), {"id": rid})).scalar_one()
-        rows = (await db.execute(text("""
-            SELECT s.segment_index, s.start_ms, s.end_ms, s.speaker_id, s.speaker_confidence, s.speaker_role
-            FROM transcription.transcript_segments s JOIN transcription.transcripts t ON t.id = s.transcript_id
-            WHERE t.recording_id = :id ORDER BY 1"""), {"id": rid})).all()
-    obj = path[len(BUCKET) + 1:] if path.startswith(BUCKET + "/") else path
-    audio = await asyncio.to_thread(download_bytes, BUCKET, obj)
-    print("VOICE_TEST_JSON " + json.dumps({
-        "ext": Path(obj).suffix or ".wav", "audio": base64.b64encode(audio).decode(),
-        "segments": [{"index": r.segment_index, "start_ms": r.start_ms, "end_ms": r.end_ms, "speaker_id": r.speaker_id,
-                      "confidence": float(r.speaker_confidence) if r.speaker_confidence is not None else None,
-                      "role": r.speaker_role} for r in rows]}))
-
-asyncio.run(main())
-PY
-  cat > "$dir/voice_test.py" <<'PY'
-import base64, json, subprocess
-import numpy as np
-import torch
-from speechbrain.inference.speaker import EncoderClassifier
-
-THRESHOLD = 0.85
-line = next(l for l in open("/data/export.txt") if l.startswith("VOICE_TEST_JSON "))
-data = json.loads(line[len("VOICE_TEST_JSON "):])
-src = "/data/audio" + data["ext"]
-open(src, "wb").write(base64.b64decode(data["audio"]))
-pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
-                     capture_output=True, check=True).stdout
-wav = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
-segs = data["segments"]
-
-
-def clean_parts(i):
-    """Куски реплики, где не звучат другие реплики: на перекрытии два голоса сразу."""
-    parts = [(segs[i]["start_ms"], segs[i]["end_ms"])]
-    for j, o in enumerate(segs):
-        if j == i:
-            continue
-        nxt = []
-        for a, b in parts:
-            if o["end_ms"] <= a or o["start_ms"] >= b:
-                nxt.append((a, b))
-                continue
-            if o["start_ms"] > a:
-                nxt.append((a, o["start_ms"]))
-            if o["end_ms"] < b:
-                nxt.append((o["end_ms"], b))
-        parts = nxt
-    return [(a, b) for a, b in parts if b - a >= 200]
-
-
-model = EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb",
-                                       savedir="/data/cache/ecapa", run_opts={"device": "cpu"})
-
-
-def embed(parts):
-    chunks = [wav[a * 16:b * 16] for a, b in parts]
-    audio = np.concatenate(chunks) if chunks else np.zeros(0, np.float32)
-    if len(audio) < 8000:
-        return None
-    with torch.no_grad():
-        e = model.encode_batch(torch.from_numpy(audio.copy()).unsqueeze(0)).squeeze()
-    return torch.nn.functional.normalize(e, dim=0)
-
-
-uncertain = {i for i, s in enumerate(segs) if s["confidence"] is not None and s["confidence"] < THRESHOLD}
-confident = [i for i in range(len(segs)) if i not in uncertain and segs[i]["speaker_id"] is not None]
-speakers = sorted({segs[i]["speaker_id"] for i in confident})
-parts = {i: clean_parts(i) for i in range(len(segs))}
-
-
-def centroid(sid, skip=None):
-    return embed([p for i in confident if segs[i]["speaker_id"] == sid and i != skip for p in parts[i]])
-
-
-cent = {sid: centroid(sid) for sid in speakers}
-print(f"Аудио {len(wav) / 16000:.1f} с. Голоса спикеров по уверенным репликам: " + ", ".join(
-    f"{sid}: {sum(b - a for i in confident if segs[i]['speaker_id'] == sid for a, b in parts[i]) / 1000:.1f} с"
-    for sid in speakers))
-if len(speakers) == 2 and all(cent[s] is not None for s in speakers):
-    print(f"Сходство голосов спикеров между собой: {float(cent[speakers[0]] @ cent[speakers[1]]):.2f}")
-print(" #  время, с       уверенность  без перекрытий, с  сохранено     " + "  ".join(f"сходство с {s}" for s in speakers) + "  ближе")
-assign = {}
-for i, s in enumerate(segs):
-    e = embed(parts[i])
-    clean = sum(b - a for a, b in parts[i]) / 1000
-    note = ""
-    if e is None:
-        # Без перекрытий звука мало — берём весь отрезок реплики
-        e = embed([(s["start_ms"], s["end_ms"])])
-        note = " (весь отрезок)"
-    conf = f"{s['confidence']:.2f}" if s["confidence"] is not None else "—"
-    mark = "?" if i in uncertain else " "
-    if e is None:
-        sims, best = ["—"] * len(speakers), "мало звука"
-    else:
-        # Для уверенных реплик голос спикера считаем без самой реплики, иначе сравнение с собой
-        ref = {sid: (centroid(sid, skip=i) if i not in uncertain else cent[sid]) for sid in speakers}
-        vals = {sid: float(e @ r) for sid, r in ref.items() if r is not None}
-        sims = [f"{vals[sid]:.2f}" if sid in vals else "—" for sid in speakers]
-        if len(vals) < 2:
-            best = "не с чем сравнить"
-        else:
-            top = sorted(vals.values(), reverse=True)
-            best = str(max(vals, key=vals.get)) + ("" if top[0] - top[1] >= 0.1 else ", разница мала")
-            if i in uncertain and top[0] - top[1] >= 0.1:
-                assign[i] = max(vals, key=vals.get)
-    print(f"{i:2}{mark} {s['start_ms'] / 1000:6.2f}-{s['end_ms'] / 1000:6.2f}  {conf:>5}  {clean:8.1f}         "
-          f"{s['speaker_id']} {s['role']:9}  " + "  ".join(f"{x:>12}" for x in sims) + f"  {best}{note}")
-json.dump({"assign": assign}, open("/data/voice_result.json", "w"))
-PY
-  $D run --rm --memory 1500m --cpus 1 -v "$dir:/data" -e HF_HOME=/data/cache/hf -e PIP_CACHE_DIR=/data/cache/pip \
-    --entrypoint bash voiceiq-transcription-service -c '
-      pip install -q --disable-pip-version-check --root-user-action=ignore \
-        --index-url https://download.pytorch.org/whl/cpu torch==2.4.1 torchaudio==2.4.1 &&
-      pip install -q --disable-pip-version-check --root-user-action=ignore speechbrain==1.0.2 huggingface_hub==0.25.2 &&
-      python /data/voice_test.py' 2>&1 | grep -vE "warn|Warning|^\s*$|^INFO:speechbrain|torch\.(load|cuda)" | tail -40 || true
-  rm -f "$dir/export.txt" "$dir"/audio.*
-  if [ -s "$dir/voice_result.json" ]; then
-    echo "== Роли по спикерам после сравнения голосов: LLM (identify_speaker_roles) и по времени речи"
-    $DC cp "$dir/voice_result.json" diarize-worker:/tmp/voice_result.json
-    $DC exec -T -e REANALYZE="$REANALYZE" diarize-worker python - <<'PY' 2>&1 | grep -v Warning || true
-import asyncio, json, logging, os, re, uuid
-import httpx
-from sqlalchemy import select
-from app.config import settings
+  rm -rf ~/voice-test  # кэш прежней проверки во временном контейнере больше не нужен
+  $DC exec -T -e REANALYZE="$REANALYZE" diarize-worker python - <<'PY' 2>&1 \
+    | grep -vE "warn|Warning|^INFO:speechbrain|torch\.(load|cuda)" || true
+import asyncio, logging, os, re, uuid
+from sqlalchemy import select, text
 from app.database import async_session_maker
 from app.diarization import identify_speaker_roles, roles_by_talk_time
 from app.llm_client import get_llm_client
 from app.models import Transcript, TranscriptSegment
+from app.voice_check import recheck_by_voice
+from worker.diarize_worker import seller_name_for
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
-logging.getLogger("app.llm_client").setLevel(logging.INFO)
+for name in ("app.llm_client", "app.voice_check"):
+    logging.getLogger(name).setLevel(logging.INFO)
 
 
 async def main():
-    assign = {int(k): v for k, v in json.load(open("/tmp/voice_result.json"))["assign"].items()}
     rid = uuid.UUID(re.findall(r"[0-9a-f-]{36}", os.environ["REANALYZE"])[0])
     async with async_session_maker() as db:
         t = (await db.execute(select(Transcript).where(Transcript.recording_id == rid))).scalar_one()
         segs = (await db.execute(select(TranscriptSegment).where(TranscriptSegment.transcript_id == t.id)
                                  .order_by(TranscriptSegment.segment_index))).scalars().all()
-    name = "Продавец"
-    async with httpx.AsyncClient(timeout=5.0) as http:
-        r = await http.get(f"{settings.ADMIN_SERVICE_URL}/api/v1/admin/sellers/{t.seller_id}",
-                           headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY})
-        if r.status_code == 200:
-            name = f"{r.json().get('first_name', '')} {r.json().get('last_name', '')}".strip() or name
-    dicts = [{"text": s.text, "start_ms": s.start_ms, "end_ms": s.end_ms,
-              "speaker_id": assign.get(i, s.speaker_id)} for i, s in enumerate(segs)]
-    llm_map = await identify_speaker_roles(dicts, name, get_llm_client())
-    talk = roles_by_talk_time(dicts)
-    print(" #  спикер по голосу  роль LLM   роль по времени речи")
-    for i, (d, b) in enumerate(zip(dicts, talk)):
-        print(f"{i:2}  {d['speaker_id']}{' (голос)' if i in assign else '        '}       "
-              f"{llm_map.get(d['speaker_id'], 'unknown'):9}  {b}")
+        path = (await db.execute(text("SELECT audio_path FROM recorder.recordings WHERE id = :id"),
+                                 {"id": rid})).scalar_one()
+    dicts = [{"text": s.text, "start_ms": s.start_ms, "end_ms": s.end_ms, "speaker_id": s.speaker_id,
+              "speaker_confidence": s.speaker_confidence} for s in segs]
+    ids, details = await recheck_by_voice(dicts, path)
+    checked = [dict(d, speaker_id=sid) for d, sid in zip(dicts, ids)]
+    llm = await identify_speaker_roles(checked, await seller_name_for(str(t.seller_id)), get_llm_client())
+    talk = roles_by_talk_time(checked)
+    print(" #  время, с        уверенность  сохранено      сходство            по голосу   роль LLM   по времени речи")
+    for i, (s, sid, b) in enumerate(zip(segs, ids, talk)):
+        conf = f"{float(s.speaker_confidence):.2f}" if s.speaker_confidence is not None else "—"
+        kind, sims = details.get(i, ("", {})) if isinstance(details.get(i), tuple) else ("", {})
+        sim = " ".join(f"{k}:{v:.2f}" for k, v in sims.items())
+        how = {"voice": "голос", "undecided": "не решил"}.get(kind, "")
+        print(f"{i:2}  {s.start_ms / 1000:6.2f}-{s.end_ms / 1000:6.2f}  {conf:>5}  {s.speaker_id} {s.speaker_role:9}  "
+              f"{sim:18}  {sid} {how:8}  {llm.get(sid, 'unknown'):9}  {b}")
 
 asyncio.run(main())
 PY
-    $DC exec -T diarize-worker rm -f /tmp/voice_result.json || true
-  fi
-  rm -f "$dir/voice_result.json"
-  echo "Кэш моделей и пакетов: $dir/cache ($(du -sh "$dir/cache" | cut -f1))"
   ;;
 roles-compare)
   # Роли по репликам: сохранённые, по правилу Deepgram (дольше всех говорит — продавец) и от LLM. Без текста
