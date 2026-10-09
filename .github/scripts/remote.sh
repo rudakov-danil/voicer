@@ -570,6 +570,19 @@ async def main():
           f"первое слово имени есть в тексте: {'да' if name.split()[0].lower() in words else 'нет'}")
     dicts = [{"text": s.text, "start_ms": s.start_ms, "end_ms": s.end_ms, "speaker_id": s.speaker_id,
               "speaker_confidence": s.speaker_confidence} for s in segs]
+    await run("Без рассуждений модели, как в проде", segs, dicts, name)
+    # Второй проход — с рассуждениями (thinking): сколько стоят и меняют ли ответ
+    settings.LLM_DISABLE_THINKING = False
+
+    async def with_reasoning(client, **kwargs):
+        return await client.chat.completions.create(**kwargs)
+
+    d._create_no_reasoning = with_reasoning
+    await run("С рассуждениями модели", segs, dicts, name)
+
+
+async def run(label, segs, dicts, name):
+    print(f"== {label}")
     res = await d.resolve_speakers_and_roles(dicts, name, get_llm_client())
     if res is None:
         print("Модель не назвала работника: роли определились бы отдельным запросом, как раньше")
