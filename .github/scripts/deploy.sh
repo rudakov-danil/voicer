@@ -124,6 +124,10 @@ case $MODE in
     rsync -c services/transcription-service/app/diarization.py prod:/tmp/voicer-diarization-test.py
     remote roles-test
     ;;
+  voice-test)
+    [[ ${REANALYZE:-} =~ ^[0-9a-f-]{36}$ ]] || { echo "::error::recordings: один id записи"; exit 1; }
+    remote voice-test
+    ;;
   reupload)
     [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
       || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }

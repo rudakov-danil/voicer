@@ -16,6 +16,7 @@
 #   llm-usage — расход токенов LLM по строкам «LLM usage» за 30 минут
 #   summary-cost — токены на резюме последнего разговора (резюме не сохраняется)
 #   roles-test — спикеры и роли кодом diarization.py из репозитория на сохранённой записи, без записи в базу
+#   voice-test — сходство голосов сомнительных фраз со спикерами (временный контейнер, без записи в базу)
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -597,6 +598,131 @@ asyncio.run(main())
 PY
   $DC exec -T diarize-worker rm -f /tmp/diarization_test.py || true
   rm -f /tmp/voicer-diarization-test.py
+  ;;
+voice-test)
+  # Сравнение по голосу: отпечаток (ECAPA, SpeechBrain) каждой реплики против голосов спикеров
+  # из уверенных реплик. Временный контейнер из образа transcription-service с ограничением памяти
+  # и процессора; рабочие сервисы и база не меняются. Текст в лог не выводится. REANALYZE: id записи
+  need_dc
+  dir=~/voice-test
+  mkdir -p "$dir/cache"
+  $DC exec -T -e REANALYZE="$REANALYZE" recorder-service python - > "$dir/export.txt" <<'PY'
+import asyncio, base64, json, os, re, uuid
+from pathlib import Path
+from sqlalchemy import text
+from app.database import async_session_maker
+from app.minio_client import download_bytes
+from app.routers.upload import BUCKET
+
+async def main():
+    rid = uuid.UUID(re.findall(r"[0-9a-f-]{36}", os.environ["REANALYZE"])[0])
+    async with async_session_maker() as db:
+        path = (await db.execute(text("SELECT audio_path FROM recorder.recordings WHERE id = :id"), {"id": rid})).scalar_one()
+        rows = (await db.execute(text("""
+            SELECT s.segment_index, s.start_ms, s.end_ms, s.speaker_id, s.speaker_confidence, s.speaker_role
+            FROM transcription.transcript_segments s JOIN transcription.transcripts t ON t.id = s.transcript_id
+            WHERE t.recording_id = :id ORDER BY 1"""), {"id": rid})).all()
+    obj = path[len(BUCKET) + 1:] if path.startswith(BUCKET + "/") else path
+    audio = await asyncio.to_thread(download_bytes, BUCKET, obj)
+    print("VOICE_TEST_JSON " + json.dumps({
+        "ext": Path(obj).suffix or ".wav", "audio": base64.b64encode(audio).decode(),
+        "segments": [{"index": r.segment_index, "start_ms": r.start_ms, "end_ms": r.end_ms, "speaker_id": r.speaker_id,
+                      "confidence": float(r.speaker_confidence) if r.speaker_confidence is not None else None,
+                      "role": r.speaker_role} for r in rows]}))
+
+asyncio.run(main())
+PY
+  cat > "$dir/voice_test.py" <<'PY'
+import base64, json, subprocess
+import numpy as np
+import torch
+from speechbrain.inference.speaker import EncoderClassifier
+
+THRESHOLD = 0.85
+line = next(l for l in open("/data/export.txt") if l.startswith("VOICE_TEST_JSON "))
+data = json.loads(line[len("VOICE_TEST_JSON "):])
+src = "/data/audio" + data["ext"]
+open(src, "wb").write(base64.b64decode(data["audio"]))
+pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
+                     capture_output=True, check=True).stdout
+wav = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+segs = data["segments"]
+
+
+def clean_parts(i):
+    """Куски реплики, где не звучат другие реплики: на перекрытии два голоса сразу."""
+    parts = [(segs[i]["start_ms"], segs[i]["end_ms"])]
+    for j, o in enumerate(segs):
+        if j == i:
+            continue
+        nxt = []
+        for a, b in parts:
+            if o["end_ms"] <= a or o["start_ms"] >= b:
+                nxt.append((a, b))
+                continue
+            if o["start_ms"] > a:
+                nxt.append((a, o["start_ms"]))
+            if o["end_ms"] < b:
+                nxt.append((o["end_ms"], b))
+        parts = nxt
+    return [(a, b) for a, b in parts if b - a >= 200]
+
+
+model = EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb",
+                                       savedir="/data/cache/ecapa", run_opts={"device": "cpu"})
+
+
+def embed(parts):
+    chunks = [wav[a * 16:b * 16] for a, b in parts]
+    audio = np.concatenate(chunks) if chunks else np.zeros(0, np.float32)
+    if len(audio) < 8000:
+        return None
+    with torch.no_grad():
+        e = model.encode_batch(torch.from_numpy(audio.copy()).unsqueeze(0)).squeeze()
+    return torch.nn.functional.normalize(e, dim=0)
+
+
+uncertain = {i for i, s in enumerate(segs) if s["confidence"] is not None and s["confidence"] < THRESHOLD}
+confident = [i for i in range(len(segs)) if i not in uncertain and segs[i]["speaker_id"] is not None]
+speakers = sorted({segs[i]["speaker_id"] for i in confident})
+parts = {i: clean_parts(i) for i in range(len(segs))}
+
+
+def centroid(sid, skip=None):
+    return embed([p for i in confident if segs[i]["speaker_id"] == sid and i != skip for p in parts[i]])
+
+
+cent = {sid: centroid(sid) for sid in speakers}
+print(f"Аудио {len(wav) / 16000:.1f} с. Голоса спикеров по уверенным репликам: " + ", ".join(
+    f"{sid}: {sum(b - a for i in confident if segs[i]['speaker_id'] == sid for a, b in parts[i]) / 1000:.1f} с"
+    for sid in speakers))
+if len(speakers) == 2 and all(cent[s] is not None for s in speakers):
+    print(f"Сходство голосов спикеров между собой: {float(cent[speakers[0]] @ cent[speakers[1]]):.2f}")
+print(" #  время, с       уверенность  без перекрытий, с  сохранено     " + "  ".join(f"сходство с {s}" for s in speakers) + "  ближе")
+for i, s in enumerate(segs):
+    e = embed(parts[i])
+    clean = sum(b - a for a, b in parts[i]) / 1000
+    conf = f"{s['confidence']:.2f}" if s["confidence"] is not None else "—"
+    mark = "?" if i in uncertain else " "
+    if e is None:
+        sims, best = ["—"] * len(speakers), "мало звука"
+    else:
+        # Для уверенных реплик голос спикера считаем без самой реплики, иначе сравнение с собой
+        ref = {sid: (centroid(sid, skip=i) if i not in uncertain else cent[sid]) for sid in speakers}
+        vals = {sid: float(e @ r) for sid, r in ref.items() if r is not None}
+        sims = [f"{vals[sid]:.2f}" if sid in vals else "—" for sid in speakers]
+        best = str(max(vals, key=vals.get)) if vals else "—"
+    print(f"{i:2}{mark} {s['start_ms'] / 1000:6.2f}-{s['end_ms'] / 1000:6.2f}  {conf:>5}  {clean:8.1f}         "
+          f"{s['speaker_id']} {s['role']:9}  " + "  ".join(f"{x:>12}" for x in sims) + f"  {best}")
+PY
+  $D run --rm --memory 1500m --cpus 1 -v "$dir:/data" -e HF_HOME=/data/cache/hf -e PIP_CACHE_DIR=/data/cache/pip \
+    --entrypoint bash voiceiq-transcription-service -c '
+      pip install -q --disable-pip-version-check --root-user-action=ignore \
+        --index-url https://download.pytorch.org/whl/cpu torch==2.4.1 torchaudio==2.4.1 &&
+      pip install -q --disable-pip-version-check --root-user-action=ignore speechbrain==1.0.2 huggingface_hub==0.25.2 &&
+      python /data/voice_test.py' 2>&1 | grep -vE "warn|Warning|^\s*$" | tail -40 || true
+  rm -f "$dir/export.txt" "$dir"/audio.*
+  echo "Кэш моделей и пакетов: $dir/cache ($(du -sh "$dir/cache" | cut -f1))"
   ;;
 roles-compare)
   # Роли по репликам: сохранённые, по правилу Deepgram (дольше всех говорит — продавец) и от LLM. Без текста

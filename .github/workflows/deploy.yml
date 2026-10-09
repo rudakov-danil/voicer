@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "check — только посмотреть, deploy — выкатить, verify — проверить выкаченное, reanalyze — повторный анализ, llm-test — тестовый запрос к модели, server-diff — отличия кода на сервере, deepgram-test — проверка Deepgram, logs — ошибки сервисов и очереди, rediarize — повторить диаризацию застрявших записей, worker-log — полный журнал сервисов, conv-info — служебные поля последних разговоров, reprocess — запись с нуля на месте, reupload — копия записи как новая загрузка, roles-compare — роли: сохранённые, Deepgram, LLM, deepgram-words — сырой ответ Deepgram по словам, deepgram-compare — nova-3 против whisper, llm-usage — расход токенов LLM за 30 минут, summary-cost — токены на резюме последнего разговора, roles-test — новая разметка спикеров и ролей на записи без записи в базу"
+        description: "check — только посмотреть, deploy — выкатить, verify — проверить выкаченное, reanalyze — повторный анализ, llm-test — тестовый запрос к модели, server-diff — отличия кода на сервере, deepgram-test — проверка Deepgram, logs — ошибки сервисов и очереди, rediarize — повторить диаризацию застрявших записей, worker-log — полный журнал сервисов, conv-info — служебные поля последних разговоров, reprocess — запись с нуля на месте, reupload — копия записи как новая загрузка, roles-compare — роли: сохранённые, Deepgram, LLM, deepgram-words — сырой ответ Deepgram по словам, deepgram-compare — nova-3 против whisper, llm-usage — расход токенов LLM за 30 минут, summary-cost — токены на резюме последнего разговора, roles-test — новая разметка спикеров и ролей на записи без записи в базу, voice-test — сходство голосов реплик со спикерами"
         type: choice
-        options: [check, deploy, verify, reanalyze, llm-test, server-diff, deepgram-test, logs, rediarize, worker-log, conv-info, reprocess, reupload, roles-compare, deepgram-words, deepgram-compare, llm-usage, summary-cost, roles-test]
+        options: [check, deploy, verify, reanalyze, llm-test, server-diff, deepgram-test, logs, rediarize, worker-log, conv-info, reprocess, reupload, roles-compare, deepgram-words, deepgram-compare, llm-usage, summary-cost, roles-test, voice-test]
         default: check
       services:
         description: "Сервисы для пересборки и перезапуска"
