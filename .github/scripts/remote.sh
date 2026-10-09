@@ -699,9 +699,15 @@ print(f"Аудио {len(wav) / 16000:.1f} с. Голоса спикеров по
 if len(speakers) == 2 and all(cent[s] is not None for s in speakers):
     print(f"Сходство голосов спикеров между собой: {float(cent[speakers[0]] @ cent[speakers[1]]):.2f}")
 print(" #  время, с       уверенность  без перекрытий, с  сохранено     " + "  ".join(f"сходство с {s}" for s in speakers) + "  ближе")
+assign = {}
 for i, s in enumerate(segs):
     e = embed(parts[i])
     clean = sum(b - a for a, b in parts[i]) / 1000
+    note = ""
+    if e is None:
+        # Без перекрытий звука мало — берём весь отрезок реплики
+        e = embed([(s["start_ms"], s["end_ms"])])
+        note = " (весь отрезок)"
     conf = f"{s['confidence']:.2f}" if s["confidence"] is not None else "—"
     mark = "?" if i in uncertain else " "
     if e is None:
@@ -711,17 +717,68 @@ for i, s in enumerate(segs):
         ref = {sid: (centroid(sid, skip=i) if i not in uncertain else cent[sid]) for sid in speakers}
         vals = {sid: float(e @ r) for sid, r in ref.items() if r is not None}
         sims = [f"{vals[sid]:.2f}" if sid in vals else "—" for sid in speakers]
-        best = str(max(vals, key=vals.get)) if vals else "—"
+        if len(vals) < 2:
+            best = "не с чем сравнить"
+        else:
+            top = sorted(vals.values(), reverse=True)
+            best = str(max(vals, key=vals.get)) + ("" if top[0] - top[1] >= 0.1 else ", разница мала")
+            if i in uncertain and top[0] - top[1] >= 0.1:
+                assign[i] = max(vals, key=vals.get)
     print(f"{i:2}{mark} {s['start_ms'] / 1000:6.2f}-{s['end_ms'] / 1000:6.2f}  {conf:>5}  {clean:8.1f}         "
-          f"{s['speaker_id']} {s['role']:9}  " + "  ".join(f"{x:>12}" for x in sims) + f"  {best}")
+          f"{s['speaker_id']} {s['role']:9}  " + "  ".join(f"{x:>12}" for x in sims) + f"  {best}{note}")
+json.dump({"assign": assign}, open("/data/voice_result.json", "w"))
 PY
   $D run --rm --memory 1500m --cpus 1 -v "$dir:/data" -e HF_HOME=/data/cache/hf -e PIP_CACHE_DIR=/data/cache/pip \
     --entrypoint bash voiceiq-transcription-service -c '
       pip install -q --disable-pip-version-check --root-user-action=ignore \
         --index-url https://download.pytorch.org/whl/cpu torch==2.4.1 torchaudio==2.4.1 &&
       pip install -q --disable-pip-version-check --root-user-action=ignore speechbrain==1.0.2 huggingface_hub==0.25.2 &&
-      python /data/voice_test.py' 2>&1 | grep -vE "warn|Warning|^\s*$" | tail -40 || true
+      python /data/voice_test.py' 2>&1 | grep -vE "warn|Warning|^\s*$|^INFO:speechbrain|torch\.(load|cuda)" | tail -40 || true
   rm -f "$dir/export.txt" "$dir"/audio.*
+  if [ -s "$dir/voice_result.json" ]; then
+    echo "== Роли по спикерам после сравнения голосов: LLM (identify_speaker_roles) и по времени речи"
+    $DC cp "$dir/voice_result.json" diarize-worker:/tmp/voice_result.json
+    $DC exec -T -e REANALYZE="$REANALYZE" diarize-worker python - <<'PY' 2>&1 | grep -v Warning || true
+import asyncio, json, logging, os, re, uuid
+import httpx
+from sqlalchemy import select
+from app.config import settings
+from app.database import async_session_maker
+from app.diarization import identify_speaker_roles, roles_by_talk_time
+from app.llm_client import get_llm_client
+from app.models import Transcript, TranscriptSegment
+
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
+logging.getLogger("app.llm_client").setLevel(logging.INFO)
+
+
+async def main():
+    assign = {int(k): v for k, v in json.load(open("/tmp/voice_result.json"))["assign"].items()}
+    rid = uuid.UUID(re.findall(r"[0-9a-f-]{36}", os.environ["REANALYZE"])[0])
+    async with async_session_maker() as db:
+        t = (await db.execute(select(Transcript).where(Transcript.recording_id == rid))).scalar_one()
+        segs = (await db.execute(select(TranscriptSegment).where(TranscriptSegment.transcript_id == t.id)
+                                 .order_by(TranscriptSegment.segment_index))).scalars().all()
+    name = "Продавец"
+    async with httpx.AsyncClient(timeout=5.0) as http:
+        r = await http.get(f"{settings.ADMIN_SERVICE_URL}/api/v1/admin/sellers/{t.seller_id}",
+                           headers={"X-Internal-Key": settings.INTERNAL_SERVICE_KEY})
+        if r.status_code == 200:
+            name = f"{r.json().get('first_name', '')} {r.json().get('last_name', '')}".strip() or name
+    dicts = [{"text": s.text, "start_ms": s.start_ms, "end_ms": s.end_ms,
+              "speaker_id": assign.get(i, s.speaker_id)} for i, s in enumerate(segs)]
+    llm_map = await identify_speaker_roles(dicts, name, get_llm_client())
+    talk = roles_by_talk_time(dicts)
+    print(" #  спикер по голосу  роль LLM   роль по времени речи")
+    for i, (d, b) in enumerate(zip(dicts, talk)):
+        print(f"{i:2}  {d['speaker_id']}{' (голос)' if i in assign else '        '}       "
+              f"{llm_map.get(d['speaker_id'], 'unknown'):9}  {b}")
+
+asyncio.run(main())
+PY
+    $DC exec -T diarize-worker rm -f /tmp/voice_result.json || true
+  fi
+  rm -f "$dir/voice_result.json"
   echo "Кэш моделей и пакетов: $dir/cache ($(du -sh "$dir/cache" | cut -f1))"
   ;;
 roles-compare)
