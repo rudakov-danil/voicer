@@ -211,7 +211,6 @@ async def generate_summary(
                 # Резюме структурное (4 секции) и модель пишет ~1800 токенов — при лимите
                 # 2000 она упиралась в предел (finish=length) и иногда отдавала пустой ответ.
                 # Даём запас, чтобы генерация завершалась нормально (finish=stop).
-                max_tokens=3500,
                 timeout=settings.LLM_GENERAL_TIMEOUT,
             )
             summary_text = (response.choices[0].message.content or "").strip()

@@ -103,6 +103,35 @@ case $MODE in
   conv-info)
     remote conv-info
     ;;
+  roles-compare)
+    remote roles-compare
+    ;;
+  deepgram-words)
+    remote deepgram-words
+    ;;
+  deepgram-compare)
+    remote deepgram-compare
+    ;;
+  llm-usage)
+    remote llm-usage
+    ;;
+  summary-cost)
+    remote summary-cost
+    ;;
+  voice-test)
+    [[ ${REANALYZE:-} =~ ^[0-9a-f-]{36}$ ]] || { echo "::error::recordings: один id записи"; exit 1; }
+    remote voice-test
+    ;;
+  reupload)
+    [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
+      || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }
+    remote reupload
+    ;;
+  reprocess)
+    [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
+      || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }
+    remote reprocess
+    ;;
   rediarize)
     [[ ${REANALYZE:-} =~ ^(--latest\ [0-9]+|[0-9a-f-]{36}(\ [0-9a-f-]{36})*)$ ]] \
       || { echo "::error::recordings: «--latest N» или id записей через пробел"; exit 1; }

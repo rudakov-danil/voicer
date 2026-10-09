@@ -167,7 +167,6 @@ async def segment_conversations(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
-            max_tokens=16384,
         )
         raw = response.choices[0].message.content
 
@@ -223,6 +222,37 @@ DIARIZE_CHUNK_SIZE = 20
 ROLE_MAP = {"s": "seller", "c": "customer", "u": "unknown"}
 
 
+def roles_by_talk_time(segments: list[dict]) -> list[str]:
+    """Роли без LLM, только по спикерам Deepgram: продавец — тот, кто говорит дольше всех
+    (бейдж висит на продавце), остальные — покупатели. Сегменты без speaker_id — unknown."""
+    talk: dict = {}
+    for s in segments:
+        sid = s.get("speaker_id")
+        if sid is not None:
+            talk[sid] = talk.get(sid, 0) + max(0, (s.get("end_ms") or 0) - (s.get("start_ms") or 0))
+    if not talk:
+        return ["unknown"] * len(segments)
+    seller = max(talk, key=talk.get)
+    return [
+        "unknown" if s.get("speaker_id") is None else ("seller" if s.get("speaker_id") == seller else "customer")
+        for s in segments
+    ]
+
+
+# ─── Реплики, в спикере которых Deepgram не уверен ───────────────────────────
+# Когда люди перебивают друг друга, Deepgram часто отдаёт реплику одного другому.
+# Парсер режет такие абзацы на предложения с низкой speaker_confidence; diarize-worker
+# сверяет их голос с голосами спикеров (app/voice_check.py).
+
+def uncertain_speaker_indexes(segments: list[dict]) -> list[int]:
+    """Реплики, в спикере которых Deepgram не уверен."""
+    return [
+        i for i, s in enumerate(segments)
+        if s.get("speaker_id") is not None and s.get("speaker_confidence") is not None
+        and float(s["speaker_confidence"]) < settings.SPEAKER_CONFIDENCE_MIN
+    ]
+
+
 # Если разговор длиннее этого — фолбэк на чанкинг (страховка от переполнения контекста LLM).
 # 250 сегментов это примерно 15-25 минут непрерывного диалога.
 DIARIZE_SINGLE_PASS_LIMIT = 250
@@ -249,11 +279,6 @@ async def _diarize_batch(
         f"Верни строку из {len(batch)} букв (S/C/U) через запятую:"
     )
 
-    # max_tokens: ответ ≈ 1.8 токена на реплику (буква + запятая), плюс крупный запас на
-    # «размышление» reasoning-моделей (qwen3.6 тратит ~700 токенов до видимого ответа).
-    # Без этого запаса ответ обрезается по длине и приходит пустым.
-    max_out = int(len(batch) * 1.8) + 800
-
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -269,7 +294,6 @@ async def _diarize_batch(
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.0,
-                max_tokens=max_out,
                 timeout=600,
             )
             raw = response.choices[0].message.content
@@ -466,8 +490,6 @@ async def identify_speaker_roles(
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.0,
-                # Запас на случай фолбэка (reasoning не отключился у другого провайдера).
-                max_tokens=1024,
                 timeout=120,
             )
             raw = (response.choices[0].message.content or "").strip()

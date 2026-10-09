@@ -1,8 +1,14 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.routers import conversations
+
+
+# Анализ идёт и здесь (очередь слушает и analytics-worker): без этого строки INFO,
+# в том числе расход токенов «LLM usage», не попадали в лог
+logging.basicConfig(level=logging.INFO)
 
 
 async def _start_worker():

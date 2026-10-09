@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     DEEPGRAM_API_KEY: str = ""
     DEEPGRAM_API_URL: str = "https://api.deepgram.com/v1/listen"
     DEEPGRAM_LANGUAGE: str = "ru"
-    DEEPGRAM_MODEL: str = "whisper"
+    DEEPGRAM_MODEL: str = "nova-3"
+    # Если Deepgram уверен в спикере абзаца меньше этого, абзац режется на предложения,
+    # и diarize-worker проверяет через LLM, кто их сказал (обычно это перебивания)
+    SPEAKER_CONFIDENCE_MIN: float = 0.85
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 

@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     LLM_EXTRA_HEADER_VALUE: str = ""
     LLM_MODEL_NAME: str = "qwen2.5:14b"
     LLM_TEMPERATURE: float = 0.0
-    LLM_MAX_TOKENS: int = 2000
+    # Лимит токенов не ставим, рассуждения (thinking) выключены — см. app/llm_client.py
+    LLM_DISABLE_THINKING: bool = True
     LLM_TIMEOUT: int = 120
 
     class Config:

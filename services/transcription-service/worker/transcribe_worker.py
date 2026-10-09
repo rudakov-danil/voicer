@@ -156,6 +156,7 @@ async def process_transcribe_full_message(
                         transcript_id=transcript.id,
                         speaker_role="unknown",
                         speaker_id=seg.get("speaker"),
+                        speaker_confidence=seg.get("speaker_confidence"),
                         text=seg["text"].strip(),
                         start_ms=max(0, seg_start_ms),
                         end_ms=max(0, seg_end_ms),

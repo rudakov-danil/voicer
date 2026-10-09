@@ -57,5 +57,7 @@ class TranscriptSegment(Base):
     end_ms = Column(Integer, nullable=False)
     segment_index = Column(Integer, nullable=False)
     avg_logprob = Column(Numeric(6, 4), nullable=True)
+    speaker_confidence = Column(Numeric(4, 3), nullable=True)
+    # Уверенность Deepgram в спикере (0..1). Ниже SPEAKER_CONFIDENCE_MIN спикера проверяет LLM
 
     transcript = relationship("Transcript", back_populates="segments")

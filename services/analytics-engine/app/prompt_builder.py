@@ -622,7 +622,6 @@ async def screen_contextual_script(
             model=settings.LLM_CHEAP_MODEL or settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.0,
-            max_tokens=200,
             response_format={"type": "json_object"},
             timeout=30,
         )

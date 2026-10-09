@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.diarization import diarize_segments, segment_conversations
+from app.diarization import diarize_segments, roles_by_talk_time, segment_conversations, uncertain_speaker_indexes
 
 
 def make_mock_llm(response_content: str):
@@ -98,3 +98,36 @@ async def test_segment_conversations_valid():
     assert len(boundaries) == 2
     assert boundaries[0]["start_ms"] == 0
     assert boundaries[0]["end_ms"] == 10000
+
+
+def test_roles_by_talk_time_longest_speaker_is_seller():
+    segments = [
+        {"text": "Здравствуйте", "start_ms": 0, "end_ms": 1000, "speaker_id": 1},
+        {"text": "Подскажу по моделям", "start_ms": 1200, "end_ms": 6000, "speaker_id": 0},
+        {"text": "Спасибо", "start_ms": 6100, "end_ms": 7000, "speaker_id": 1},
+        {"text": "шум", "start_ms": 7100, "end_ms": 7300, "speaker_id": None},
+    ]
+    assert roles_by_talk_time(segments) == ["customer", "seller", "customer", "unknown"]
+
+
+def test_roles_by_talk_time_single_or_no_speaker():
+    one = [{"text": "а", "start_ms": 0, "end_ms": 500, "speaker_id": 0}]
+    assert roles_by_talk_time(one) == ["seller"]
+    none = [{"text": "а", "start_ms": 0, "end_ms": 500, "speaker_id": None}]
+    assert roles_by_talk_time(none) == ["unknown"]
+
+
+# Перебивание: «Я думаю…» и «Ладно, хорошо…» Deepgram отдал одному спикеру с низкой уверенностью
+INTERRUPTED = [
+    {"text": "Здравствуйте, проверяем запись.", "speaker_id": 0, "speaker_confidence": 1.0},
+    {"text": "А если они будут перебивать друг друга? Не,", "speaker_id": 1, "speaker_confidence": 1.0},
+    {"text": "Я думаю, вообще без проблем будет.", "speaker_id": 2, "speaker_confidence": 0.77},
+    {"text": "Ладно, хорошо, мы сейчас проверим эту гипотезу.", "speaker_id": 2, "speaker_confidence": 0.75},
+    {"text": "Хорошо.", "speaker_id": 2, "speaker_confidence": 0.99},
+]
+
+
+def test_uncertain_speaker_indexes_below_threshold_only():
+    segs = INTERRUPTED + [{"text": "шум", "speaker_id": None, "speaker_confidence": 0.1},
+                          {"text": "старая запись", "speaker_id": 1, "speaker_confidence": None}]
+    assert uncertain_speaker_indexes(segs) == [2, 3]

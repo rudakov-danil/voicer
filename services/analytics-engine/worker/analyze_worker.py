@@ -228,19 +228,11 @@ async def _score_fulltext_script(segments: list[dict], script: dict, llm_client)
     """
     system, user = build_fulltext_script_prompt(segments, script)
     blocks_by_id = {str(b["id"]): b for b in script.get("blocks", [])}
-    # Лимит токенов масштабируем по числу блоков: ~280 токенов на блок (block_id +
-    # status + короткая цитата + комментарий) + запас. Иначе ответ обрывается на
-    # середине JSON и весь скрипт уходит в 0.
-    fulltext_max_tokens = min(
-        settings.LLM_FULLTEXT_MAX_TOKENS,
-        max(settings.LLM_MAX_TOKENS, 280 * len(blocks_by_id) + 500),
-    )
     try:
         response = await llm_client.chat.completions.create(
             model=settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=settings.LLM_TEMPERATURE,
-            max_tokens=fulltext_max_tokens,
             response_format={"type": "json_object"},
             timeout=settings.LLM_SCRIPT_TIMEOUT,
         )
@@ -329,7 +321,6 @@ async def _score_one_script(segments: list[dict], script: dict, llm_client) -> d
             model=settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=settings.LLM_TEMPERATURE,
-            max_tokens=settings.LLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=settings.LLM_SCRIPT_TIMEOUT,
         )
@@ -382,7 +373,6 @@ async def _general_analysis(
             model=settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=settings.LLM_TEMPERATURE,
-            max_tokens=settings.LLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=settings.LLM_GENERAL_TIMEOUT,
         )
@@ -440,7 +430,6 @@ async def _check_sell(
             model=settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.0,
-            max_tokens=settings.LLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=settings.LLM_GENERAL_TIMEOUT,
         )
@@ -507,7 +496,6 @@ async def _check_compliance(
             model=settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.0,
-            max_tokens=settings.LLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=settings.LLM_GENERAL_TIMEOUT,
         )
@@ -567,7 +555,6 @@ async def _general_and_compliance(
             model=settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=settings.LLM_TEMPERATURE,
-            max_tokens=settings.LLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=settings.LLM_GENERAL_TIMEOUT,
         )
@@ -659,7 +646,6 @@ async def _redact_texts(texts: list[str], llm_client) -> list[str]:
             model=settings.LLM_CHEAP_MODEL or settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.0,
-            max_tokens=settings.LLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=settings.LLM_SCRIPT_TIMEOUT,
         )

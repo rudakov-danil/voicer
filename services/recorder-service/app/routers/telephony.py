@@ -496,14 +496,17 @@ async def _process_call_audio(
             for idx, seg in enumerate(segments_raw):
                 await db.execute(text("""
                     INSERT INTO transcription.transcript_segments
-                        (id, transcript_id, speaker_role, speaker_id, text, start_ms, end_ms, segment_index)
+                        (id, transcript_id, speaker_role, speaker_id, speaker_confidence,
+                         text, start_ms, end_ms, segment_index)
                     VALUES
-                        (:id, :t_id, :role, :speaker_id, :text, :start_ms, :end_ms, :idx)
+                        (:id, :t_id, :role, :speaker_id, :speaker_confidence,
+                         :text, :start_ms, :end_ms, :idx)
                 """), {
                     "id": uuid.uuid4(),
                     "t_id": transcript_id,
                     "role": seg.get("role") or "unknown",
                     "speaker_id": seg.get("speaker"),
+                    "speaker_confidence": seg.get("speaker_confidence"),
                     "text": seg["text"],
                     "start_ms": int(seg.get("start", 0) * 1000),
                     "end_ms": int(seg.get("end", 0) * 1000),

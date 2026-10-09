@@ -65,7 +65,9 @@ cd voiceiq
 
 Workflow `.github/workflows/deploy.yml` выкатывает с раннера GitHub по SSH, запуск вручную: Actions → Deploy → Run workflow.
 - `check` ничего не меняет: показывает состояние сервера, какие файлы `services/` и фронтенда изменятся, отличия `docker-compose.yml` и `nginx.conf`.
-- `deploy`: бэкап БД в `~/deploy-backups` (последние 10), файлы `services/` (без `.env` и без удаления), сборка выбранных сервисов, `alembic upgrade head` для analytics-engine, перезапуск, перезапуск nginx, собранный фронтенд, проверка нового эндпоинта.
+- `deploy`: бэкап БД в `~/deploy-backups` (последние 10), файлы `services/` (без `.env` и без удаления), сборка выбранных сервисов, `alembic upgrade head` для analytics-engine и, если выкатывается сервис из `services/transcription-service`, для схемы transcription, перезапуск, перезапуск nginx, собранный фронтенд, проверка нового эндпоинта. recorder-service пишет сегменты в схему transcription, поэтому при новых колонках его выкатывают вместе с diarize-worker.
+- `reupload` прогоняет копию записи через весь пайплайн и в конце показывает расход токенов LLM по этапам; `llm-usage` показывает расход за последние 30 минут.
+- Образ `services/transcription-service` содержит torch для процессора и модель голосовых отпечатков ECAPA (около 1 ГБ): diarize-worker сверяет по голосу реплики, в спикере которых Deepgram не уверен. Первая сборка дольше обычного. `voice-test` показывает эту проверку на сохранённой записи без записи в базу.
 
 `docker-compose.yml`, `nginx/` и `.env` на сервере workflow не трогает.
 

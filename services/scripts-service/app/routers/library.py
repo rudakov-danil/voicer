@@ -194,7 +194,6 @@ async def generate_with_ai(
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.3,
-            max_tokens=settings.LLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             timeout=settings.LLM_TIMEOUT,
         )

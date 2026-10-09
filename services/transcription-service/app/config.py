@@ -12,12 +12,17 @@ class Settings(BaseSettings):
     DEEPGRAM_API_URL: str = "https://api.deepgram.com/v1/listen"
     DEEPGRAM_LANGUAGE: str = "ru"
     DEEPGRAM_MODEL: str = "nova-3"
+    # Если Deepgram уверен в спикере абзаца меньше этого, абзац режется на предложения,
+    # и diarize-worker проверяет через LLM, кто их сказал (обычно это перебивания)
+    SPEAKER_CONFIDENCE_MIN: float = 0.85
     LLM_SERVER_URL: str = "http://llm-gpu-server:11434"
     LLM_API_KEY: str = "ollama"
     LLM_FOLDER_ID: str = ""  # Yandex Cloud folder id (project) — пусто для OpenRouter/Ollama
     LLM_EXTRA_HEADER_NAME: str = ""
     LLM_EXTRA_HEADER_VALUE: str = ""
     LLM_MODEL_NAME: str = "qwen2.5:14b"
+    # Рассуждения (thinking) выключены — см. app/llm_client.py
+    LLM_DISABLE_THINKING: bool = True
     ADMIN_SERVICE_URL: str = "http://admin-service:8007"
     INTERNAL_SERVICE_KEY: str = ""
     RECORDER_SERVICE_URL: str = "http://recorder-service:8002"
