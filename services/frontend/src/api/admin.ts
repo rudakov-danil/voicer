@@ -21,7 +21,7 @@ export const adminApi = {
   },
 
   // Sellers
-  getSellers: async (params?: { store_id?: string }) => {
+  getSellers: async (params?: { store_id?: string; is_active?: boolean; limit?: number }) => {
     const response = await apiClient.get<PaginatedResponse<Seller & { store_name?: string }>>('/api/v1/admin/sellers', { params })
     return response.data
   },

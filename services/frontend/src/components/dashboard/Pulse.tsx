@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, Table2 } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
+import { useTerms } from '@/lib/terms'
 import { t, L, locale, plural } from '@/i18n'
 
 /* Пульс недели (ui-concept/dashboard.html → .pulse): разговоры по получасам за 7 дней,
@@ -17,6 +18,7 @@ export function Pulse({ onOpenAttention }: { onOpenAttention: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(0)
   const [showTable, setShowTable] = useState(false)
+  const terms = useTerms()
   const { data } = useQuery({ queryKey: ['pulse'], queryFn: () => dashboardApi.getPulse({ days: 7 }) })
 
   useLayoutEffect(() => {
@@ -59,7 +61,7 @@ export function Pulse({ onOpenAttention }: { onOpenAttention: () => void }) {
           <div className="eyebrow">{L(`Неделя · ${range}`, `Week · ${range}`)}</div>
           <h2 id="pulse-title" className="pulse-title">
             {tot ? <>
-              {tot.conversations.toLocaleString(locale)} {L(`${convWord} с покупателями`, `${convWord} with customers`)}{' '}
+              {tot.conversations.toLocaleString(locale)} {L(`${convWord} ${terms.withCustomers[0]}`, `${convWord} ${terms.withCustomers[1]}`)}{' '}
               <em>{L(`· ${hours(tot.talk_seconds)} ч разговоров`, `· ${hours(tot.talk_seconds)} h of talking`)}</em>
             </> : t('Загрузка...')}
           </h2>

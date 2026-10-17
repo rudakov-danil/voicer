@@ -17,9 +17,9 @@ import {
   DirectionIcon,
   useObjectionTypeLabel,
 } from '@/components/conversation/shared'
-import { Upload, CheckCircle, Clock, Loader, AlertCircle, X, FileText, Phone, Sparkles, ChevronRight, Search, ShieldAlert, MessageCircleWarning } from 'lucide-react'
+import { Upload, CheckCircle, Clock, Loader, AlertCircle, X, FileText, Phone, Sparkles, ChevronRight, Search, ShieldAlert, MessageCircleWarning, PackageX } from 'lucide-react'
 import { Fingerprint, clock } from '@/components/ui/Fingerprint'
-import { Meter, UpsellDots } from '@/components/ui/Meter'
+import { Meter, OffersCell, UpsellDots } from '@/components/ui/Meter'
 import type { ConversationView, FingerprintMark } from '@/types'
 import { t, L, locale } from '@/i18n'
 import { MultiSelect } from '@/components/scripts/MultiSelect'
@@ -257,6 +257,7 @@ const VIEWS: Array<{ id: '' | ConversationView; label: string; alert?: boolean }
   { id: 'price_open', label: '«Дорого» без ответа' },
   { id: 'competitor', label: 'Ушли к конкурентам' },
   { id: 'no_upsell', label: 'Без допродажи' },
+  { id: 'unmet_demand', label: 'Нет в наличии' },
 ]
 
 function initialsOf(name?: string | null): string {
@@ -477,7 +478,7 @@ export function ConversationsPage() {
       {/* Подборки */}
       <div className="views-bar">
         <div className="tabs" role="tablist" aria-label={t('Подборки разговоров')}>
-          {VIEWS.map((v) => {
+          {VIEWS.filter((v) => !(terms.offersFirst && v.id === 'competitor') && (v.id !== 'unmet_demand' || terms.tracksDemand)).map((v) => {
             const n = counts ? (v.id ? counts[v.id] : counts.total) : undefined
             return (
               <button
@@ -724,8 +725,13 @@ export function ConversationsPage() {
                     </td>
                     <td className="c-topic">
                       <div className={`topic-title ${row.topic ? '' : 'is-empty'}`} translate={row.topic ? 'no' : undefined}>{row.topic || t('Без темы')}</div>
-                      {(row.top_violation || row.open_objection || notScored) && (
+                      {(row.top_violation || row.open_objection || notScored || row.unmet_demand) && (
                         <div className="topic-flags">
+                          {row.unmet_demand && (
+                            <span className="flag is-warn" translate="no">
+                              <PackageX aria-hidden="true" />{L(`Нет в наличии: ${row.unmet_demand}`, `Out of stock: ${row.unmet_demand}`)}
+                            </span>
+                          )}
                           {row.top_violation && (
                             <span className={`flag ${row.top_violation_severity === 'high' ? 'is-crit' : 'is-warn'}`}>
                               <ShieldAlert aria-hidden="true" />{row.top_violation}
@@ -758,7 +764,7 @@ export function ConversationsPage() {
                       </div>
                     </td>
                     <td className="c-score">{notScored ? <span className="muted">—</span> : <Meter score={row.overall_score} />}</td>
-                    <td className="c-up">{notScored ? <span className="muted">—</span> : <UpsellDots value={row.upsell} />}</td>
+                    <td className="c-up">{notScored ? <span className="muted">—</span> : row.offers ? <OffersCell offers={row.offers} /> : <UpsellDots value={row.upsell} />}</td>
                     <td className="c-out"><OutcomeTag outcome={row.outcome} /></td>
                     <td className="c-go"><ChevronRight size={16} /></td>
                   </tr>

@@ -69,6 +69,13 @@ async def process_diarize_message(
 
             if not segments:
                 logger.warning(f"No segments for transcript_id={transcript_id}")
+                # A successful transcription with no speech still needs the coffee
+                # admission check, which removes its audio and processing transcript.
+                coffee = (await db.execute(text("SELECT industry FROM auth.organizations WHERE id=:id"),
+                                           {"id": organization_id})).scalar() == "coffee"
+                if coffee:
+                    await publish("queue.analyze", {key: payload[key] for key in (
+                        "recording_id", "transcript_id", "seller_id", "store_id", "organization_id")})
                 await message.ack()
                 return
 

@@ -9,6 +9,7 @@ from sqlalchemy import text
 from app.database import get_db
 from app.dependencies import get_current_user, org_store_conditions
 from app.config import settings
+from app.org_settings import org_tz
 from app.routers.home import SELL_NEED, SELL_DONE
 
 router = APIRouter(prefix="/api/v1/dashboard/insights", tags=["insights"])
@@ -72,7 +73,7 @@ async def get_insights(
     db: AsyncSession = Depends(get_db),
 ):
     scope, params = _scope(user, store_id, period)
-    params["tz"] = settings.LOCAL_TZ
+    params["tz"] = await org_tz(db, user["organization_id"])
 
     # ─── Что влияет на покупку: конверсия при выполненном и невыполненном условии ───
     flags = (await db.execute(text(f"""
@@ -215,7 +216,7 @@ async def get_insights(
 
     return {
         "period": period,
-        "timezone": settings.LOCAL_TZ,
+        "timezone": params["tz"],
         "drivers": drivers[:5],
         "funnel": funnel,
         "hourly": hourly,

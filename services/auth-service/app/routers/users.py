@@ -101,6 +101,16 @@ async def update_user(
         user.last_name = body.last_name
     if body.store_id is not None:
         user.store_id = body.store_id
+    if body.password:
+        # Как в change-password: не короче 8 символов, открытые сессии закрываются
+        if len(body.password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        user.password_hash = hash_password(body.password)
+        await db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id, RefreshToken.revoked == False)
+            .values(revoked=True)
+        )
     if body.is_active is not None:
         user.is_active = body.is_active
         if not body.is_active:

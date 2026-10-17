@@ -1,15 +1,15 @@
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
-from app.dependencies import get_current_user, get_super_admin
-from app.models import Organization, RefreshToken, RopStoreAssignment, SuperAdmin, User
+from app.dependencies import get_current_user
+from app.models import Organization, RefreshToken, RopStoreAssignment, User
 from app.schemas import (
     ChangePasswordRequest,
-    CreateOrganizationRequest,
     LoginRequest,
     RefreshRequest,
     TokenResponse,
@@ -38,7 +38,36 @@ async def _get_rop_stores(db: AsyncSession, user_id, organization_id) -> list[st
     return [str(r.store_id) for r in result.fetchall()]
 
 
-async def _build_token_response(db: AsyncSession, user: User) -> dict:
+def _request_host(request: Request) -> str:
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    return host.split(",")[0].split(":")[0].strip().lower()
+
+
+async def _showcase_org(db: AsyncSession, user: User, host: str):
+    """Организация витрины для этого домена (DOMAIN_ORGS), если пользователь может в неё войти:
+    директор или админ организации из DOMAIN_ORG_GUESTS. Иначе None — обычный вход."""
+    domains = dict(pair.strip().split("=", 1) for pair in settings.DOMAIN_ORGS.split(",") if "=" in pair)
+    if "horeca.voicer-ai.pro" in domains:
+        domains.setdefault("mobile.voicer-ai.pro", domains["horeca.voicer-ai.pro"])
+    slug = domains.get(host)
+    if not slug or user.role not in ("director", "admin"):
+        return None
+    guests = {s.strip() for s in settings.DOMAIN_ORG_GUESTS.split(",") if s.strip()}
+    home = await db.get(Organization, user.organization_id)
+    if not home or home.slug not in guests:
+        return None
+    target = (await db.execute(
+        select(Organization).where(Organization.slug == slug.strip(), Organization.is_active == True)  # noqa: E712
+    )).scalar_one_or_none()
+    return target if target and target.id != user.organization_id else None
+
+
+async def _build_token_response(db: AsyncSession, user: User, host: str = "") -> dict:
+    # Организацию отключает суперадмин: её пользователи больше не входят и не обновляют токены
+    home = await db.get(Organization, user.organization_id)
+    if not home or not home.is_active:
+        raise HTTPException(status_code=403, detail="Organization is deactivated")
+
     rop_stores = []
     if user.role == "rop":
         rop_stores = await _get_rop_stores(db, user.id, user.organization_id)
@@ -50,6 +79,11 @@ async def _build_token_response(db: AsyncSession, user: User) -> dict:
         "store_id": str(user.store_id) if user.store_id else None,
         "rop_stores": rop_stores,
     }
+    showcase = await _showcase_org(db, user, host)
+    if showcase:
+        # Учётка остаётся в своей организации (home_org — по ней проверяется токен),
+        # а работает с данными витрины
+        access_payload.update(organization_id=str(showcase.id), home_org=str(user.organization_id), store_id=None)
     access_token = create_access_token(access_payload)
     refresh_token_str, jti = create_refresh_token(str(user.id))
 
@@ -61,17 +95,20 @@ async def _build_token_response(db: AsyncSession, user: User) -> dict:
     db.add(token_record)
     await db.commit()
 
+    user_out = UserResponse.model_validate(user)
+    if showcase:
+        user_out = user_out.model_copy(update={"organization_id": showcase.id, "store_id": None})
     return {
         "access_token": access_token,
         "refresh_token": refresh_token_str,
         "token_type": "bearer",
         "expires_in": 900,
-        "user": UserResponse.model_validate(user),
+        "user": user_out,
     }
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
@@ -81,11 +118,11 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User account is deactivated")
 
-    return await _build_token_response(db, user)
+    return await _build_token_response(db, user, _request_host(request))
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
+async def refresh(body: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
         payload = decode_token(body.refresh_token)
     except JWTError:
@@ -121,7 +158,7 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or deactivated")
 
-    return await _build_token_response(db, user)
+    return await _build_token_response(db, user, _request_host(request))
 
 
 @router.post("/logout")
@@ -167,7 +204,24 @@ async def get_organization(
         "name": org.name,
         "slug": org.slug,
         "org_type": org.org_type,
+        "industry": org.industry,
+        "currency": org.currency,
+        "timezone": org.timezone,
     }
+
+
+# Отрасль подстраивает промпты анализа и стартовый пакет скриптов (scripts-service, /verticals)
+INDUSTRIES = ("coffee", "pharmacy", "clinic", "electronics", "clothing", "cosmetics", "furniture", "telecom", "generic")
+CURRENCIES = ("RUB", "KZT", "UZS", "KGS", "BYN", "USD", "EUR")
+
+
+def _valid_timezone(name: str) -> bool:
+    from zoneinfo import ZoneInfo
+    try:
+        ZoneInfo(name)
+        return True
+    except Exception:
+        return False
 
 
 @router.patch("/organization")
@@ -179,8 +233,19 @@ async def update_organization(
     if current_user["role"] not in ("director", "admin"):
         raise HTTPException(status_code=403, detail="Only director/admin can change organization settings")
     org_type = body.get("org_type")
-    if org_type not in ("retail", "telephony"):
+    if org_type is not None and org_type not in ("retail", "telephony"):
         raise HTTPException(status_code=422, detail="org_type must be 'retail' or 'telephony'")
+    industry = body.get("industry")
+    if industry is not None and industry not in INDUSTRIES:
+        raise HTTPException(status_code=422, detail=f"industry must be one of: {', '.join(INDUSTRIES)}")
+    currency = body.get("currency")
+    if currency is not None and currency not in CURRENCIES:
+        raise HTTPException(status_code=422, detail=f"currency must be one of: {', '.join(CURRENCIES)}")
+    tz = body.get("timezone")
+    if tz is not None and not _valid_timezone(tz):
+        raise HTTPException(status_code=422, detail="timezone must be an IANA name like Asia/Almaty")
+    if org_type is None and not any(k in body for k in ("industry", "currency", "timezone")):
+        raise HTTPException(status_code=422, detail="Nothing to update: pass org_type, industry, currency or timezone")
 
     result = await db.execute(
         select(Organization).where(Organization.id == current_user["organization_id"])
@@ -188,64 +253,14 @@ async def update_organization(
     org = result.scalar_one_or_none()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    org.org_type = org_type
+    if org_type is not None:
+        org.org_type = org_type
+    if "industry" in body:
+        org.industry = industry
+    if "currency" in body:
+        org.currency = currency
+    if "timezone" in body:
+        org.timezone = tz
     await db.commit()
-    return {"id": str(org.id), "org_type": org.org_type}
-
-
-# --- Super Admin routes ---
-
-@router.post("/super/login")
-async def super_login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    from app.config import settings as cfg
-    result = await db.execute(select(SuperAdmin).where(SuperAdmin.email == body.email))
-    admin = result.scalar_one_or_none()
-
-    if not admin or not verify_password(body.password, admin.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    if not admin.is_active:
-        raise HTTPException(status_code=403, detail="Account deactivated")
-
-    from datetime import timedelta
-    from jose import jwt as jose_jwt
-    token = jose_jwt.encode(
-        {
-            "sub": str(admin.id),
-            "type": "super_access",
-            "iat": datetime.now(timezone.utc),
-            "exp": datetime.now(timezone.utc) + timedelta(hours=8),
-        },
-        cfg.JWT_SECRET,
-        algorithm=cfg.JWT_ALGORITHM,
-    )
-    return {"access_token": token, "token_type": "bearer"}
-
-
-@router.post("/super/organizations", status_code=201)
-async def create_organization(
-    body: CreateOrganizationRequest,
-    _: dict = Depends(get_super_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    # Check slug uniqueness
-    result = await db.execute(select(Organization).where(Organization.slug == body.org_slug))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Organization slug already exists")
-
-    org = Organization(name=body.org_name, slug=body.org_slug)
-    db.add(org)
-    await db.flush()
-
-    director = User(
-        organization_id=org.id,
-        email=body.director_email,
-        password_hash=hash_password(body.director_password),
-        role="director",
-        first_name=body.director_first_name,
-        last_name=body.director_last_name,
-    )
-    db.add(director)
-    await db.commit()
-    await db.refresh(org)
-
-    return {"organization_id": str(org.id), "director_id": str(director.id)}
+    return {"id": str(org.id), "org_type": org.org_type, "industry": org.industry,
+            "currency": org.currency, "timezone": org.timezone}

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
 import { outcomeColor, outcomeLabel } from '@/lib/outcomes'
+import { useTerms } from '@/lib/terms'
+import { W } from '@/components/upsells/metrics'
 import { t, L, locale, plural } from '@/i18n'
 
 /* «День продавца» (ui-concept/conversation.html): где этот разговор среди остальных
@@ -18,6 +20,7 @@ function duration(sec: number) {
 }
 
 export function SellerDayPanel({ conversationId }: { conversationId: string }) {
+  const terms = useTerms()
   const navigate = useNavigate()
   const ref = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(0)
@@ -52,7 +55,11 @@ export function SellerDayPanel({ conversationId }: { conversationId: string }) {
   const step = w < 460 ? 4 : 2
   const ticks: number[] = []
   for (let hr = X0; hr <= X1; hr += step) ticks.push(hr)
-  if (ticks[ticks.length - 1] !== X1) ticks.push(X1)
+  // Последняя подпись — всегда конец шкалы; слишком близкую к нему промежуточную заменяем, чтобы не наезжали
+  if (ticks[ticks.length - 1] !== X1) {
+    if (x(X1) - x(ticks[ticks.length - 1]) < 44) ticks[ticks.length - 1] = X1
+    else ticks.push(X1)
+  }
 
   const n = items.length
   const won = items.filter((i) => i.outcome === 'purchase').length
@@ -60,16 +67,19 @@ export function SellerDayPanel({ conversationId }: { conversationId: string }) {
   const day = new Date(`${data.date}T00:00:00`)
   const convWord = plural(n, ['разговор', 'разговора', 'разговоров'], ['conversation', 'conversations'])
   const wonWord = plural(won, ['покупка', 'покупки', 'покупок'], ['purchase', 'purchases'])
-  const label = L(`За день ${n} ${convWord}, ${won} ${wonWord}`, `${n} ${convWord} this day, ${won} ${wonWord}`)
+  // В кофейне покупкой заканчивается почти каждый разговор — считаем заказы, а не «покупки»
+  const label = terms.offersFirst
+    ? L(`За день ${n} ${plural(n, W().order, ['', ''])}`, `${n} orders this day`)
+    : L(`За день ${n} ${convWord}, ${won} ${wonWord}`, `${n} ${convWord} this day, ${won} ${wonWord}`)
 
   return (
     <section className="panel" aria-labelledby="cv-day-title">
       <div className="panel-head">
         <div>
-          <h2 id="cv-day-title" className="panel-title">{t('День продавца')}</h2>
+          <h2 id="cv-day-title" className="panel-title">{terms.isCafe ? t('День бариста') : terms.isPharmacy ? L('День фармацевта', 'Pharmacist’s day') : t('День продавца')}</h2>
           <div className="panel-sub">
-            {L(`Все разговоры продавца за ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`,
-              `All of the seller’s conversations on ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`)}
+            {L(`Все разговоры ${terms.sellerGen} за ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`,
+              `All of the ${terms.sellerLower[1]}’s conversations on ${day.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}`)}
           </div>
         </div>
       </div>
@@ -112,8 +122,14 @@ export function SellerDayPanel({ conversationId }: { conversationId: string }) {
           )}
         </div>
         <div className="cv-day-stats">
-          <span><b>{n}</b> {convWord}</span>
-          <span><b>{won}</b> {wonWord}</span>
+          {terms.offersFirst ? (
+            <span><b>{n}</b> {plural(n, W().order, ['order', 'orders'])}</span>
+          ) : (
+            <>
+              <span><b>{n}</b> {convWord}</span>
+              <span><b>{won}</b> {wonWord}</span>
+            </>
+          )}
           <span>{L('в разговорах ', '')}<b>{duration(talk)}</b>{L('', ' talking')}</span>
         </div>
       </div>

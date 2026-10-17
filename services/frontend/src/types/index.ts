@@ -43,7 +43,7 @@ export interface Conversation {
   recorded_at?: string
   duration_seconds?: number
   overall_score: number
-  outcome: 'purchase' | 'deferred' | 'price_refusal' | 'competitor' | 'unknown'
+  outcome: 'purchase' | 'deferred' | 'price_refusal' | 'competitor' | 'no_purchase' | 'unknown'
   has_upsell?: boolean
   has_violations?: boolean
   compliance_ok?: boolean
@@ -51,6 +51,10 @@ export interface Conversation {
   recording_id?: string
   /** Допродажа по сработавшим правилам: [предложено, положено] */
   upsell?: [number, number] | null
+  /** Разбор предложений (analytics 0010): сколько предложили и сколько взяли; null — разбора нет */
+  offers?: { count: number; accepted: number; check_total: number | null } | null
+  /** Чего не оказалось в наличии (analytics 0012): «Нурофен Экспресс, Терафлю» */
+  unmet_demand?: string | null
   /** Самое серьёзное нарушение комплаенса (название правила) */
   top_violation?: string | null
   top_violation_severity?: string | null
@@ -377,7 +381,7 @@ export interface SellerDetail {
 }
 
 /** Подборки списка разговоров (вкладки над таблицей). */
-export type ConversationView = 'attention' | 'violations' | 'low_score' | 'price_open' | 'competitor' | 'no_upsell'
+export type ConversationView = 'attention' | 'violations' | 'low_score' | 'price_open' | 'competitor' | 'no_upsell' | 'unmet_demand'
 
 /** Метка на «отпечатке»: crit / crit-mid — нарушение, warn / warn-ok — возражение
  *  (не отработано / отработано), ok — предложение допродажи. t — позиция 0..1. */

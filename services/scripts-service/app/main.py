@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
-from app.routers import templates, assignments, store_assignments, for_seller, upsell, cross_sell, library, test_script, versions, analytics, compliance, import_document, objection_types
+from app.routers import templates, assignments, store_assignments, for_seller, upsell, cross_sell, library, test_script, versions, analytics, compliance, import_document, objection_types, verticals
 
 
 @asynccontextmanager
@@ -26,6 +26,7 @@ app.include_router(analytics.router)
 app.include_router(compliance.router)
 app.include_router(import_document.router)
 app.include_router(objection_types.router)
+app.include_router(verticals.router)
 
 
 @app.get("/health")

@@ -22,9 +22,11 @@ async def get_current_user(
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Not an access token")
 
+    # На витрине (DOMAIN_ORGS) в токене организация витрины, а учётка состоит в своей —
+    # home_org. Подделать claim нельзя: токены подписывает только auth-service
     result = await db.execute(
         text("SELECT is_active FROM auth.users WHERE id = :id AND organization_id = :org"),
-        {"id": payload["sub"], "org": payload["organization_id"]},
+        {"id": payload["sub"], "org": payload.get("home_org") or payload["organization_id"]},
     )
     row = result.fetchone()
     if not row or not row.is_active:

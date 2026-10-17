@@ -6,6 +6,7 @@ import { dashboardApi } from '@/api/dashboard';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from '@/components/ui/Toast';
 import { clock } from '@/components/ui/Fingerprint';
+import { useTerms } from '@/lib/terms';
 import { t, L, locale } from '@/i18n';
 /* «Разобрать с продавцом» (ui-concept/conversation.html): разговор попадает в план
    разбора продавца, руководитель оставляет к нему комментарии с моментом записи.
@@ -22,6 +23,7 @@ export function useCoaching(conversationId) {
 }
 /** Кнопка в шапке разговора: добавить в план разбора или убрать из него. */
 export function ReviewButton({ conversationId, sellerName }) {
+    const terms = useTerms();
     const { items, refresh } = useCoaching(conversationId);
     const planned = items.find((i) => !i.comment && i.status === 'open');
     const add = useMutation({
@@ -42,10 +44,11 @@ export function ReviewButton({ conversationId, sellerName }) {
     if (planned) {
         return (_jsxs("button", { type: "button", className: "btn", "aria-pressed": "true", disabled: remove.isPending, title: t('Убрать из плана разбора'), onClick: () => remove.mutate(planned.id), children: [_jsx(Check, { size: 15, "aria-hidden": "true" }), t('В плане разбора')] }));
     }
-    return (_jsxs("button", { type: "button", className: "btn btn-primary", disabled: add.isPending, onClick: () => add.mutate(), children: [_jsx(ListChecks, { size: 15, "aria-hidden": "true" }), t('Разобрать с продавцом')] }));
+    return (_jsxs("button", { type: "button", className: "btn btn-primary", disabled: add.isPending, onClick: () => add.mutate(), children: [_jsx(ListChecks, { size: 15, "aria-hidden": "true" }), t(terms.reviewWith)] }));
 }
 /** Комментарии руководителя к разговору: список и форма с моментом записи. */
 export function CoachingComments({ conversationId, sellerName, now, onSeek }) {
+    const terms = useTerms();
     const { items, refresh } = useCoaching(conversationId);
     const userId = useAuthStore((s) => s.user?.id);
     const role = useAuthStore((s) => s.user?.role);
@@ -75,9 +78,11 @@ export function CoachingComments({ conversationId, sellerName, now, onSeek }) {
         }
         send.mutate();
     };
-    return (_jsxs("section", { className: "panel cv-comment", "aria-labelledby": "cv-comment-title", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { id: "cv-comment-title", className: "panel-title", children: t('Комментарий продавцу') }), _jsx("div", { className: "panel-sub", children: sellerName
+    return (_jsxs("section", { className: "panel cv-comment", "aria-labelledby": "cv-comment-title", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { id: "cv-comment-title", className: "panel-title", children: terms.isCafe ? t('Комментарий бариста') : terms.isPharmacy ? L('Комментарий фармацевту', 'Comment for the pharmacist') : t('Комментарий продавцу') }), _jsx("div", { className: "panel-sub", children: sellerName
                                 ? L(`${sellerName} · попадёт в план разбора на странице «Команда»`, `${sellerName} · goes to the coaching plan on the Team page`)
-                                : t('Попадёт в план разбора продавца на странице «Команда»') })] }) }), _jsxs("div", { className: "panel-body", children: [comments.length > 0 && (_jsx("ul", { className: "cv-comments", children: comments.map((c) => (_jsx(CommentRow, { item: c, canDelete: c.author_id === userId || role === 'director' || role === 'admin', onSeek: onSeek, onToggle: () => setStatus.mutate({ id: c.id, status: c.status === 'done' ? 'open' : 'done' }), onDelete: () => { if (window.confirm(t('Удалить комментарий?')))
+                                : terms.isCafe ? t('Попадёт в план разбора бариста на странице «Команда»')
+                                    : terms.isPharmacy ? L('Попадёт в план разбора фармацевта на странице «Команда»', 'Goes to the pharmacist’s coaching plan on the Team page')
+                                        : t('Попадёт в план разбора продавца на странице «Команда»') })] }) }), _jsxs("div", { className: "panel-body", children: [comments.length > 0 && (_jsx("ul", { className: "cv-comments", children: comments.map((c) => (_jsx(CommentRow, { item: c, canDelete: c.author_id === userId || role === 'director' || role === 'admin', onSeek: onSeek, onToggle: () => setStatus.mutate({ id: c.id, status: c.status === 'done' ? 'open' : 'done' }), onDelete: () => { if (window.confirm(t('Удалить комментарий?')))
                                 remove.mutate(c.id); } }, c.id))) })), _jsx("label", { className: "sr-only", htmlFor: "cv-comment-text", children: t('Комментарий') }), _jsx("textarea", { id: "cv-comment-text", className: "cv-comment-text", value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))
                             submit(); }, placeholder: t('Например: «Не обещайте обмен — объясните гарантийный ремонт»…') }), _jsxs("div", { className: "cv-comment-row", children: [_jsxs("label", { className: "cv-check", children: [_jsx("input", { type: "checkbox", checked: attach, onChange: (e) => setAttach(e.target.checked) }), t('Приложить момент'), " ", _jsx("span", { className: "mono", children: clock(now) })] }), _jsx("button", { type: "button", className: "btn btn-primary", onClick: submit, disabled: send.isPending, children: send.isPending ? t('Сохранение…') : t('Сохранить комментарий') })] })] })] }));
 }

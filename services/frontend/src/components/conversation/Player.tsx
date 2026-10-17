@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Pause, Play, RotateCcw, RotateCw } from 'lucide-react'
 import { clock } from '@/components/ui/Fingerprint'
+import { useTerms } from '@/lib/terms'
 import { L, t } from '@/i18n'
 
 /* Плеер-консоль карточки разговора (ui-concept/conversation.html):
@@ -84,6 +85,7 @@ export const ConversationPlayer = forwardRef<PlayerHandle, PlayerProps>(function
   { src, duration, segments, stages, events, sourceLabel, audioNote, onTime },
   ref,
 ) {
+  const terms = useTerms()
   const audioRef = useRef<HTMLAudioElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(0)
@@ -267,10 +269,10 @@ export const ConversationPlayer = forwardRef<PlayerHandle, PlayerProps>(function
           </svg>
         </div>
 
-        <div className="cv-track-label"><span className="key-bar" style={{ background: 'var(--seller)' }} />{t('Продавец')}</div>
+        <div className="cv-track-label"><span className="key-bar" style={{ background: 'var(--seller)' }} />{t(terms.seller)}</div>
         <div className="cv-lane"><svg aria-hidden="true">{bars.s}</svg></div>
 
-        <div className="cv-track-label"><span className="key-bar" style={{ background: 'var(--client)' }} />{t('Покупатель')}</div>
+        <div className="cv-track-label"><span className="key-bar" style={{ background: 'var(--client)' }} />{t(terms.customer)}</div>
         <div className="cv-lane"><svg aria-hidden="true">{bars.c}</svg></div>
 
         <div className="cv-track-label">{t('События')}</div>

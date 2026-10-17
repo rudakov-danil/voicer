@@ -5,6 +5,8 @@ import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { Toaster } from '@/components/ui/Toast'
 import { t, isEn, setLang } from '@/i18n'
+import { useOrganization } from '@/lib/terms'
+import { setCurrency, setIndustry } from '@/components/upsells/metrics'
 import { Suspense, useState } from 'react'
 
 const PAGES_WITH_PERIOD = new Set<string>([
@@ -13,17 +15,28 @@ const PAGES_WITH_PERIOD = new Set<string>([
   '/team',
   '/analytics',
   '/compliance',
+  '/scripts',
+  '/clinic',
+  '/visits',
+  '/doctors',
 ])
 
 export function AppLayout() {
   const [period, setPeriod] = useState(30)
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
+  // Валюта сети — до отрисовки страниц: все суммы идут через rub() из metrics
+  const { data: org } = useOrganization()
+  setCurrency(org?.currency)
+  setIndustry(org?.industry)
 
   const pageTitles: Record<string, string> = {
     '/dashboard': 'Обзор',
     '/conversations': 'Разговоры',
     '/team': 'Команда',
+    '/upsells': 'Допродажи',
+    '/demand': 'Спрос',
+    '/motivation': 'Мотивация',
     '/scripts': 'Скрипты',
     '/analytics': 'Аналитика',
     '/intelligence': 'Разведка',
@@ -31,12 +44,18 @@ export function AppLayout() {
     '/compliance': 'Комплаенс',
     '/settings': 'Настройки',
     '/admin': 'Администрирование',
+    '/clinic': 'Обзор',
+    '/visits': 'Приёмы',
+    '/doctors': 'Врачи',
+    '/quality-rules': 'Правила контроля',
   }
 
-  const currentTitle = pageTitles[location.pathname] || 'Voicer'
-  const showPeriod = PAGES_WITH_PERIOD.has(location.pathname)
-  // У страницы разговора своя шапка: крошки, тема, вердикт
-  const ownHeader = location.pathname.startsWith('/conversations/')
+  // Страница врача — раздел «Врачи» с периодом из шапки
+  const section = location.pathname.startsWith('/doctors/') ? '/doctors' : location.pathname
+  const currentTitle = pageTitles[section] || 'Voicer'
+  const showPeriod = PAGES_WITH_PERIOD.has(section)
+  // У страниц разговора и приёма своя шапка: крошки, тема, вердикт
+  const ownHeader = location.pathname.startsWith('/conversations/') || location.pathname.startsWith('/visits/')
 
   return (
     <>
@@ -44,7 +63,7 @@ export function AppLayout() {
       <div className="main">
         {/* Мобильная шапка (до 760 px): сайдбар прячется, разделы — в выпадающем меню */}
         <header className="mobile-bar">
-          <Link className="brand" to="/dashboard" onClick={() => setMenuOpen(false)}>
+          <Link className="brand" to="/" onClick={() => setMenuOpen(false)}>
             <VoicerLogo size={18} />
             <span className="brand-name" translate="no">{t('Войсер')}</span>
           </Link>

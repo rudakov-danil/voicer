@@ -5,6 +5,8 @@ import { Copy, RefreshCw, Check } from 'lucide-react'
 import { adminApi } from '@/api/admin'
 import { authApi } from '@/api/auth'
 import { recorderApi } from '@/api/recorder'
+import { verticalsApi } from '@/api/upsells'
+import { useAuthStore } from '@/store/authStore'
 import { TELEPHONY_ENABLED, useOrganization, useTerms } from '@/lib/terms'
 import { initials } from '@/lib/format'
 import { t, L, isEn, setLang, plural } from '@/i18n'
@@ -35,7 +37,7 @@ export function SettingsPage() {
     document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   const sections = [
-    ...SECTIONS,
+    ...SECTIONS.map((x) => (x.id === 'stores' ? { ...x, label: terms.storePlural } : x)),
     ...(terms.isTelephony ? [{ id: 'telephony', label: 'Телефония' }] : []),
   ]
 
@@ -91,7 +93,8 @@ function OrgSection() {
       <div className="panel-head"><div><h2 className="panel-title">{t('Организация')}</h2><div className="panel-sub">{t('Общие данные и вид интерфейса')}</div></div></div>
       <div className="panel-body">
         <SetRow title="Название" desc="Видно в отчётах и письмах"><b translate="no">{org?.name || '—'}</b></SetRow>
-        <SetRow title="Часовой пояс" desc="Для графиков по часам и дням"><span>{t('Москва, UTC+3')}</span></SetRow>
+        <LocaleRows />
+        <IndustryRows />
         <SetRow title="Язык интерфейса" desc="Меняется сразу для вашей учётной записи">
           <div className="seg" role="group" aria-label={t('Язык интерфейса')}>
             <button type="button" aria-pressed={!isEn} onClick={() => isEn && setLang('ru')} translate="no">Русский</button>
@@ -103,19 +106,147 @@ function OrgSection() {
   )
 }
 
+// Отрасль подстраивает разбор разговоров и советы сотрудникам (auth.organizations.industry)
+const INDUSTRIES: Array<[string, string, string]> = [
+  ['coffee', 'Кофейня', 'Coffee shop'],
+  ['pharmacy', 'Аптечная сеть', 'Pharmacy chain'],
+  ['clinic', 'Медицинская клиника', 'Medical clinic'],
+  ['electronics', 'Электроника и техника', 'Electronics'],
+  ['clothing', 'Одежда и обувь', 'Clothing and shoes'],
+  ['cosmetics', 'Косметика', 'Cosmetics'],
+  ['furniture', 'Мебель', 'Furniture'],
+  ['telecom', 'Салоны связи', 'Telecom stores'],
+  ['generic', 'Другая розница', 'Other retail'],
+]
+
+// Часовой пояс и валюта сети: графики по часам и суммы в кабинете (auth.organizations)
+const TIMEZONES: Array<[string, string, string]> = [
+  ['Europe/Moscow', 'Москва, UTC+3', 'Moscow, UTC+3'],
+  ['Europe/Minsk', 'Минск, UTC+3', 'Minsk, UTC+3'],
+  ['Asia/Yekaterinburg', 'Екатеринбург, UTC+5', 'Yekaterinburg, UTC+5'],
+  ['Asia/Almaty', 'Алматы и Астана, UTC+5', 'Almaty and Astana, UTC+5'],
+  ['Asia/Tashkent', 'Ташкент, UTC+5', 'Tashkent, UTC+5'],
+  ['Asia/Bishkek', 'Бишкек, UTC+6', 'Bishkek, UTC+6'],
+  ['Asia/Novosibirsk', 'Новосибирск, UTC+7', 'Novosibirsk, UTC+7'],
+  ['Asia/Vladivostok', 'Владивосток, UTC+10', 'Vladivostok, UTC+10'],
+]
+const CURRENCIES: Array<[string, string, string]> = [
+  ['RUB', 'Рубль, ₽', 'Rouble, ₽'],
+  ['KZT', 'Тенге, ₸', 'Tenge, ₸'],
+  ['UZS', 'Сум', 'Uzbek sum'],
+  ['KGS', 'Сом', 'Kyrgyz som'],
+  ['BYN', 'Белорусский рубль, Br', 'Belarusian rouble, Br'],
+]
+
+function LocaleRows() {
+  const { data: org } = useOrganization()
+  const role = useAuthStore((s) => s.user?.role)
+  const canEdit = role === 'director' || role === 'admin'
+  const queryClient = useQueryClient()
+  const save = useMutation({
+    mutationFn: (data: { timezone?: string | null; currency?: string | null }) => authApi.updateOrganization(data),
+    onSuccess: () => queryClient.invalidateQueries(),
+  })
+  const tz = org?.timezone || 'Europe/Moscow'
+  const cur = org?.currency || 'RUB'
+  const tzLabel = TIMEZONES.find(([code]) => code === tz)
+  const curLabel = CURRENCIES.find(([code]) => code === cur)
+  return (
+    <>
+      <SetRow title="Часовой пояс" desc="Для графиков по часам и дням">
+        {canEdit ? (
+          <select className="select-pill" value={tz} disabled={save.isPending} aria-label={L('Часовой пояс', 'Time zone')}
+            onChange={(e) => save.mutate({ timezone: e.target.value })}>
+            {TIMEZONES.map(([code, ru, en]) => <option key={code} value={code}>{L(ru, en)}</option>)}
+            {!tzLabel && <option value={tz}>{tz}</option>}
+          </select>
+        ) : <span>{tzLabel ? L(tzLabel[1], tzLabel[2]) : tz}</span>}
+      </SetRow>
+      <SetRow title="Валюта" desc="В ней показываются чеки и суммы">
+        {canEdit ? (
+          <select className="select-pill" value={cur} disabled={save.isPending} aria-label={L('Валюта', 'Currency')}
+            onChange={(e) => save.mutate({ currency: e.target.value })}>
+            {CURRENCIES.map(([code, ru, en]) => <option key={code} value={code}>{L(ru, en)}</option>)}
+          </select>
+        ) : <span>{curLabel ? L(curLabel[1], curLabel[2]) : cur}</span>}
+      </SetRow>
+    </>
+  )
+}
+
+function IndustryRows() {
+  const { data: org } = useOrganization()
+  const role = useAuthStore((s) => s.user?.role)
+  const canEdit = role === 'director' || role === 'admin'
+  const queryClient = useQueryClient()
+  const { data: verticals } = useQuery({ queryKey: ['verticals'], queryFn: () => verticalsApi.list(), staleTime: 10 * 60_000, enabled: canEdit })
+  const save = useMutation({
+    mutationFn: (industry: string | null) => authApi.updateOrganization({ industry }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['organization'] }),
+  })
+  const install = useMutation({
+    mutationFn: (code: string) => verticalsApi.install(code),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organization'] })
+      queryClient.invalidateQueries({ queryKey: ['upsell-rules'] })
+      queryClient.invalidateQueries({ queryKey: ['cross-sell-rules'] })
+      queryClient.invalidateQueries({ queryKey: ['objection-types'] })
+    },
+  })
+  const industry = org?.industry ?? ''
+  const label = INDUSTRIES.find(([code]) => code === industry)
+  const pack = (verticals || []).find((v) => v.code === industry)
+  const count = (v: unknown) => (typeof v === 'number' ? v : v ? 1 : 0)
+  const created = install.data ? Object.values(install.data.created).reduce<number>((a, v) => a + count(v), 0) : 0
+  const skipped = install.data ? Object.values(install.data.skipped).reduce<number>((a, v) => a + count(v), 0) : 0
+
+  return (
+    <>
+      <SetRow title="Отрасль" desc="Под неё подстраиваются разбор допродаж и советы сотрудникам">
+        {canEdit ? (
+          <select className="select-pill" value={industry} disabled={save.isPending} aria-label={L('Отрасль', 'Industry')}
+            onChange={(e) => save.mutate(e.target.value || null)}>
+            <option value="">{L('Не выбрана', 'Not set')}</option>
+            {INDUSTRIES.map(([code, ru, en]) => <option key={code} value={code}>{L(ru, en)}</option>)}
+          </select>
+        ) : (
+          <span>{label ? L(label[1], label[2]) : L('Не выбрана', 'Not set')}</span>
+        )}
+      </SetRow>
+      {canEdit && pack && (
+        <SetRow title="Стартовый пакет" desc="Скрипт, правила допродаж, типы возражений и правила общения для отрасли. Уже существующее не дублируется.">
+          <div className="set-pack">
+            <button type="button" className="btn btn-outline btn-sm" disabled={install.isPending} onClick={() => install.mutate(pack.code)}>
+              {install.isPending ? L('Устанавливаем…', 'Installing…') : L(`Установить «${pack.name}»`, `Install “${pack.name}”`)}
+            </button>
+            {install.isSuccess && (
+              <span className="set-pack-note">
+                <Check size={14} aria-hidden="true" />
+                {L(`Добавлено: ${created}, уже было: ${skipped}`, `Added: ${created}, already there: ${skipped}`)}
+              </span>
+            )}
+            {install.isError && <span className="set-pack-note is-err">{L('Не удалось установить пакет', 'Could not install the pack')}</span>}
+          </div>
+        </SetRow>
+      )}
+    </>
+  )
+}
+
 function StoresSection() {
+  const terms = useTerms()
   const { data } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
   const stores = data?.items || []
   return (
     <section id="set-stores" className="panel set-sec">
       <div className="panel-head">
-        <div><h2 className="panel-title">{t('Магазины')}</h2><div className="panel-sub">{L(`${stores.length} ${plural(stores.length, ['магазин', 'магазина', 'магазинов'], ['', ''])} в сети`, `${stores.length} stores in the network`)}</div></div>
-        <Link className="btn btn-sm" to="/admin">{t('Добавить магазин')}</Link>
+        <div><h2 className="panel-title">{t(terms.storePlural)}</h2><div className="panel-sub">{L(`${stores.length} ${plural(stores.length, terms.storeForms, ['', ''])} в сети`, `${stores.length} locations in the network`)}</div></div>
+        <Link className="btn btn-sm" to="/admin">{terms.offersFirst ? L(`Добавить ${terms.isPharmacy ? 'аптеку' : 'точку'}`, 'Add a location') : t('Добавить магазин')}</Link>
       </div>
       <div className="panel-body" style={{ paddingTop: 6 }}>
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th scope="col">{t('Магазин')}</th><th scope="col">{t('Адрес')}</th><th scope="col" className="t-right">{t('Продавцов')}</th></tr></thead>
+            <thead><tr><th scope="col">{t(terms.store)}</th><th scope="col">{t('Адрес')}</th><th scope="col" className="t-right">{terms.offersFirst ? t(terms.sellerPlural) : t('Продавцов')}</th></tr></thead>
             <tbody>
               {stores.map((s: any) => (
                 <tr key={s.id}>

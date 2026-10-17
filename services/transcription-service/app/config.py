@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     DEEPGRAM_API_URL: str = "https://api.deepgram.com/v1/listen"
     DEEPGRAM_LANGUAGE: str = "ru"
     DEEPGRAM_MODEL: str = "nova-3"
+    # Распознавание речи: deepgram (по умолчанию) или openrouter — ElevenLabs Scribe v2 через OpenRouter.
+    # STT_LANGUAGE — подсказка языка для OpenRouter (kk распознаёт и русский, и смешанную речь; auto — без подсказки)
+    STT_PROVIDER: str = "deepgram"
+    STT_MODEL: str = "elevenlabs/scribe-v2"
+    STT_LANGUAGE: str = "kk"
+    # DEEPGRAM_LANGUAGE=auto-ru-kk: русский, определённый Deepgram с такой уверенностью,
+    # принимается без второго запроса с казахским
+    DEEPGRAM_RU_DETECT_MIN: float = 0.9
     # Если Deepgram уверен в спикере абзаца меньше этого, абзац режется на предложения,
     # и diarize-worker проверяет через LLM, кто их сказал (обычно это перебивания)
     SPEAKER_CONFIDENCE_MIN: float = 0.85

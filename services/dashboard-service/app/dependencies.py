@@ -25,3 +25,15 @@ def org_store_conditions(user: dict) -> tuple[str, str | None]:
     if user["role"] == "manager":
         return org_id, user.get("store_id")
     return org_id, None
+
+
+async def get_mobile_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> dict:
+    """Only personal app endpoints opt into employee tokens."""
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.get(
+            f"{settings.AUTH_SERVICE_URL}/api/v1/auth/mobile/verify",
+            headers={"Authorization": f"Bearer {credentials.credentials}"},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return resp.json()["payload"]

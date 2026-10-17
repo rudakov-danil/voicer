@@ -3,18 +3,22 @@ import { scriptsApi } from '@/api/scripts'
 import { useTerms } from '@/lib/terms'
 import { adminApi } from '@/api/admin'
 import { dashboardApi } from '@/api/dashboard'
-import type { ScriptTemplate, ScriptStep, UpsellRule, CrossSellRule } from '@/types'
+import type { ScriptTemplate, ScriptStep, UpsellRule, CrossSellRule, ScriptBreakdownData } from '@/types'
 import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import {
   CheckSquare, Plus, Trash2, GripVertical, ChevronUp, ChevronDown,
   Save, X, PlayCircle, Loader, BarChart3, History, MapPin, Edit3, RotateCcw,
-  GitCompare, Sparkles, BookOpen, HelpCircle, Command, Check, FileText, FileUp,
+  GitCompare, Sparkles, BookOpen, HelpCircle, Command, Check, FileText, FileUp, Lightbulb, Minus,
 } from 'lucide-react'
 
 import { MultiSelect } from '@/components/scripts/MultiSelect'
 import { HelpTooltip } from '@/components/scripts/HelpTooltip'
 import { HelpModal } from '@/components/scripts/HelpModal'
-import { ScriptBreakdown } from '@/components/scripts/ScriptBreakdown'
+import { ScoreFormula, SellerHeatmap, w2, type StepStat } from '@/components/scripts/ScriptBreakdown'
+import { Meter } from '@/components/ui/Meter'
+import { PageActions, PageSubtitle } from '@/components/layout/PageHeader'
+import { t, L, locale, plural } from '@/i18n'
 import { StructuralDiff } from '@/components/scripts/StructuralDiff'
 import { CommandPalette } from '@/components/scripts/CommandPalette'
 import { SkeletonScriptCard, SkeletonAnalyticsRow } from '@/components/scripts/Skeleton'
@@ -501,13 +505,13 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
                 <div style={{ maxWidth: 280 }}>
                   {isUpsell ? (
                     <>
-                      <strong>Апсейл</strong> — продажа более дорогой версии того же продукта.<br />
-                      Пример: клиент пришёл за iPhone 15 — продавец предлагает 15 Pro.
+                      <strong>Апсейл</strong> — {terms.isCafe ? 'больший объём или более дорогой напиток.' : terms.isPharmacy ? 'упаковка побольше на курс или форма быстрого действия.' : 'продажа более дорогой версии того же продукта.'}<br />
+                      {terms.isCafe ? 'Пример: гость заказал капучино 0,3 — бариста предлагает 0,4.' : terms.isPharmacy ? 'Пример: покупатель берёт ибупрофен 10 таблеток — фармацевт предлагает упаковку 20, на курс она выгоднее.' : 'Пример: клиент пришёл за iPhone 15 — продавец предлагает 15 Pro.'}
                     </>
                   ) : (
                     <>
-                      <strong>Кросс-сейл</strong> — предложение сопутствующих товаров к основной покупке.<br />
-                      Пример: клиент берёт ноутбук — продавец обязан предложить сумку и мышь.
+                      <strong>Кросс-сейл</strong> — {terms.isCafe ? 'еда или добавка к напитку.' : terms.isPharmacy ? 'то, что усиливает лечение или нужно к покупке.' : 'предложение сопутствующих товаров к основной покупке.'}<br />
+                      {terms.isCafe ? 'Пример: к кофе бариста предлагает круассан или сироп.' : terms.isPharmacy ? 'Пример: к средству от простуды фармацевт предлагает спрей для горла.' : 'Пример: клиент берёт ноутбук — продавец обязан предложить сумку и мышь.'}
                     </>
                   )}
                 </div>
@@ -515,7 +519,9 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
             />
           </div>
           <div className="card-subtitle">
-            LLM проверяет каждый разговор: если упомянут триггер-продукт — должны быть предложены указанные товары.
+            {terms.isCafe
+              ? 'Проверяется в каждом разговоре: если гость заказал триггер-продукт, бариста должен предложить указанные позиции.'
+              : `Проверяется в каждом разговоре: если упомянут триггер-продукт, ${terms.sellerLower[0]} должен предложить указанные товары.`}
             <span style={{ opacity: 0.7 }}> Сохраняется автоматически при потере фокуса поля.</span>
           </div>
         </div>
@@ -529,9 +535,9 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
             <tr>
               <th>Триггер-продукт</th>
               <th>{isUpsell ? 'Обязательные предложения' : 'Сопутствующие товары'}</th>
-              <th style={{ minWidth: 200 }}>{terms.storePlural}</th>
-              <th style={{ minWidth: 200 }}>Менеджеры</th>
-              <th style={{ width: 90 }}>Активно</th>
+              <th style={{ minWidth: 150 }}>{terms.storePlural}</th>
+              <th style={{ minWidth: 140 }}>{terms.sellerPlural}</th>
+              <th style={{ width: 72 }}>Активно</th>
               <th style={{ width: 50 }} />
             </tr>
           </thead>
@@ -551,8 +557,8 @@ function RulesTable({ kind }: { kind: 'upsell' | 'crosssell' }) {
             {!isLoading && rules.length === 0 && (
               <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 20 }}>
                 {isUpsell
-                  ? 'Правил апсейла пока нет. Добавьте первое — LLM начнёт отмечать разговоры, где продавец забыл предложить апсейл.'
-                  : 'Правил кросс-сейла пока нет. Например: к ноутбуку — сумка и мышь.'}
+                  ? `Правил апсейла пока нет. Добавьте первое — анализ начнёт отмечать разговоры, где ${terms.sellerLower[0]} не предложил апсейл.`
+                  : `Правил кросс-сейла пока нет. Например: ${terms.isCafe ? 'к кофе — круассан или сироп' : terms.isPharmacy ? 'к средству от простуды — спрей для горла' : 'к ноутбуку — сумка и мышь'}.`}
               </td></tr>
             )}
           </tbody>
@@ -640,8 +646,8 @@ function RuleRow({ rule, stores, sellers, onPatch, onDelete }: {
           options={sellerOptions}
           selected={selectedSellerIds}
           onChange={(ids) => { onPatch({ seller_ids: ids }); flash() }}
-          selectAllLabel="Все менеджеры"
-          placeholder="Все менеджеры"
+          selectAllLabel={`Все ${terms.sellerPlural.toLowerCase()}`}
+          placeholder={`Все ${terms.sellerPlural.toLowerCase()}`}
         />
       </td>
       <td>
@@ -1491,142 +1497,6 @@ function LiveTestDialog({
   )
 }
 
-// ─── Analytics ───────────────────────────────────────────────────────────────
-
-function AnalyticsPanel({ templateId }: { templateId: string }) {
-  const [days, setDays] = useState(30)
-  const { data, isLoading } = useQuery({
-    queryKey: ['template-analytics', templateId, days],
-    queryFn: () => scriptsApi.getTemplateAnalytics(templateId, { days }),
-    enabled: !!templateId,
-  })
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          Сводка по применениям скрипта за период
-        </div>
-        <select
-          className="form-select"
-          value={days}
-          onChange={(e) => setDays(Number(e.target.value))}
-          style={{ width: 130, padding: '6px 30px 6px 10px', fontSize: 12.5 }}
-        >
-          <option value={7}>7 дней</option>
-          <option value={30}>30 дней</option>
-          <option value={90}>90 дней</option>
-          <option value={180}>6 месяцев</option>
-          <option value={365}>Год</option>
-        </select>
-      </div>
-
-      {isLoading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <SkeletonAnalyticsRow />
-          <SkeletonAnalyticsRow />
-          <SkeletonAnalyticsRow />
-        </div>
-      )}
-
-      {data && data.conversation_count === 0 && (
-        <div className="empty-state-card">
-          <BarChart3 size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
-          <p>Скрипт ещё не применялся к разговорам за выбранный период.</p>
-        </div>
-      )}
-
-      {data && data.conversation_count > 0 && (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
-            <div className="metric-tile">
-              <div className="metric-tile-label">Разговоров</div>
-              <div className="metric-tile-value">{data.conversation_count}</div>
-            </div>
-            <div className="metric-tile">
-              <div className="metric-tile-label">
-                Средний скоринг
-                <HelpTooltip content="Средний взвешенный балл по всем этапам скрипта, агрегированный по разговорам за период." />
-              </div>
-              <div className="metric-tile-value" style={{ color: 'var(--primary)' }}>
-                {data.avg_script_score != null ? `${data.avg_script_score}%` : '—'}
-              </div>
-            </div>
-            <div className="metric-tile">
-              <div className="metric-tile-label">Сильных (≥70%)</div>
-              <div className="metric-tile-value" style={{ color: 'var(--success)' }}>
-                {data.strong_conversation_count}
-              </div>
-            </div>
-          </div>
-
-          {(data as any).script_type !== 'fulltext' ? (
-            <ScriptBreakdown templateId={templateId} days={days} perStep={data.per_step} />
-          ) : (<>
-          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-            {(data as any).script_type === 'fulltext' ? 'Детально по блокам' : 'Детально по этапам'}
-            <HelpTooltip content={
-              (data as any).script_type === 'fulltext' ? (
-                <div style={{ maxWidth: 280 }}>
-                  <strong>%</strong> — доля разговоров, где блок прозвучал (по тексту или своими словами).<br />
-                  Ситуативные блоки помечены отдельно — они не входят в балл покрытия.
-                </div>
-              ) : (
-                <div style={{ maxWidth: 280 }}>
-                  <strong>%</strong> — доля разговоров, где этап выполнен (LLM-оценка ≥ 50 из 100).<br />
-                  <strong>Обнаружен</strong> — этап идентифицирован в разговоре, даже если выполнен слабо.
-                </div>
-              )
-            } />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {data.per_step.map((s) => {
-              const isFulltext = (data as any).script_type === 'fulltext'
-              const na = (s as any).not_applicable_count || 0
-              // pass_rate=null — блок/этап ни разу не требовался за период
-              if (s.pass_rate == null) {
-                return (
-                  <div key={s.step_id} className="step-analytics" style={{ borderLeft: '3px solid var(--border)', opacity: 0.7 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{s.step_name}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>не встречался</div>
-                    </div>
-                    {na > 0 && (
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                        Ситуация не возникала в {na} разговорах
-                      </div>
-                    )}
-                  </div>
-                )
-              }
-              const color = s.pass_rate >= 70 ? 'var(--success)' : s.pass_rate >= 40 ? 'var(--warn)' : 'var(--danger)'
-              return (
-                <div key={s.step_id} className="step-analytics" style={{ borderLeft: `3px solid ${color}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{s.step_name}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color }}>
-                      {s.pass_rate}%
-                    </div>
-                  </div>
-                  <div className="progress-track">
-                    <div className="progress-fill" style={{ width: `${Math.max(2, s.pass_rate)}%`, background: color }} />
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                    {isFulltext
-                      ? `Прозвучал ${s.detected_count} из ${s.total_count} раз, где требовался${na ? ` · не требовался ${na} раз` : ''}`
-                      : `Обнаружен ${s.detected_count} из ${s.total_count} раз (${s.detection_rate}%)`}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          </>)}
-        </>
-      )}
-    </div>
-  )
-}
-
 // ─── Versions ────────────────────────────────────────────────────────────────
 
 function VersionsPanel({ templateId, onRestored }: { templateId: string; onRestored: () => void }) {
@@ -1931,260 +1801,424 @@ function EditorDialog({
   )
 }
 
-// ─── Selected script main panel (tabs) ───────────────────────────────────────
+// ─── Вид скрипта (ui-concept/scripts.html) ───────────────────────────────────
 
-type RightTab = 'analytics' | 'versions' | 'assignments'
+type ScriptTab = 'stages' | 'sellers' | 'assignments'
 
-function SelectedScriptPanel({
-  template, onEdit, initialTab,
+const WEIGHT_STEP = 0.05
+const round2 = (v: number) => Math.round(v * 100) / 100
+const stepKey = (s: ScriptStep, i: number) => s.id || `i${i}`
+
+interface OutletContext { period: number }
+
+function ScriptView({
+  template, period, initialTab, onEdit, onDeleted,
 }: {
   template: ScriptTemplate
+  period: number
+  initialTab?: ScriptTab
   onEdit: () => void
-  initialTab?: RightTab
+  onDeleted: () => void
 }) {
-  const [tab, setTab] = useState<RightTab>(initialTab || 'analytics')
+  const queryClient = useQueryClient()
+  const terms = useTerms()
+  const isFulltext = template.script_type === 'fulltext'
+  const [tab, setTab] = useState<ScriptTab>(initialTab || 'stages')
+  const [showVersions, setShowVersions] = useState(false)
+  const [showTest, setShowTest] = useState(false)
   useEffect(() => { if (initialTab) setTab(initialTab) }, [initialTab])
+  useEffect(() => { setTab(initialTab || 'stages') }, [template.id])
+
+  const { data: analytics } = useQuery({
+    queryKey: ['template-analytics', template.id, period],
+    queryFn: () => scriptsApi.getTemplateAnalytics(template.id, { days: period }),
+  })
+  const { data: breakdown } = useQuery({
+    queryKey: ['script-breakdown', template.id, period],
+    queryFn: () => dashboardApi.getScriptBreakdown(template.id, period),
+    enabled: !isFulltext,
+  })
+  const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() })
+
+  const stat = useMemo(
+    () => new Map<string, StepStat>((analytics?.per_step || []).map((p: any) => [p.step_name, p])),
+    [analytics],
+  )
+
+  const patchMut = useMutation({
+    mutationFn: (is_active: boolean) => scriptsApi.patchTemplate(template.id, { is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
+      queryClient.invalidateQueries({ queryKey: ['script-template-detail', template.id] })
+    },
+  })
+  const deleteMut = useMutation({
+    mutationFn: () => scriptsApi.deleteTemplate(template.id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['script-templates'] }); onDeleted() },
+  })
+
+  // Охват: на всю сеть, на магазины или на отдельных продавцов
+  const storeNames = (template.assigned_stores || [])
+    .map((a) => (stores?.items || []).find((s: any) => s.id === a.store_id)?.name)
+    .filter(Boolean) as string[]
+  const scope = template.applies_to_all_stores
+    ? t('Уровень сети')
+    : storeNames.length
+      ? (storeNames.length <= 2 ? storeNames.join(', ') : L(`${storeNames.length} магазина`, `${storeNames.length} stores`))
+      : (template.assigned_sellers || []).length
+        ? L(`${template.assigned_sellers!.length} продавцов`, `${template.assigned_sellers!.length} sellers`)
+        : t('Не назначен')
+
+  const tabs: Array<{ id: ScriptTab; label: string; count?: number }> = [
+    { id: 'stages', label: isFulltext ? 'Блоки скрипта' : 'Этапы и веса' },
+    ...(!isFulltext ? [{ id: 'sellers' as const, label: terms.isCafe ? 'Выполнение по бариста' : terms.isPharmacy ? 'Выполнение по фармацевтам' : 'Выполнение по продавцам' }] : []),
+    { id: 'assignments', label: 'Назначения' },
+  ]
 
   return (
-    <div className="main-card">
-      <div className="main-card-header">
-        <div>
-          <div className="main-title">
-            {template.name}
-            {template.is_active
-              ? <span className="badge badge-success">Активен</span>
-              : <span className="badge badge-muted">Черновик</span>}
-            {template.script_type === 'fulltext' && (
-              <span className="badge badge-muted" title={`Полнотекстовый скрипт${template.source_document_name ? ` из ${template.source_document_name}` : ''} — отслеживание покрытия по блокам`}>
-                <FileText size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />
-                Полнотекстовый · {(template.blocks || []).length} блоков
-              </span>
-            )}
+    <section className="panel sc-view">
+      <div className="sc-head">
+        <div className="sc-title-row">
+          <div style={{ minWidth: 0 }}>
+            <h2 className="sc-title" translate="no">{template.name}</h2>
+            {template.description && <p className="sc-desc" translate="no">{template.description}</p>}
           </div>
-          <div className="main-subtitle">{template.description || 'Без описания'}</div>
+          <div className="sc-actions">
+            <button type="button" className="btn" onClick={() => setShowVersions(true)}>
+              <History size={15} aria-hidden="true" />{t('Версии')}
+            </button>
+            {!isFulltext && (
+              <button type="button" className="btn" onClick={() => setShowTest(true)} title={t('Прогнать черновик через LLM на реальной записи')}>
+                <PlayCircle size={15} aria-hidden="true" />{t('Тест на записи')}
+              </button>
+            )}
+            <button type="button" className="btn btn-primary" onClick={onEdit}>
+              <Edit3 size={15} aria-hidden="true" />{t('Редактировать')}
+            </button>
+          </div>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={onEdit}>
-          <Edit3 size={14} /> Редактировать
-        </button>
+        <div className="sc-chips">
+          <button type="button" className="flag is-info sc-chip-btn" onClick={() => setTab('assignments')} title={t('Назначения')}>
+            <MapPin aria-hidden="true" /><span translate={storeNames.length ? 'no' : undefined}>{scope}</span>
+          </button>
+          <button
+            type="button" role="switch" aria-checked={template.is_active}
+            className={`flag ${template.is_active ? 'is-good' : 'is-plain'} sc-chip-btn`}
+            onClick={() => patchMut.mutate(!template.is_active)}
+            title={template.is_active ? t('Деактивировать') : t('Активировать')}
+          >
+            <span className={`sc-dot ${template.is_active ? 'is-on' : ''}`} aria-hidden="true" />
+            {template.is_active ? t('Активен') : t('Черновик')}
+          </button>
+          {isFulltext && (
+            <span className="flag is-plain" title={template.source_document_name || undefined}>
+              <FileText aria-hidden="true" />{L(`Полнотекстовый · ${(template.blocks || []).length} блоков`, `Full-text · ${(template.blocks || []).length} blocks`)}
+            </span>
+          )}
+          {analytics && analytics.conversation_count > 0 && (
+            <span className="flag is-plain">
+              {L(`${analytics.conversation_count.toLocaleString(locale)} ${plural(analytics.conversation_count, ['разговор', 'разговора', 'разговоров'], ['', ''])} за период · средний балл ${analytics.avg_script_score != null ? Math.round(analytics.avg_script_score) : '—'}`,
+                `${analytics.conversation_count.toLocaleString(locale)} conversations in period · average ${analytics.avg_script_score != null ? Math.round(analytics.avg_script_score) : '—'}`)}
+            </span>
+          )}
+        </div>
+        <div className="tabs sc-tabs" role="tablist">
+          {tabs.map((x) => (
+            <button key={x.id} type="button" role="tab" aria-selected={tab === x.id}
+              className={`tab ${tab === x.id ? 'active' : ''}`} onClick={() => setTab(x.id)}>
+              {t(x.label)}{x.count ? <span className="count">{L(`${x.count} ${plural(x.count, ['правило', 'правила', 'правил'], ['', ''])}`, `${x.count} ${x.count === 1 ? 'rule' : 'rules'}`)}</span> : null}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="modal-tabs main-tabs">
-        <div className={`modal-tab ${tab === 'analytics' ? 'active' : ''}`} onClick={() => setTab('analytics')}>
-          <BarChart3 size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} /> Аналитика
-        </div>
-        <div className={`modal-tab ${tab === 'versions' ? 'active' : ''}`} onClick={() => setTab('versions')}>
-          <History size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} /> Версии
-        </div>
-        <div className={`modal-tab ${tab === 'assignments' ? 'active' : ''}`} onClick={() => setTab('assignments')}>
-          <MapPin size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} /> Назначения
-        </div>
-      </div>
-
-      <div className="main-card-body">
-        {tab === 'analytics' && <AnalyticsPanel templateId={template.id} />}
-        {tab === 'versions' && <VersionsPanel templateId={template.id} onRestored={() => setTab('analytics')} />}
+      <div className="sc-body">
+        {tab === 'stages' && (isFulltext
+          ? <BlocksTab template={template} stat={stat} />
+          : <StagesTab template={template} stat={stat} breakdown={breakdown} />)}
+        {tab === 'sellers' && (breakdown ? <SellerHeatmap data={breakdown} /> : <div className="muted">{t('Загрузка...')}</div>)}
         {tab === 'assignments' && <AssignmentsBlock template={template} />}
+
+        <div className="sc-danger-zone">
+          <button
+            type="button" className="btn btn-ghost cv-danger"
+            onClick={() => {
+              if (confirm(L(`Удалить скрипт «${template.name}»? Все его этапы, версии и назначения будут удалены безвозвратно.`,
+                `Delete script “${template.name}”? All its stages, versions and assignments will be permanently removed.`))) deleteMut.mutate()
+            }}
+          >
+            <Trash2 size={14} aria-hidden="true" />{t('Удалить скрипт')}
+          </button>
+          {!template.is_active && <span className="muted" style={{ fontSize: 12.5 }}>{L(`Черновик не оценивает разговоры, пока не активирован. Назначьте его ${terms.isTelephony ? 'отделам' : 'магазинам'} и включите.`, 'A draft doesn’t score conversations until activated. Assign it and switch it on.')}</span>}
+        </div>
       </div>
-    </div>
+
+      {showVersions && (
+        <ModalOverlay onClose={() => setShowVersions(false)}>
+          <div className="modal-card modal-card--wide">
+            <div className="modal-header">
+              <div className="modal-title">{t('Версии')} · <span translate="no">{template.name}</span></div>
+              <button className="btn-icon" onClick={() => setShowVersions(false)} aria-label={t('Закрыть')}><X size={16} /></button>
+            </div>
+            <div className="modal-body">
+              <VersionsPanel templateId={template.id} onRestored={() => setShowVersions(false)} />
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
+      {showTest && <LiveTestDialog draft={{ name: template.name, steps: template.steps }} onClose={() => setShowTest(false)} />}
+    </section>
   )
 }
 
-// ─── Sidebar: scripts list with pill filters + inline rename ─────────────────
-
-type ListFilter = 'all' | 'active' | 'drafts'
-
-function ScriptsSidebar({
-  templates, selectedId, onSelect, onCreate, onOpenLibrary, onDeleted, isLoading,
-}: {
-  templates: ScriptTemplate[]
-  selectedId: string | null
-  onSelect: (id: string) => void
-  onCreate: () => void
-  onOpenLibrary: () => void
-  onDeleted: (id: string) => void
-  isLoading: boolean
+/** Этапы и веса: формула балла, этапы с весом-степпером, советом, лучшим примером и статистикой. */
+function StagesTab({ template, stat, breakdown }: {
+  template: ScriptTemplate
+  stat: Map<string, StepStat>
+  breakdown?: ScriptBreakdownData
 }) {
   const queryClient = useQueryClient()
-  const [filter, setFilter] = useState<ListFilter>('all')
   const terms = useTerms()
-  const [editId, setEditId] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
+  const initial = useMemo(
+    () => Object.fromEntries(template.steps.map((s, i) => [stepKey(s, i), round2(s.weight || 0)])),
+    [template],
+  )
+  const [weights, setWeights] = useState<Record<string, number>>(initial)
+  const [inputs, setInputs] = useState<Record<string, string>>({})
+  useEffect(() => { setWeights(initial); setInputs({}) }, [initial])
 
-  const patchMut = useMutation({
-    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
-      scriptsApi.patchTemplate(id, { is_active }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
-    },
-  })
+  const dirty = template.steps.some((s, i) => weights[stepKey(s, i)] !== initial[stepKey(s, i)])
+  const sum = round2(Object.values(weights).reduce((a, v) => a + v, 0))
+  const sumOk = Math.abs(sum - 1) < 0.011
+  const byName = new Map((breakdown?.steps || []).map((b) => [b.name, b]))
 
-  const renameMut = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      scriptsApi.patchTemplate(id, { name }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
-      if (selectedId) queryClient.invalidateQueries({ queryKey: ['script-template-detail', selectedId] })
-    },
-  })
-
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => scriptsApi.deleteTemplate(id),
-    onSuccess: (_data, deletedId) => {
-      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
-      onDeleted(deletedId)
-    },
-  })
-
-  const filtered = useMemo(() => {
-    if (filter === 'active') return templates.filter((t) => t.is_active)
-    if (filter === 'drafts') return templates.filter((t) => !t.is_active)
-    return templates
-  }, [templates, filter])
-
-  const counts = {
-    all: templates.length,
-    active: templates.filter((t) => t.is_active).length,
-    drafts: templates.filter((t) => !t.is_active).length,
+  const setW = (key: string, v: number) => {
+    setWeights((prev) => ({ ...prev, [key]: Math.max(0, Math.min(1, round2(v))) }))
+    setInputs((prev) => { const n = { ...prev }; delete n[key]; return n })
+  }
+  const normalize = () => {
+    const norm = normalizeWeights(template.steps.map((s, i) => ({ ...s, weight: weights[stepKey(s, i)] })))
+    setWeights(Object.fromEntries(norm.map((s, i) => [stepKey(s, i), round2(s.weight)])))
   }
 
-  const commitRename = (id: string) => {
-    const v = editName.trim()
-    if (v) renameMut.mutate({ id, name: v })
-    setEditId(null)
+  const saveMut = useMutation({
+    mutationFn: () => scriptsApi.replaceTemplate(template.id, {
+      name: template.name,
+      description: template.description ?? null,
+      scope: template.scope || 'org_level',
+      context_description: template.context_description ?? null,
+      steps: template.steps.map((s, i) => ({ ...s, weight: weights[stepKey(s, i)] })),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['script-template-detail', template.id] })
+      queryClient.invalidateQueries({ queryKey: ['script-templates'] })
+      queryClient.invalidateQueries({ queryKey: ['template-versions', template.id] })
+      queryClient.invalidateQueries({ queryKey: ['script-breakdown', template.id] })
+    },
+  })
+
+  if (template.steps.length === 0) {
+    return <div className="empty"><p>{t('Этапов пока нет')}</p></div>
   }
 
   return (
-    <div className="sidebar-card">
-      <div className="sidebar-card-header">
-        <div className="sidebar-card-title">Скрипты</div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            className="btn btn-outline btn-sm"
-            onClick={onOpenLibrary}
-            title="Готовые отраслевые шаблоны или генерация скрипта через AI"
-          >
-            <Sparkles size={13} /> AI / Шаблон
-          </button>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={onCreate}
-            title="Создать новый скрипт с нуля"
-          >
-            <Plus size={13} /> Новый
-          </button>
+    <>
+      <ScoreFormula
+        steps={template.steps.map((s, i) => ({ name: s.name, weight: weights[stepKey(s, i)] }))}
+        stat={stat}
+      />
+
+      {(dirty || !sumOk) && (
+        <div className={`sc-savebar ${sumOk ? '' : 'is-bad'}`} role="status">
+          <span>
+            {sumOk
+              ? t('Веса изменены. Сохранение создаст новую версию скрипта.')
+              : L(`Сумма весов ${w2(sum)} — должна быть 1,00.`, `Weights sum to ${sum.toFixed(2)} — must be 1.00.`)}
+          </span>
+          {!sumOk && <button type="button" className="btn btn-sm" onClick={normalize}>{t('Нормализовать')}</button>}
+          {dirty && <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setWeights(initial); setInputs({}) }}>{t('Отменить')}</button>}
+          {dirty && (
+            <button type="button" className="btn btn-sm btn-primary" disabled={!sumOk || saveMut.isPending} onClick={() => saveMut.mutate()}>
+              <Save size={13} aria-hidden="true" />{saveMut.isPending ? t('Сохранение...') : t('Сохранить')}
+            </button>
+          )}
+          {saveMut.isError && <span style={{ color: 'var(--crit-ink)' }}>{t('Не удалось сохранить')}</span>}
         </div>
-      </div>
+      )}
 
-      <div className="pill-filters">
-        <button className={`pill ${filter === 'all' ? 'pill--active' : ''}`} onClick={() => setFilter('all')}>
-          Все <span className="pill-count">{counts.all}</span>
-        </button>
-        <button className={`pill ${filter === 'active' ? 'pill--active' : ''}`} onClick={() => setFilter('active')}>
-          Активные <span className="pill-count">{counts.active}</span>
-        </button>
-        <button className={`pill ${filter === 'drafts' ? 'pill--active' : ''}`} onClick={() => setFilter('drafts')}>
-          Черновики <span className="pill-count">{counts.drafts}</span>
-        </button>
-      </div>
-
-      <div className="scripts-list">
-        {isLoading && (
-          <>
-            <SkeletonScriptCard /><SkeletonScriptCard /><SkeletonScriptCard />
-          </>
-        )}
-        {!isLoading && filtered.map((t) => (
-          <div
-            key={t.id}
-            className={`script-item ${selectedId === t.id ? 'script-item--selected' : ''}`}
-            onClick={() => editId !== t.id && onSelect(t.id)}
-            onDoubleClick={() => { setEditId(t.id); setEditName(t.name) }}
-          >
-            <div className={`script-item-icon ${t.is_active ? 'is-active' : 'is-draft'}`}>
-              <CheckSquare size={16} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {editId === t.id ? (
-                <input
-                  className="form-input form-input--inline"
-                  autoFocus
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onBlur={() => commitRename(t.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); commitRename(t.id) }
-                    if (e.key === 'Escape') setEditId(null)
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : (
-                <div className="script-item-title">{t.name}</div>
+      {template.steps.map((s, i) => {
+        const key = stepKey(s, i)
+        const st = stat.get(s.name)
+        const b = byName.get(s.name)
+        const skip = st?.pass_rate != null ? Math.round(100 - st.pass_rate) : null
+        const hint = s.recommendation_text || b?.hint
+        return (
+          <div key={key} className="step">
+            <span className="step-num">{i + 1}</span>
+            <div style={{ minWidth: 0 }}>
+              <div className="step-top">
+                <span className="step-name" translate="no">{s.name}</span>
+                <span className="tag tag-neutral">{s.is_required ? t('обязательный') : t('по ситуации')}</span>
+              </div>
+              {s.description && <p className="step-desc" translate="no">{s.description}</p>}
+              {hint && (
+                <div className="step-rec"><Lightbulb size={15} aria-hidden="true" /><span><b>{terms.isCafe ? t('Совет бариста:') : terms.isPharmacy ? L('Совет фармацевту:', 'Tip for the pharmacist:') : t('Совет продавцу:')}</b> <span translate="no">{hint}</span></span></div>
               )}
-              <div className="script-item-meta">
-                {t.script_type === 'fulltext'
-                  ? `${(t as any).block_count ?? t.blocks?.length ?? 0} блоков · текст`
-                  : `${(t as any).step_count ?? t.steps?.length ?? 0} этапов`}
-                {' · '}{t.is_active ? 'Активен' : 'Черновик'}
-                {t.applies_to_all_stores && ` · ${terms.allStores.toLowerCase()}`}
+            </div>
+            <div className="step-side">
+              <div className="wctl">
+                <label htmlFor={`w-${key}`}>{t('Вес в балле')}</label>
+                <span className="stepper">
+                  <button type="button" aria-label={t('Уменьшить вес')} onClick={() => setW(key, weights[key] - WEIGHT_STEP)}><Minus size={13} /></button>
+                  <input
+                    id={`w-${key}`}
+                    inputMode="decimal"
+                    value={inputs[key] ?? w2(weights[key])}
+                    onChange={(e) => setInputs((prev) => ({ ...prev, [key]: e.target.value }))}
+                    onBlur={(e) => {
+                      const v = parseFloat(e.target.value.replace(',', '.'))
+                      if (Number.isFinite(v)) setW(key, v > 1 ? v / 100 : v)
+                      else setInputs((prev) => { const n = { ...prev }; delete n[key]; return n })
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                  />
+                  <button type="button" aria-label={t('Увеличить вес')} onClick={() => setW(key, weights[key] + WEIGHT_STEP)}><Plus size={13} /></button>
+                </span>
+              </div>
+              <div className="stat-mini">
+                <div className="row"><span>{t('Средний балл')}</span><Meter score={st?.avg_score ?? null} /></div>
+                <div className="row"><span>{t('Пропускают')}</span><b className={skip != null && skip >= 25 ? 'is-bad' : ''}>{skip != null ? `${skip} %` : '—'}</b></div>
               </div>
             </div>
-            <div className="script-item-actions">
-              <div
-                className={`toggle-switch ${t.is_active ? 'on' : ''}`}
-                onClick={(e) => { e.stopPropagation(); patchMut.mutate({ id: t.id, is_active: !t.is_active }) }}
-                title={t.is_active ? 'Активен' : 'Черновик'}
-              />
-              <button
-                className="btn-icon script-item-delete"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (confirm(`Удалить скрипт «${t.name}»? Все его этапы, версии и назначения будут удалены безвозвратно.`)) {
-                    deleteMut.mutate(t.id)
-                  }
-                }}
-                title="Удалить скрипт"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
           </div>
-        ))}
-        {!isLoading && filtered.length === 0 && (
-          <div className="empty-state-card" style={{ margin: 12 }}>
-            <BookOpen size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
-            <p style={{ marginBottom: 12, fontSize: 13 }}>
-              {filter === 'all' ? 'Скриптов пока нет' : filter === 'active' ? 'Нет активных скриптов' : 'Нет черновиков'}
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-              <button className="btn btn-primary btn-sm" onClick={onCreate}>
-                <Plus size={12} /> С нуля
-              </button>
-              <button className="btn btn-outline btn-sm" onClick={onOpenLibrary}>
-                <Sparkles size={12} /> Из библиотеки / AI
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+        )
+      })}
+    </>
+  )
+}
 
-      <div className="sidebar-card-footer">
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-          <Command size={11} style={{ verticalAlign: 'middle' }} /> + K — быстрая навигация
-        </span>
-      </div>
-    </div>
+/** Полнотекстовый скрипт: блоки текста и как часто они звучат. */
+function BlocksTab({ template, stat }: { template: ScriptTemplate; stat: Map<string, StepStat> }) {
+  const blocks = [...(template.blocks || [])].sort((a, b) => a.block_order - b.block_order)
+  if (!blocks.length) return <div className="empty"><p>{t('Блоков нет — добавьте хотя бы один')}</p></div>
+  return (
+    <>
+      <p className="muted" style={{ fontSize: 13, marginBottom: 6 }}>
+        {t('Процент — доля разговоров, где блок прозвучал (по тексту или своими словами). Ситуативные блоки не входят в балл покрытия.')}
+      </p>
+      {blocks.map((b, i) => {
+        const st = stat.get(b.title)
+        const rate = st?.pass_rate
+        return (
+          <div key={b.id || i} className="step">
+            <span className="step-num">{i + 1}</span>
+            <div style={{ minWidth: 0 }}>
+              <div className="step-top">
+                <span className="step-name" translate="no">{b.title}</span>
+                <span className="tag tag-neutral">{b.is_mandatory ? t('обязательный') : t('ситуативный')}</span>
+              </div>
+              <p className="step-desc sc-clamp" translate="no">{b.text}</p>
+            </div>
+            <div className="step-side">
+              <div className="stat-mini">
+                <div className="row"><span>{t('Прозвучал')}</span><b className={rate != null && rate < 50 ? 'is-bad' : ''}>{rate != null ? `${Math.round(rate)} %` : '—'}</b></div>
+                <div className="row"><span>{t('Разговоров')}</span><b>{st?.total_count ?? '—'}</b></div>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+// ─── Список скриптов слева: карточки ──────────────────────────────────────────
+
+function ScriptCard({ template, selected, period, onSelect }: {
+  template: ScriptTemplate & { seller_count?: number }
+  selected: boolean
+  period: number
+  onSelect: () => void
+}) {
+  const isFulltext = template.script_type === 'fulltext'
+  const { data } = useQuery({
+    queryKey: ['template-analytics', template.id, period],
+    queryFn: () => scriptsApi.getTemplateAnalytics(template.id, { days: period }),
+    staleTime: 60_000,
+  })
+  const parts = [
+    isFulltext
+      ? L(`${template.block_count ?? 0} блоков · текст`, `${template.block_count ?? 0} blocks · text`)
+      : L(`${template.step_count ?? 0} этапов`, `${template.step_count ?? 0} stages`),
+    template.seller_count ? L(`${template.seller_count} продавцов`, `${template.seller_count} sellers`) : null,
+  ].filter(Boolean)
+  return (
+    <button type="button" className="rail-card" aria-current={selected ? 'true' : undefined} onClick={onSelect}>
+      <span className="rail-name" translate="no">{template.name}</span>
+      <span className="rail-meta">{parts.join(' · ')}</span>
+      {template.description && !selected && <span className="rail-ctx" translate="no">{template.description}</span>}
+      <span className="rail-foot">
+        {!template.is_active
+          ? <><span className="flag is-plain">{t('Черновик')}</span><span className="muted" style={{ fontSize: 12 }}>{t('не оценивает разговоры')}</span></>
+          : data && data.conversation_count > 0
+            ? <><Meter score={data.avg_script_score} /><span className="muted" style={{ fontSize: 12 }}>{t('средний балл')}</span></>
+            : <span className="muted" style={{ fontSize: 12 }}>{t('Нет разговоров за период')}</span>}
+      </span>
+    </button>
   )
 }
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
+/* Правила допродажи и типы возражений — уровень организации, а не скрипта: LLM проверяет их
+   в каждом разговоре, какой бы скрипт ни применялся. Правило можно ограничить магазинами и продавцами. */
+type OrgRulesTab = 'upsell' | 'crosssell' | 'objections'
+
+function OrgRules() {
+  const terms = useTerms()
+  const [tab, setTab] = useState<OrgRulesTab>('upsell')
+  const { data: upsellRules } = useQuery({ queryKey: ['upsell-rules'], queryFn: () => scriptsApi.listUpsellRules() })
+  const { data: crossRules } = useQuery({ queryKey: ['cross-sell-rules'], queryFn: () => scriptsApi.listCrossSellRules() })
+  const tabs: Array<{ id: OrgRulesTab; label: string; count?: number }> = [
+    { id: 'upsell', label: 'Апсейл', count: upsellRules?.length },
+    { id: 'crosssell', label: 'Кросс-сейл', count: crossRules?.length },
+    { id: 'objections', label: 'Типы возражений' },
+  ]
+  return (
+    <section className="panel sc-view sc-org" aria-labelledby="sc-org-title">
+      <div className="sc-head">
+        <h2 id="sc-org-title" className="sc-title">{t('Правила для всех скриптов')}</h2>
+        <p className="sc-desc">{terms.isCafe
+          ? L('Допродажа и возражения проверяются в каждом разговоре, какой бы скрипт ни применялся. Правило можно ограничить точками и бариста.', 'Add-on sales and objections are checked in every conversation, whatever script applies. A rule can be limited to locations and baristas.')
+          : terms.isPharmacy
+          ? L('Допродажа и возражения проверяются в каждом разговоре, какой бы скрипт ни применялся. Правило можно ограничить аптеками и фармацевтами.', 'Add-on sales and objections are checked in every conversation, whatever script applies. A rule can be limited to pharmacies and pharmacists.')
+          : t('Допродажа и возражения проверяются в каждом разговоре, какой бы скрипт ни применялся. Правило можно ограничить магазинами и продавцами.')}</p>
+        <div className="tabs sc-tabs" role="tablist">
+          {tabs.map((x) => (
+            <button key={x.id} type="button" role="tab" aria-selected={tab === x.id}
+              className={`tab ${tab === x.id ? 'active' : ''}`} onClick={() => setTab(x.id)}>
+              {t(x.label)}{x.count ? <span className="count">{L(`${x.count} ${plural(x.count, ['правило', 'правила', 'правил'], ['', ''])}`, `${x.count} ${x.count === 1 ? 'rule' : 'rules'}`)}</span> : null}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="sc-body">
+        <div className="sc-stack">
+          {tab === 'upsell' && <RulesTable kind="upsell" />}
+          {tab === 'crosssell' && <RulesTable kind="crosssell" />}
+          {tab === 'objections' && <ObjectionTypesTable />}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export function ScriptsPage() {
   const queryClient = useQueryClient()
+  const { period } = useOutletContext<OutletContext>()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [forcedTab, setForcedTab] = useState<RightTab | undefined>(undefined)
+  const [forcedTab, setForcedTab] = useState<ScriptTab | undefined>(undefined)
   const [showLibrary, setShowLibrary] = useState(false)
-  const [showRulesHelp, setShowRulesHelp] = useState(false)
-  const [rulesTab, setRulesTab] = useState<'upsell' | 'crosssell' | 'objections'>('upsell')
 
   const [editorMode, setEditorMode] = useState<null | 'new' | 'edit' | 'ai'>(null)
   const [aiDraft, setAiDraft] = useState<{ name: string; description: string | null; steps: ScriptStep[] } | null>(null)
@@ -2194,6 +2228,16 @@ export function ScriptsPage() {
     queryKey: ['script-templates'],
     queryFn: () => scriptsApi.getTemplates(),
   })
+
+  // Активные — первыми; без выбора открываем первый скрипт, как в концепте
+  const sorted = useMemo(
+    () => [...(templates || [])].sort((a, b) => Number(b.is_active) - Number(a.is_active)),
+    [templates],
+  )
+  useEffect(() => {
+    if (!selectedId && !editorMode && !docDraft && sorted.length) setSelectedId(sorted[0].id)
+    if (selectedId && templates && !templates.some((x) => x.id === selectedId)) setSelectedId(sorted[0]?.id ?? null)
+  }, [sorted, selectedId, templates, editorMode, docDraft])
 
   const { data: selectedDetail } = useQuery({
     queryKey: ['script-template-detail', selectedId],
@@ -2233,95 +2277,84 @@ export function ScriptsPage() {
   const handleAiDraft = (draft: { name: string; description: string | null; steps: ScriptStep[] }) => {
     setAiDraft(draft)
     setEditorMode('ai')
-    setSelectedId(null)
   }
 
-  const handleDocDraft = (draft: DocDraft) => {
-    setDocDraft(draft)
-    setSelectedId(null)
-  }
+  const handleDocDraft = (draft: DocDraft) => setDocDraft(draft)
+
+  const startNew = () => { setEditorMode('new'); setAiDraft(null) }
 
   // Редактирование существующего fulltext-скрипта идёт через FulltextEditorDialog
   const editingFulltext = editorMode === 'edit' && selectedDetail?.script_type === 'fulltext'
 
+  const total = templates?.length || 0
+  const active = (templates || []).filter((x) => x.is_active).length
+
   return (
     <div className="scripts-page">
-      <div className="scripts-layout">
-        <ScriptsSidebar
-          templates={templates || []}
-          selectedId={selectedId}
-          onSelect={(id) => { setSelectedId(id); setForcedTab(undefined) }}
-          onCreate={() => { setEditorMode('new'); setAiDraft(null); setSelectedId(null) }}
-          onOpenLibrary={() => setShowLibrary(true)}
-          onDeleted={(id) => { if (id === selectedId) setSelectedId(null) }}
-          isLoading={templatesLoading}
-        />
+      <PageSubtitle>
+        {L(
+          `${total} скриптов · ${active} активных · оценка каждого разговора по этапам`,
+          `${total} scripts · ${active} active · every conversation scored stage by stage`,
+        )}
+      </PageSubtitle>
+      <PageActions>
+        <button type="button" className="btn" onClick={() => setShowLibrary(true)} title={t('Готовые отраслевые шаблоны или генерация скрипта через AI')}>
+          <Sparkles size={15} aria-hidden="true" />{t('Шаблоны и AI')}
+        </button>
+        <button type="button" className="btn btn-primary" onClick={startNew}>
+          <Plus size={15} aria-hidden="true" />{t('Новый скрипт')}
+        </button>
+      </PageActions>
+
+      <div className="sc-grid">
+        <nav className="rail" aria-label={t('Скрипты')}>
+          {templatesLoading && <><SkeletonScriptCard /><SkeletonScriptCard /></>}
+          {sorted.map((x) => (
+            <ScriptCard
+              key={x.id}
+              template={x}
+              selected={x.id === selectedId}
+              period={period}
+              onSelect={() => { setSelectedId(x.id); setForcedTab(undefined) }}
+            />
+          ))}
+          <button type="button" className="rail-add" onClick={startNew}>
+            <Plus size={15} aria-hidden="true" />{t('Новый скрипт')}
+          </button>
+        </nav>
 
         {selectedDetail ? (
-          <SelectedScriptPanel
+          <ScriptView
             template={selectedDetail}
-            onEdit={() => setEditorMode('edit')}
+            period={period}
             initialTab={forcedTab}
+            onEdit={() => setEditorMode('edit')}
+            onDeleted={() => setSelectedId(null)}
           />
-        ) : (
-          <div className="main-card main-card--empty">
-            <div className="empty-state-card">
-              <BookOpen size={36} style={{ color: 'var(--text-muted)', marginBottom: 12, opacity: 0.4 }} />
-              <p style={{ fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Выберите скрипт из списка</p>
-              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 16 }}>
-                Здесь появятся аналитика, история версий и настройки назначений.
-              </p>
+        ) : !templatesLoading && total === 0 ? (
+          <section className="panel">
+            <div className="empty">
+              <BookOpen size={32} aria-hidden="true" style={{ color: 'var(--ink-4)', margin: '0 auto 10px' }} />
+              <h3>{t('Скриптов пока нет')}</h3>
+              <p>{t('Скрипт — это список этапов, которые продавец должен пройти в разговоре. Начните с готового шаблона или опишите задачу — AI соберёт черновик.')}</p>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                <button className="btn btn-primary btn-sm" onClick={() => { setEditorMode('new'); setAiDraft(null) }}>
-                  <Plus size={12} /> Создать скрипт
-                </button>
-                <button className="btn btn-outline btn-sm" onClick={() => setShowLibrary(true)}>
-                  <Sparkles size={12} /> Шаблоны / AI
-                </button>
+                <button className="btn btn-primary" onClick={() => setShowLibrary(true)}><Sparkles size={14} aria-hidden="true" />{t('Шаблоны и AI')}</button>
+                <button className="btn" onClick={startNew}><Plus size={14} aria-hidden="true" />{t('С нуля')}</button>
               </div>
             </div>
-          </div>
+          </section>
+        ) : (
+          <section className="panel"><div className="empty"><p className="muted">{t('Загрузка...')}</p></div></section>
         )}
       </div>
 
-      <div className="rules-section">
-        <div className="rules-tabs">
-          <div
-            className={`rules-tab ${rulesTab === 'upsell' ? 'rules-tab--active' : ''}`}
-            onClick={() => setRulesTab('upsell')}
-          >
-            Апсейл
-            <HelpTooltip content="Продажа более дорогой версии того же продукта (iPhone 15 → 15 Pro)." />
-          </div>
-          <div
-            className={`rules-tab ${rulesTab === 'crosssell' ? 'rules-tab--active' : ''}`}
-            onClick={() => setRulesTab('crosssell')}
-          >
-            Кросс-сейл
-            <HelpTooltip content="Предложение сопутствующих товаров к основной покупке (ноутбук → сумка, мышь)." />
-          </div>
-          <div
-            className={`rules-tab ${rulesTab === 'objections' ? 'rules-tab--active' : ''}`}
-            onClick={() => setRulesTab('objections')}
-          >
-            Типы возражений
-            <HelpTooltip content="Справочник типов, по которым AI классифицирует возражения клиентов. Добавьте свои отраслевые типы с примерами фраз." />
-          </div>
-          <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setShowRulesHelp(true)}>
-            <HelpCircle size={12} /> Подробнее
-          </button>
-        </div>
-
-        {rulesTab === 'upsell' && <RulesTable kind="upsell" />}
-        {rulesTab === 'crosssell' && <RulesTable kind="crosssell" />}
-        {rulesTab === 'objections' && <ObjectionTypesTable />}
-      </div>
+      <OrgRules />
 
       <CommandPalette
-        scripts={(templates || []).map((t) => ({ id: t.id, name: t.name, is_active: t.is_active }))}
-        onCreate={() => { setEditorMode('new'); setAiDraft(null); setSelectedId(null) }}
+        scripts={(templates || []).map((x) => ({ id: x.id, name: x.name, is_active: x.is_active }))}
+        onCreate={startNew}
         onOpenLibrary={() => setShowLibrary(true)}
-        onSelectScript={(id) => { setSelectedId(id); setForcedTab('analytics') }}
+        onSelectScript={(id) => { setSelectedId(id); setForcedTab('stages') }}
         onJumpAssignments={(id) => { setSelectedId(id); setForcedTab('assignments') }}
       />
 
@@ -2373,8 +2406,6 @@ export function ScriptsPage() {
           onUseDocDraft={handleDocDraft}
         />
       )}
-
-      {showRulesHelp && <HelpModal mode="rules" onClose={() => setShowRulesHelp(false)} />}
     </div>
   )
 }

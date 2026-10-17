@@ -5,16 +5,22 @@ Accepts a single audio file with seller_id and session_date,
 saves it to MinIO, calls local Whisper server for transcription,
 stores transcript in the transcription schema, then publishes
 to queue.diarize for Qwen role assignment.
+
+Если в файле несколько разговоров (LLM нашла границы), он режется на части:
+первая остаётся под исходным recording_id, остальные — новые записи
+со ссылкой на исходную в call_metadata.split_from. Целый файл остаётся в MinIO.
 """
+import json
 import uuid
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, BackgroundTasks
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.conversation_split import cut_audio, find_conversations, plan_parts
 from app.database import get_db, async_session_maker
 from app.deepgram_client import transcribe_audio
 from app.dependencies import get_current_user
@@ -121,7 +127,8 @@ async def upload_audio(
     return {
         "recording_id": str(recording_id),
         "status": "processing",
-        "message": "Файл загружен, транскрибация запущена",
+        "message": "Файл загружен, транскрибация запущена. Если в файле несколько разговоров, "
+                   "каждый станет отдельной записью",
     }
 
 
@@ -157,7 +164,18 @@ async def _transcribe_and_enqueue(
             f"{len(whisper_segments)} segments, text_len={len(full_text)}"
         )
 
-        # 2. Build segment list from Deepgram output (с speaker_id из diarization)
+        # 2. Несколько разговоров в файле — режем на отдельные записи
+        if settings.SPLIT_MANUAL_UPLOADS and len(whisper_segments) > 1:
+            parts = plan_parts(whisper_segments, await find_conversations(whisper_segments))
+            if parts:
+                await _save_split_parts(
+                    parts, recording_id=recording_id, audio_bytes=audio_bytes, ext=ext,
+                    language=language, org_id=org_id, store_id=store_id, seller_id=seller_id,
+                    audio_path=audio_path,
+                )
+                return
+
+        # 3. Build segment list from Deepgram output (с speaker_id из diarization)
         segments = []
         for seg in whisper_segments:
             start_ms = int(seg.get("start", 0) * 1000)
@@ -182,72 +200,170 @@ async def _transcribe_and_enqueue(
         elif segments:
             duration_seconds = max(s["end_ms"] for s in segments) // 1000
 
-        # 3. Save transcript + segments to DB
-        async with async_session_maker() as db:
-            await db.execute(text("""
-                INSERT INTO transcription.transcripts
-                    (id, recording_id, organization_id, store_id, seller_id,
-                     full_text, language, duration_seconds, status, whisper_model, created_at)
-                VALUES
-                    (:id, :rec_id, :org_id, :store_id, :seller_id,
-                     :full_text, :language, :duration, 'transcribed', 'deepgram-whisper', :now)
-            """), {
-                "id": transcript_id,
-                "rec_id": recording_id,
-                "org_id": uuid.UUID(org_id),
-                "store_id": uuid.UUID(store_id),
-                "seller_id": uuid.UUID(seller_id),
-                "full_text": full_text,
-                "language": (language or "ru")[:10],
-                "duration": duration_seconds,
-                "now": datetime.now(timezone.utc),
-            })
-
-            for idx, seg in enumerate(segments):
-                seg_id = uuid.uuid4()
-                await db.execute(text("""
-                    INSERT INTO transcription.transcript_segments
-                        (id, transcript_id, speaker_role, speaker_id, speaker_confidence,
-                         text, start_ms, end_ms, segment_index)
-                    VALUES
-                        (:id, :t_id, :role, :speaker_id, :speaker_confidence,
-                         :text, :start_ms, :end_ms, :idx)
-                """), {
-                    "id": seg_id,
-                    "t_id": transcript_id,
-                    "text": seg["text"],
-                    "start_ms": seg["start_ms"],
-                    "end_ms": seg["end_ms"],
-                    "idx": idx,
-                    "role": "unknown",
-                    "speaker_id": seg.get("speaker"),
-                    "speaker_confidence": seg.get("speaker_confidence"),
-                })
-
-            await db.execute(text("""
-                UPDATE recorder.recordings
-                SET status = 'transcribed', duration_seconds = :dur, updated_at = :now
-                WHERE id = :id
-            """), {"dur": duration_seconds, "now": datetime.now(timezone.utc), "id": recording_id})
-
-            await db.commit()
-
-        logger.info(f"Saved {len(segments)} segments for recording_id={recording_id}")
-
-        # 4. Publish to queue.diarize for Qwen role assignment
-        await publish("queue.diarize", {
-            "audio_path": audio_path,
-            "recording_id": str(recording_id),
-            "transcript_id": str(transcript_id),
-            "seller_id": seller_id,
-            "store_id": store_id,
-            "organization_id": org_id,
-        })
-        logger.info(f"Published to queue.diarize for recording_id={recording_id}")
+        await _save_transcript_and_enqueue(
+            recording_id=recording_id, transcript_id=transcript_id, segments=segments,
+            full_text=full_text, language=language, duration_seconds=duration_seconds,
+            org_id=org_id, store_id=store_id, seller_id=seller_id, audio_path=audio_path,
+        )
 
     except Exception as e:
         logger.error(f"Transcription pipeline error: {e}", exc_info=True)
         await _update_recording_status(recording_id, "failed")
+
+
+async def _save_split_parts(
+    parts: list[dict],
+    recording_id: uuid.UUID,
+    audio_bytes: bytes,
+    ext: str,
+    language: str,
+    org_id: str,
+    store_id: str,
+    seller_id: str,
+    audio_path: str,
+):
+    """Каждый разговор — своя запись: кусок аудио в MinIO, транскрипт, сообщение в queue.diarize.
+    Первая часть остаётся под исходным recording_id, остальные создаются рядом."""
+    logger.info(f"Recording {recording_id}: {len(parts)} conversations found, splitting")
+    # Сначала режем всё аудио: если нарезка упадёт, в БД и очереди ничего не попадёт
+    chunks = [cut_audio(audio_bytes, ext, p["start_ms"], p["end_ms"]) for p in parts]
+    part_ids = [recording_id] + [uuid.uuid4() for _ in parts[1:]]
+    _bucket, full_object = audio_path.split("/", 1)
+    folder = full_object.rsplit("/", 1)[0]
+
+    async with async_session_maker() as db:
+        # source берём у исходной записи: через этот путь идут и manual, и mobile
+        started_at, session_date, source = (await db.execute(text(
+            "SELECT started_at, session_date, source FROM recorder.recordings WHERE id = :id"
+        ), {"id": recording_id})).one()
+
+    for n, (part, part_id, chunk) in enumerate(zip(parts, part_ids, chunks), 1):
+        object_path = f"{folder}/{part_id}-part{n}{ext}"
+        upload_bytes(BUCKET, object_path, chunk, content_type=CONTENT_TYPE_MAP.get(ext, "audio/wav"))
+        part_path = f"{BUCKET}/{object_path}"
+        meta = json.dumps({
+            "split_from": str(recording_id), "part": n, "parts": len(parts),
+            "offset_ms": part["start_ms"], "source_audio_path": audio_path,
+        })
+        now = datetime.now(timezone.utc)
+        async with async_session_maker() as db:
+            if part_id == recording_id:
+                await db.execute(text("""
+                    UPDATE recorder.recordings
+                    SET audio_path = :path, file_size_bytes = :size,
+                        call_metadata = CAST(:meta AS jsonb), updated_at = :now
+                    WHERE id = :id
+                """), {"path": part_path, "size": len(chunk), "meta": meta, "now": now, "id": part_id})
+            else:
+                await db.execute(text("""
+                    INSERT INTO recorder.recordings
+                        (id, organization_id, store_id, seller_id, device_id, session_date,
+                         started_at, audio_path, file_size_bytes, status, source, call_metadata,
+                         created_at, updated_at)
+                    VALUES
+                        (:id, :org_id, :store_id, :seller_id, :device_id, :session_date,
+                         :started_at, :path, :size, 'processing', :source, CAST(:meta AS jsonb),
+                         :now, :now)
+                """), {
+                    "id": part_id,
+                    "org_id": uuid.UUID(org_id),
+                    "store_id": uuid.UUID(store_id),
+                    "seller_id": uuid.UUID(seller_id),
+                    "device_id": uuid.UUID("00000000-0000-0000-0000-000000000000"),
+                    "session_date": session_date,
+                    "started_at": started_at + timedelta(milliseconds=part["start_ms"]),
+                    "path": part_path,
+                    "size": len(chunk),
+                    "source": source,
+                    "meta": meta,
+                    "now": now,
+                })
+            await db.commit()
+
+        segments = part["segments"]
+        await _save_transcript_and_enqueue(
+            recording_id=part_id, transcript_id=uuid.uuid4(), segments=segments,
+            full_text=" ".join(s["text"] for s in segments), language=language,
+            duration_seconds=max(s["end_ms"] for s in segments) // 1000,
+            org_id=org_id, store_id=store_id, seller_id=seller_id, audio_path=part_path,
+        )
+
+
+async def _save_transcript_and_enqueue(
+    recording_id: uuid.UUID,
+    transcript_id: uuid.UUID,
+    segments: list[dict],
+    full_text: str,
+    language: str,
+    duration_seconds: int,
+    org_id: str,
+    store_id: str,
+    seller_id: str,
+    audio_path: str,
+):
+    """Транскрипт и сегменты в БД, запись — transcribed, сообщение в queue.diarize."""
+    # Save transcript + segments to DB
+    async with async_session_maker() as db:
+        await db.execute(text("""
+            INSERT INTO transcription.transcripts
+                (id, recording_id, organization_id, store_id, seller_id,
+                 full_text, language, duration_seconds, status, whisper_model, created_at)
+            VALUES
+                (:id, :rec_id, :org_id, :store_id, :seller_id,
+                 :full_text, :language, :duration, 'transcribed', 'deepgram-whisper', :now)
+        """), {
+            "id": transcript_id,
+            "rec_id": recording_id,
+            "org_id": uuid.UUID(org_id),
+            "store_id": uuid.UUID(store_id),
+            "seller_id": uuid.UUID(seller_id),
+            "full_text": full_text,
+            "language": (language or "ru")[:10],
+            "duration": duration_seconds,
+            "now": datetime.now(timezone.utc),
+        })
+
+        for idx, seg in enumerate(segments):
+            seg_id = uuid.uuid4()
+            await db.execute(text("""
+                INSERT INTO transcription.transcript_segments
+                    (id, transcript_id, speaker_role, speaker_id, speaker_confidence,
+                     text, start_ms, end_ms, segment_index)
+                VALUES
+                    (:id, :t_id, :role, :speaker_id, :speaker_confidence,
+                     :text, :start_ms, :end_ms, :idx)
+            """), {
+                "id": seg_id,
+                "t_id": transcript_id,
+                "text": seg["text"],
+                "start_ms": seg["start_ms"],
+                "end_ms": seg["end_ms"],
+                "idx": idx,
+                "role": "unknown",
+                "speaker_id": seg.get("speaker"),
+                "speaker_confidence": seg.get("speaker_confidence"),
+            })
+
+        await db.execute(text("""
+            UPDATE recorder.recordings
+            SET status = 'transcribed', duration_seconds = :dur, updated_at = :now
+            WHERE id = :id
+        """), {"dur": duration_seconds, "now": datetime.now(timezone.utc), "id": recording_id})
+
+        await db.commit()
+
+    logger.info(f"Saved {len(segments)} segments for recording_id={recording_id}")
+
+    # 4. Publish to queue.diarize for Qwen role assignment
+    await publish("queue.diarize", {
+        "audio_path": audio_path,
+        "recording_id": str(recording_id),
+        "transcript_id": str(transcript_id),
+        "seller_id": seller_id,
+        "store_id": store_id,
+        "organization_id": org_id,
+    })
+    logger.info(f"Published to queue.diarize for recording_id={recording_id}")
 
 
 async def _update_recording_status(recording_id: uuid.UUID, status: str):

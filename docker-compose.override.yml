@@ -1,0 +1,16 @@
+# Только для прод-сервера (Yandex Cloud). Наружу торчит лишь nginx на localhost —
+# снаружи его проксирует host-nginx (lk.voicer-ai.pro). Остальные порты закрыты.
+services:
+  postgres:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  rabbitmq:
+    ports: !reset []
+  minio:
+    ports: !reset []
+  admin-service:
+    ports: !reset []
+  nginx:
+    ports: !override
+      - "127.0.0.1:8080:80"

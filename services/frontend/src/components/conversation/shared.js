@@ -15,6 +15,7 @@ export const OUTCOME_LABELS = {
     deferred: 'Отложено',
     price_refusal: 'Отказ по цене',
     competitor: 'Ушёл к конкурентам',
+    no_purchase: 'Ушёл без покупки',
     unknown: 'Не определён',
 };
 // Исходы звонков (телефония) — добавляются к фильтру для telephony-организаций

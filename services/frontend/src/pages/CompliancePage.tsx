@@ -125,7 +125,7 @@ function SeverityPill({ severity }: { severity: Severity }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center',
       padding: '2px 8px', borderRadius: 999,
-      fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3,
+      fontSize: 11.5, fontWeight: 600,
       background: m.bg, color: m.color, lineHeight: 1.4,
     }}>
       {m.label}

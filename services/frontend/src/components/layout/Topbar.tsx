@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Bell, ChevronRight } from 'lucide-react'
 import { notificationsApi, type DashboardNotification } from '@/api/notifications'
 import { t, L, locale } from '@/i18n'
+import { PAGE_ACTIONS_SLOT, PAGE_SUBTITLE_SLOT } from './PageHeader'
 
 const PERIOD_OPTIONS: { value: number; label: string }[] = [
   { value: 7, label: '7 дней' },
@@ -60,9 +61,13 @@ export function Topbar({ title, subtitle, onPeriodChange, period = 30, showPerio
         <div className="topbar-left">
           <h1 className="page-title">{t(title)}</h1>
           {subtitle && <p className="page-subtitle">{subtitle}</p>}
+          {/* Подзаголовок страницы (PageSubtitle) */}
+          <div id={PAGE_SUBTITLE_SLOT} className="page-subtitle page-slot" />
         </div>
 
         <div className="topbar-right">
+          {/* Кнопки страницы (PageActions) */}
+          <div id={PAGE_ACTIONS_SLOT} className="page-slot page-actions-slot" />
           {showPeriod && onPeriodChange && (
             <div className="seg" role="group" aria-label={t('Период')}>
               {PERIOD_OPTIONS.map((o) => (

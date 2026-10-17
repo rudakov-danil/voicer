@@ -29,15 +29,39 @@ def get_llm_client() -> AsyncOpenAI:
     return _client
 
 
+# Добавляется к системному промпту каждого запроса: промпты и скрипты продаж написаны по-русски,
+# а продавцы и клиенты говорят по-русски, по-казахски или вперемешку.
+LANGUAGE_NOTE = """ЯЗЫК РАЗГОВОРА: продавец и клиент могут говорить по-русски, по-казахски или смешивать оба языка,
+даже в одной фразе. Казахскую речь понимай так же, как русскую: "Сәлеметсіз бе" — здравствуйте,
+"Рахмет" — спасибо, "Сау болыңыз" — до свидания, "Иә" — да, "Жоқ" — нет, "Жарайды" — хорошо,
+"Қанша тұрады?" — сколько стоит. Скрипты и правила написаны по-русски: считай их выполненными,
+если продавец сказал то же самое по смыслу на казахском. Распознавание речи может записать казахские
+слова с ошибками или русскими буквами — ориентируйся на смысл. Свои пояснения и выводы пиши по-русски,
+цитаты из разговора приводи как есть. Формат ответа не меняй."""
+
+
+def _with_language_note(messages: list[dict]) -> list[dict]:
+    """Языковая подсказка в конец системного промпта (или отдельным системным сообщением)."""
+    messages = list(messages or [])
+    if messages and messages[0].get("role") == "system":
+        messages[0] = {**messages[0], "content": f"{messages[0]['content']}\n\n{LANGUAGE_NOTE}"}
+    else:
+        messages.insert(0, {"role": "system", "content": LANGUAGE_NOTE})
+    return messages
+
+
 def _without_thinking(create):
     """Все запросы к модели — без рассуждений (thinking): reasoning.enabled=false для OpenRouter.
     Если провайдер этот параметр не принимает, один раз запоминаем и дальше шлём без него.
-    Расход токенов каждого запроса пишется в лог строкой «LLM usage»."""
+    Расход токенов каждого запроса пишется в лог строкой «LLM usage».
+    К системному промпту добавляется LANGUAGE_NOTE (русский/казахский)."""
     supported = True
 
     async def wrapper(*args, **kwargs):
         nonlocal supported
         step = _caller()
+        if "messages" in kwargs:
+            kwargs["messages"] = _with_language_note(kwargs["messages"])
         if settings.LLM_DISABLE_THINKING and supported:
             extra = {**(kwargs.get("extra_body") or {}), "reasoning": {"enabled": False}}
             try:

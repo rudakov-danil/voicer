@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#F4F6FB"><meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="Ваша смена, личные советы и монеты за допродажи в Voicer">
+  <title>Войсер · Моя смена</title>
+  <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-192.png"><link rel="stylesheet" href="/releases/20261017-clinic/styles.css">
+  <script type="module" src="/releases/20261017-clinic/app.js"></script>
+</head>
+<body>
+<main>
+  <header><a class="brand" href="/" aria-label="Voicer"><svg width="23" height="28" viewBox="0 0 90 110" fill="none" aria-hidden="true"><rect y="37.4" width="10" height="35.2" rx="5" fill="#0B0E14" opacity=".5"/><rect x="20" y="22" width="10" height="66" rx="5" fill="#0B0E14" opacity=".75"/><rect x="40" y="2.75" width="10" height="104.5" rx="5" fill="#2E5BFF"/><rect x="60" y="27.5" width="10" height="55" rx="5" fill="#0B0E14" opacity=".65"/><rect x="80" y="41.25" width="10" height="27.5" rx="5" fill="#0B0E14" opacity=".4"/></svg><span>Войсер</span></a><span id="network" class="pill">Онлайн</span></header>
+  <section id="connect-panel" class="card connect-card" hidden><p class="eyebrow">ЛИЧНОЕ ПОДКЛЮЧЕНИЕ</p><h1>Ваша команда<br>уже ждёт вас.</h1><p class="muted">Подключитесь по ссылке руководителя. Здесь будут ваша смена, советы и монеты.</p><button id="connect-button" class="primary" type="button">Подключиться к приложению</button></section>
+  <section id="login-panel" class="card login">
+    <p class="eyebrow">ПРИЛОЖЕНИЕ КОМАНДЫ</p><h1>Хорошая смена.<br>Заметный результат.</h1><p class="muted">Ваш прогресс, личные советы и монеты за успешные допродажи.</p><div class="login-features"><span>Смена</span><span>Советы</span><span>Монеты</span></div><p class="login-help">Сотруднику: откройте личную ссылку подключения от руководителя.</p><h2 class="leader-login-title">Вход руководителя для проверки приложения</h2>
+    <form id="login-form"><label>Email<input id="email" type="email" autocomplete="username" inputmode="email" required placeholder="you@company.ru"></label><label>Пароль<input id="password" type="password" autocomplete="current-password" required placeholder="Ваш пароль"></label><button class="primary" id="login-button">Войти</button></form>
+    <p class="small muted">Руководители входят с учётной записью кабинета. Сотрудники подключаются по личной ссылке.</p>
+  </section>
+  <section id="recorder-panel" hidden>
+    <div class="page-heading"><div><p class="eyebrow">ВАШ РАБОЧИЙ ДЕНЬ</p><h1 id="page-title">Новая запись</h1></div><button id="logout" class="text-button">Выйти</button></div>
+    <p id="account" class="small muted"></p>
+    <p id="leader-preview" class="preview-note" hidden>Просмотр руководителя. Выберите сотрудника; в его приложении выбор коллег будет скрыт.</p><div class="tabs bottom-nav" role="tablist" aria-label="Разделы"><button id="tab-shift-button" role="tab" aria-selected="true" aria-controls="tab-shift" type="button"><span aria-hidden="true">◫</span>Моя смена</button><button id="tab-record-button" role="tab" aria-selected="false" aria-controls="tab-record" type="button"><span aria-hidden="true">▥</span>Запись</button><button id="tab-coins-button" role="tab" aria-selected="false" aria-controls="tab-coins" type="button"><span aria-hidden="true">◉</span>Монеты</button><button id="tab-protocol-button" role="tab" aria-selected="false" aria-controls="tab-protocol" type="button" hidden><span aria-hidden="true">▤</span>Протокол</button></div>
+    <div class="card context"><label><span id="store-label">Кофейня</span><select id="store" aria-label="Кофейня"></select></label><label><span id="seller-label">Сотрудник</span><select id="seller" aria-label="Сотрудник"></select></label><button id="reload-options" class="text-button" hidden>Обновить список</button></div>
+    <div id="tab-shift" role="tabpanel" aria-labelledby="tab-shift-button" hidden></div>
+    <div id="tab-coins" role="tabpanel" aria-labelledby="tab-coins-button" hidden></div>
+    <div id="tab-protocol" role="tabpanel" aria-labelledby="tab-protocol-button" hidden></div>
+    <div id="tab-record" role="tabpanel" aria-labelledby="tab-record-button">
+    <div class="card recorder">
+      <p id="record-state" class="state" role="status">Готово к записи</p>
+      <div id="timer" class="timer" aria-label="Время с начала записи">00:00</div>
+      <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <button id="record" class="record-button" aria-label="Начать запись"><svg id="mic-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span class="stop-icon" hidden></span></button>
+      <p id="record-label">Нажмите, чтобы начать</p><p id="saved-state" class="small muted">После остановки запись отправится на анализ</p>
+      <label class="switch-row"><input id="keep-awake" type="checkbox" checked>Не гасить экран во время записи</label>
+    </div>
+    <p class="notice" id="background-notice">При блокировке экрана браузер может прервать запись. Для важного разговора оставьте экран включённым.</p>
+    <section class="recordings-section"><div class="section-heading"><h2>На этом телефоне</h2><button id="retry-all" class="text-button">Отправить очередь</button></div><div id="recordings"></div><p class="small muted">Неотправленные записи хранятся в этом браузере. Не очищайте его данные до отправки.</p></section>
+    </div>
+    <a class="dashboard-link" href="https://horeca.voicer-ai.pro" target="_blank" rel="noopener">Открыть кабинет руководителя ↗</a>
+  </section>
+  <div id="message" role="alert" hidden></div>
+  <footer>ВОЙСЕР <span>Моя смена · версия 14.10.2026</span></footer>
+</main>
+<noscript>Для записи аудио включите JavaScript в браузере.</noscript>
+</body>
+</html>

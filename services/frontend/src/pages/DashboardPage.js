@@ -2,7 +2,12 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, TriangleAlert, OctagonAlert, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, } from 'lucide-react';
-import { dashboardApi } from '@/api/dashboard';
+import { dashboardApi, periodRange } from '@/api/dashboard';
+import { upsellsApi } from '@/api/upsells';
+import { demandApi } from '@/api/demand';
+import '@/styles/demand.css';
+import { useTerms } from '@/lib/terms';
+import { PlanChip, W, num, ordersOf, offersOf } from '@/components/upsells/metrics';
 import { analyticsApi } from '@/api/analytics';
 import { outcomeColor, outcomeLabel } from '@/lib/outcomes';
 import { initials } from '@/lib/format';
@@ -18,10 +23,29 @@ export function DashboardPage() {
     const { period, setPeriod } = useOutletContext();
     const navigate = useNavigate();
     const { data: trends } = useQuery({ queryKey: ['trends'], queryFn: () => dashboardApi.getTrends({ weeks: 12 }) });
-    return (_jsxs("div", { className: "dash", children: [_jsx(Pulse, { onOpenAttention: () => { setPeriod(7); navigate('/conversations?view=attention'); } }), _jsxs("div", { className: "dash-a", children: [_jsx(ReviewQueue, { period: period }), _jsxs("div", { className: "stack", children: [_jsx(Kpis, { period: period, trends: trends }), _jsx(Outcomes, { period: period }), _jsx(Violations, { period: period })] })] }), _jsxs("div", { className: "dash-b", children: [_jsx(Stores, { trends: trends }), _jsx(Objections, { period: period })] }), _jsxs("div", { className: "dash-c", children: [_jsx(Losses, { period: period }), _jsx(Movers, { period: period, trends: trends })] })] }));
+    // Кофейня и аптека: почти каждый разговор — покупка, поэтому вместо конверсии и исходов — допродажи
+    const terms = useTerms();
+    const cafe = terms.offersFirst;
+    return (_jsxs("div", { className: "dash", children: [_jsx(Pulse, { onOpenAttention: () => { setPeriod(7); navigate('/conversations?view=attention'); } }), _jsxs("div", { className: "dash-a", children: [_jsx(ReviewQueue, { period: period }), _jsxs("div", { className: "stack", children: [_jsx(Kpis, { period: period, trends: trends, cafe: cafe }), !cafe && _jsx(Outcomes, { period: period }), _jsx(Violations, { period: period }), terms.tracksDemand && _jsx(DemandPanel, { period: period })] })] }), _jsxs("div", { className: "dash-b", children: [_jsx(Stores, { trends: trends, cafe: cafe, period: period }), _jsx(Objections, { period: period })] }), _jsxs("div", { className: "dash-c", children: [_jsx(Losses, { period: period }), _jsx(Movers, { period: period, trends: trends })] })] }));
 }
 /* ─── Показатели: значение за период, изменение к прошлому такому же периоду, ряд за 12 недель ── */
-function Kpis({ period, trends }) {
+/** Допродажи за период и за такой же прошлый — для кофеен вместо конверсии */
+function useUpsellPeriod(period, enabled) {
+    const cur = periodRange(period);
+    const prevTo = new Date();
+    prevTo.setDate(prevTo.getDate() - period - 1);
+    const prevFrom = new Date(prevTo);
+    prevFrom.setDate(prevFrom.getDate() - period);
+    const iso = (d) => d.toISOString().split('T')[0];
+    const { data } = useQuery({ queryKey: ['upsell-overview', 'all', cur.date_from, cur.date_to], queryFn: () => upsellsApi.getOverview(cur), enabled });
+    const { data: prev } = useQuery({
+        queryKey: ['upsell-overview', 'all', iso(prevFrom), iso(prevTo)],
+        queryFn: () => upsellsApi.getOverview({ date_from: iso(prevFrom), date_to: iso(prevTo) }), enabled,
+    });
+    return { data, prev };
+}
+function Kpis({ period, trends, cafe }) {
+    const { data: up, prev: upPrev } = useUpsellPeriod(period, cafe);
     const { data: cur } = useQuery({ queryKey: ['dashboard-overview', period], queryFn: () => dashboardApi.getOverview({ period }) });
     const { data: prev } = useQuery({ queryKey: ['dashboard-overview', period, 'prev'], queryFn: () => dashboardApi.getOverview({ period, previous: true }) });
     const net = trends?.network;
@@ -61,6 +85,33 @@ function Kpis({ period, trends }) {
             note: cur ? L(`${cur.objections_total ?? 0} ${plural(cur.objections_total ?? 0, ['возражение', 'возражения', 'возражений'], ['', ''])}`, `${cur.objections_total ?? 0} objections`) : '',
         },
     ];
+    if (cafe) {
+        // Доли по неделям из ряда по дням — для мини-графика
+        const weekly = (num, den) => {
+            const ds = up?.days || [];
+            const out = [];
+            for (let i = 0; i < ds.length; i += 7) {
+                const chunk = ds.slice(i, i + 7);
+                const d = chunk.reduce((a, x) => a + x[den], 0);
+                out.push(d ? (chunk.reduce((a, x) => a + x[num], 0) / d) * 100 : 0);
+            }
+            return out;
+        };
+        const t0 = up?.totals, p0 = upPrev?.totals;
+        const rate = (v) => (v != null ? v * 100 : null);
+        kpis[0] = {
+            label: 'Предлагали допродажу', value: t0?.attempt_rate != null ? String(Math.round(t0.attempt_rate * 100)) : '—', unit: t0?.attempt_rate != null ? '%' : '',
+            delta: _jsx(Delta, { value: p0?.orders ? diff(rate(t0?.attempt_rate), rate(p0?.attempt_rate)) : null, unit: PP }),
+            spark: weekly('with_offer', 'orders'),
+            note: t0 ? `${num(t0.with_offer)} ${ordersOf(t0.orders)}` : '',
+        };
+        kpis[2] = {
+            label: W().customer === 'гость' ? 'Гости согласились' : 'Покупатели согласились', value: t0?.acceptance_rate != null ? String(Math.round(t0.acceptance_rate * 100)) : '—', unit: t0?.acceptance_rate != null ? '%' : '',
+            delta: _jsx(Delta, { value: p0?.offers ? diff(rate(t0?.acceptance_rate), rate(p0?.acceptance_rate)) : null, unit: PP }),
+            spark: weekly('accepted', 'offers'),
+            note: t0 ? `${num(t0.accepted)} ${offersOf(t0.offers)}` : '',
+        };
+    }
     return (_jsx("div", { className: "kpi-grid", children: kpis.map((k) => (_jsx("section", { className: "panel", "aria-label": t(k.label), children: _jsxs("div", { className: "kpi", children: [_jsx("div", { className: "kpi-label", children: t(k.label) }), _jsxs("div", { className: "kpi-row", children: [_jsxs("div", { className: "kpi-value", children: [k.value, k.unit && _jsxs("small", { children: ["\u00A0", k.unit] })] }), _jsx(Spark, { values: k.spark, label: L('Динамика за 12 недель', 'Trend over 12 weeks') })] }), _jsxs("div", { className: "kpi-foot", children: [k.delta, _jsx("span", { children: k.note })] })] }) }, k.label))) }));
 }
 /* ─── Чем заканчиваются разговоры ─────────────────────────────────────────── */
@@ -72,9 +123,10 @@ function Outcomes({ period }) {
 }
 /* ─── Нарушения по правилам ──────────────────────────────────────────────── */
 function Violations({ period }) {
+    const terms = useTerms();
     const { data } = useQuery({ queryKey: ['violations-by-rule', period], queryFn: () => dashboardApi.getViolationsByRule({ period }) });
     const items = data?.items || [];
-    return (_jsxs("section", { className: "panel", "aria-labelledby": "vio-title", children: [_jsxs("div", { className: "panel-head", children: [_jsxs("div", { children: [_jsx("h2", { id: "vio-title", className: "panel-title", children: t('Нарушения за период') }), _jsx("div", { className: "panel-sub", children: data ? L(`${data.conversations} ${plural(data.conversations, ['разговор', 'разговора', 'разговоров'], ['', ''])} · правила общения с покупателями`, `${data.conversations} conversations · customer communication rules`) : '' })] }), _jsxs(Link, { className: "link", to: "/compliance", children: [t('Комплаенс'), _jsx(ArrowRight, { size: 14, "aria-hidden": "true" })] })] }), _jsxs("div", { className: "panel-body", style: { paddingTop: 8 }, children: [items.length === 0 && _jsx("p", { className: "muted", children: t('Нарушений за период нет.') }), items.slice(0, 5).map((v) => {
+    return (_jsxs("section", { className: "panel", "aria-labelledby": "vio-title", children: [_jsxs("div", { className: "panel-head", children: [_jsxs("div", { children: [_jsx("h2", { id: "vio-title", className: "panel-title", children: t('Нарушения за период') }), _jsx("div", { className: "panel-sub", children: data ? L(`${num(data.conversations)} ${plural(data.conversations, ['разговор', 'разговора', 'разговоров'], ['', ''])} · правила общения ${terms.withCustomers[0]}`, `${num(data.conversations)} conversations · rules for talking ${terms.withCustomers[1]}`) : '' })] }), _jsxs(Link, { className: "link", to: "/compliance", children: [t('Комплаенс'), _jsx(ArrowRight, { size: 14, "aria-hidden": "true" })] })] }), _jsxs("div", { className: "panel-body", style: { paddingTop: 8 }, children: [items.length === 0 && _jsx("p", { className: "muted", children: t('Нарушений за период нет.') }), items.slice(0, 5).map((v) => {
                         const d = v.count - v.prev;
                         return (_jsxs("div", { className: "vio", children: [_jsx("span", { className: `q-sev vio-sev ${v.severity === 'high' ? 'is-crit' : 'is-warn'}`, "aria-hidden": "true", children: v.severity === 'high' ? _jsx(OctagonAlert, { size: 15 }) : _jsx(TriangleAlert, { size: 15 }) }), _jsxs("div", { style: { minWidth: 0 }, children: [_jsx("div", { className: "vio-rule", translate: "no", children: v.rule_title }), _jsxs("div", { className: "vio-ops", children: [v.sellers.map((n) => _jsx("span", { className: "avatar", title: n, translate: "no", children: initials(n) }, n)), _jsxs("span", { className: "ellipsis", translate: "no", children: [v.sellers.join(', '), v.sellers_count > v.sellers.length ? L(` и ещё ${v.sellers_count - v.sellers.length}`, ` and ${v.sellers_count - v.sellers.length} more`) : ''] })] })] }), _jsxs("div", { className: "vio-num", children: [_jsx("span", { className: "display", children: v.count }), d > 0 ? _jsxs("span", { className: "delta is-bad", children: [_jsx(ArrowUpRight, { "aria-hidden": "true" }), "+", d] })
                                             : d < 0 ? _jsxs("span", { className: "delta is-good", children: [_jsx(ArrowDownRight, { "aria-hidden": "true" }), "\u2212", -d] })
@@ -82,7 +134,28 @@ function Violations({ period }) {
                     })] })] }));
 }
 /* ─── Магазины: конверсия и балл за 12 недель ────────────────────────────── */
-function Stores({ trends }) {
+function Stores({ trends, cafe, period }) {
+    const { data: up } = useUpsellPeriod(period, cafe);
+    if (cafe)
+        return _jsx(CafeStores, { data: up });
+    return _jsx(RetailStores, { trends: trends });
+}
+function CafeStores({ data }) {
+    const terms = useTerms();
+    const rows = [...(data?.stores || [])].sort((a, b) => (b.attempt_rate ?? 0) - (a.attempt_rate ?? 0));
+    return (_jsxs("section", { className: "panel", "aria-labelledby": "st-title", children: [_jsxs("div", { className: "panel-head", children: [_jsxs("div", { children: [_jsx("h2", { id: "st-title", className: "panel-title", children: t(terms.storePlural) }), _jsx("div", { className: "panel-sub", children: L(`Доля заказов с предложением допродажи за период и план ${terms.storeForms[1]}`, 'Share of orders with an add-on offer and each location’s plan') })] }), _jsxs(Link, { className: "link", to: "/analytics", children: [t('Аналитика'), _jsx(ArrowRight, { size: 14, "aria-hidden": "true" })] })] }), _jsx("div", { className: "panel-body", style: { paddingTop: 6 }, children: _jsx("div", { className: "table-wrap", children: _jsxs("table", { className: "table st-table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { scope: "col", children: t(terms.store) }), _jsx("th", { scope: "col", children: L('Предлагали', 'Offered') }), _jsx("th", { scope: "col", children: L('Согласились', 'Accepted') })] }) }), _jsxs("tbody", { children: [rows.length === 0 && _jsx("tr", { children: _jsx("td", { colSpan: 3, className: "muted", children: L(`Нет разобранных ${W().ordersGen} за период`, 'No analysed orders in the period') }) }), rows.map((s) => (_jsxs("tr", { children: [_jsxs("td", { className: "st-name", children: [_jsx("b", { translate: "no", children: s.store_name || '—' }), _jsxs("span", { children: [num(s.orders), " ", plural(s.orders, W().order, ['order', 'orders'])] })] }), _jsx("td", { children: _jsx("div", { className: "st-conv", children: _jsxs("div", { children: [_jsxs("span", { className: "display", children: [s.attempt_rate != null ? Math.round(s.attempt_rate * 100) : '—', _jsx("small", { children: "\u00A0%" })] }), _jsx(PlanChip, { value: s.attempt_rate, target: s.attempt_rate_target, compact: true })] }) }) }), _jsx("td", { children: _jsxs("span", { className: "display", style: { fontSize: 16 }, children: [s.acceptance_rate != null ? Math.round(s.acceptance_rate * 100) : '—', _jsx("small", { children: "\u00A0%" })] }) })] }, s.store_id)))] })] }) }) })] }));
+}
+/* ─── Спрос (аптеки): что просили, а этого не было, — коротко, со ссылкой на список к закупке ── */
+function DemandPanel({ period }) {
+    const { data } = useQuery({
+        queryKey: ['demand', 'all', ...Object.values(periodRange(period))],
+        queryFn: () => demandApi.get(periodRange(period)),
+    });
+    const items = (data?.items || []).filter((x) => x.requests > 0).slice(0, 5);
+    const s = data?.totals;
+    return (_jsxs("section", { className: "panel", "aria-labelledby": "dm-dash-title", children: [_jsxs("div", { className: "panel-head", children: [_jsxs("div", { children: [_jsx("h2", { id: "dm-dash-title", className: "panel-title", children: L('Спрос: чего не было', 'Demand: what was missing') }), _jsx("div", { className: "panel-sub", children: s ? L(`${num(s.requests)} ${plural(s.requests, ['просьба', 'просьбы', 'просьб'], ['', ''])} за период, ушли без покупки — ${num(s.lost)}`, `${num(s.requests)} requests, ${num(s.lost)} left without buying`) : '' })] }), _jsxs(Link, { className: "link", to: "/demand", children: [L('Список к закупке', 'Order list'), _jsx(ArrowRight, { size: 14, "aria-hidden": "true" })] })] }), _jsx("div", { className: "panel-body", style: { paddingTop: 6 }, children: items.length === 0 ? _jsx("p", { className: "muted", children: L('Пока никто не спросил того, чего нет.', 'Nobody has asked for a missing item yet.') }) : (_jsx("ul", { className: "dash-demand", children: items.map((x) => (_jsxs("li", { children: [_jsx(Link, { to: `/demand?status=${x.status}`, className: "ellipsis", translate: "no", children: x.title }), _jsx("span", { className: "dash-demand-n", children: L(`${x.requests} ${plural(x.requests, ['раз', 'раза', 'раз'], ['', ''])}`, `${x.requests}×`) }), _jsx("span", { className: `dash-demand-lost${x.lost ? ' is-lost' : ''}`, children: x.lost ? L(`ушли: ${x.lost}`, `lost: ${x.lost}`) : L('закрыли аналогом', 'covered') })] }, x.key))) })) })] }));
+}
+function RetailStores({ trends }) {
     const sum = (a) => a.reduce((x, y) => x + y, 0);
     const rows = (trends?.stores || []).map((s) => {
         const conv = s.purchases.map((p, i) => pct(p, s.scorable[i]));
@@ -109,6 +182,7 @@ function Losses({ period }) {
 /* ─── Возражения: доля разговоров, отработка, конверсия к средней ─────────── */
 function Objections({ period }) {
     const objectionLabel = useObjectionTypeLabel();
+    const terms = useTerms();
     const { data: impact } = useQuery({ queryKey: ['objections-impact', period], queryFn: () => analyticsApi.getObjectionsImpact({ period }) });
     const { data: resolution } = useQuery({ queryKey: ['objections-resolution', period], queryFn: () => analyticsApi.getObjectionsResolution({ period }) });
     const { data: overview } = useQuery({ queryKey: ['dashboard-overview', period], queryFn: () => dashboardApi.getOverview({ period }) });
@@ -119,11 +193,14 @@ function Objections({ period }) {
         resolved: (resolution || []).find((r) => r.type === o.type)?.resolution_rate ?? null,
     }));
     const maxShare = Math.max(1, ...items.map((o) => o.conversations));
-    return (_jsxs("section", { className: "panel", "aria-labelledby": "obj-title", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { id: "obj-title", className: "panel-title", children: t('Возражения покупателей') }), _jsx("div", { className: "panel-sub", children: L(`Как часто звучат и что делают с конверсией (в среднем ${dec(base)} %)`, `How often they come up and what they do to conversion (average ${base.toFixed(1)}%)`) })] }) }), _jsx("div", { className: "panel-body", style: { paddingTop: 6 }, children: items.length === 0 ? _jsx("p", { className: "muted", children: t('Возражений за период нет.') }) : (_jsx("div", { className: "table-wrap", children: _jsxs("table", { className: "table obj-table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { scope: "col", children: t('Возражение') }), _jsx("th", { scope: "col", children: t('Доля разговоров') }), _jsx("th", { scope: "col", className: "t-right col-hide-s", children: t('Отработано') }), _jsx("th", { scope: "col", className: "t-right", children: t('Конверсия') })] }) }), _jsx("tbody", { children: items.map((o) => {
+    return (_jsxs("section", { className: "panel", "aria-labelledby": "obj-title", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { id: "obj-title", className: "panel-title", children: terms.isCafe ? L('Возражения гостей', 'Guest objections') : t('Возражения покупателей') }), _jsx("div", { className: "panel-sub", children: terms.offersFirst
+                                // В кофейне и аптеке покупает почти каждый — конверсия ничего не говорит, важнее, как ответили
+                                ? L(`Как часто звучат и как часто ${terms.sellerLower[0]} ответил спокойно, без давления`, `How often they come up and how often the ${terms.sellerLower[1]} responded calmly, without pressure`)
+                                : L(`Как часто звучат и что делают с конверсией (в среднем ${dec(base)} %)`, `How often they come up and what they do to conversion (average ${base.toFixed(1)}%)`) })] }) }), _jsx("div", { className: "panel-body", style: { paddingTop: 6 }, children: items.length === 0 ? _jsx("p", { className: "muted", children: t('Возражений за период нет.') }) : (_jsx("div", { className: "table-wrap", children: _jsxs("table", { className: "table obj-table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { scope: "col", children: t('Возражение') }), _jsx("th", { scope: "col", children: t('Доля разговоров') }), _jsx("th", { scope: "col", className: `t-right${terms.offersFirst ? '' : ' col-hide-s'}`, children: t('Отработано') }), !terms.offersFirst && _jsx("th", { scope: "col", className: "t-right", children: t('Конверсия') })] }) }), _jsx("tbody", { children: items.map((o) => {
                                     const share = total ? (o.conversations / total) * 100 : 0;
                                     const diff = o.conversion - base;
                                     const len = Math.min(46, (Math.abs(diff) / 20) * 46);
-                                    return (_jsxs("tr", { children: [_jsxs("td", { children: [_jsx("div", { style: { fontWeight: 500 }, children: t(objectionLabel(o.type)) }), _jsxs("div", { className: "muted", style: { fontSize: 12 }, children: [o.conversations, " ", plural(o.conversations, ['разговор', 'разговора', 'разговоров'], ['conversation', 'conversations'])] })] }), _jsx("td", { children: _jsxs("div", { className: "share", children: [_jsx("span", { className: "share-bar", children: _jsx("span", { style: { width: `${(o.conversations / maxShare) * 100}%` } }) }), _jsxs("span", { className: "num", children: [Math.round(share), "\u00A0%"] })] }) }), _jsx("td", { className: "t-right t-num col-hide-s", children: o.resolved != null ? `${Math.round(o.resolved)} %` : '—' }), _jsx("td", { children: _jsxs("div", { className: "dv", role: "img", "aria-label": L(`Конверсия ${dec(o.conversion)} %, ${diff >= 0 ? 'выше' : 'ниже'} средней на ${dec(Math.abs(diff))} п. п.`, `Conversion ${o.conversion.toFixed(1)}%, ${Math.abs(diff).toFixed(1)} pp ${diff >= 0 ? 'above' : 'below'} average`), children: [_jsx("span", { className: "dv-track", "aria-hidden": "true", children: _jsx("span", { className: `dv-bar ${diff >= 0 ? 'is-up' : 'is-down'}`, style: { width: len } }) }), _jsxs("span", { className: "dv-val", children: [dec(o.conversion), "\u00A0%"] })] }) })] }, o.type));
+                                    return (_jsxs("tr", { children: [_jsxs("td", { children: [_jsx("div", { style: { fontWeight: 500 }, children: t(objectionLabel(o.type)) }), _jsxs("div", { className: "muted", style: { fontSize: 12 }, children: [o.conversations, " ", plural(o.conversations, ['разговор', 'разговора', 'разговоров'], ['conversation', 'conversations'])] })] }), _jsx("td", { children: _jsxs("div", { className: "share", children: [_jsx("span", { className: "share-bar", children: _jsx("span", { style: { width: `${(o.conversations / maxShare) * 100}%` } }) }), _jsxs("span", { className: "num", children: [Math.round(share), "\u00A0%"] })] }) }), _jsx("td", { className: `t-right t-num${terms.offersFirst ? '' : ' col-hide-s'}`, children: o.resolved != null ? `${Math.round(o.resolved)} %` : '—' }), !terms.offersFirst && _jsx("td", { children: _jsxs("div", { className: "dv", role: "img", "aria-label": L(`Конверсия ${dec(o.conversion)} %, ${diff >= 0 ? 'выше' : 'ниже'} средней на ${dec(Math.abs(diff))} п. п.`, `Conversion ${o.conversion.toFixed(1)}%, ${Math.abs(diff).toFixed(1)} pp ${diff >= 0 ? 'above' : 'below'} average`), children: [_jsx("span", { className: "dv-track", "aria-hidden": "true", children: _jsx("span", { className: `dv-bar ${diff >= 0 ? 'is-up' : 'is-down'}`, style: { width: len } }) }), _jsxs("span", { className: "dv-val", children: [dec(o.conversion), "\u00A0%"] })] }) })] }, o.type));
                                 }) })] }) })) })] }));
 }
 /* ─── Кто растёт, кто проседает: балл по неделям ─────────────────────────── */

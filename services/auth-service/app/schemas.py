@@ -60,6 +60,8 @@ class UserUpdateRequest(BaseModel):
     last_name: Optional[str] = None
     is_active: Optional[bool] = None
     store_id: Optional[UUID] = None
+    # Кабинет присылает новый пароль в этом же PATCH (форма «Пользователи системы»)
+    password: Optional[str] = None
 
 
 class ChangePasswordRequest(BaseModel):

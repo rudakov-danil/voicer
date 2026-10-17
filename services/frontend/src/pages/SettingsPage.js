@@ -6,6 +6,8 @@ import { Copy, RefreshCw, Check } from 'lucide-react';
 import { adminApi } from '@/api/admin';
 import { authApi } from '@/api/auth';
 import { recorderApi } from '@/api/recorder';
+import { verticalsApi } from '@/api/upsells';
+import { useAuthStore } from '@/store/authStore';
 import { TELEPHONY_ENABLED, useOrganization, useTerms } from '@/lib/terms';
 import { initials } from '@/lib/format';
 import { t, L, isEn, setLang, plural } from '@/i18n';
@@ -33,7 +35,7 @@ export function SettingsPage() {
         document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
     const sections = [
-        ...SECTIONS,
+        ...SECTIONS.map((x) => (x.id === 'stores' ? { ...x, label: terms.storePlural } : x)),
         ...(terms.isTelephony ? [{ id: 'telephony', label: 'Телефония' }] : []),
     ];
     return (_jsxs("div", { className: "set-grid", children: [_jsx("nav", { className: "set-nav", "aria-label": t('Разделы настроек'), children: sections.map((s) => (_jsx("button", { type: "button", "aria-current": current === s.id ? 'true' : undefined, onClick: () => go(s.id), children: t(s.label) }, s.id))) }), _jsxs("div", { className: "set-body", children: [_jsx(OrgSection, {}), _jsx(StoresSection, {}), _jsx(UsersSection, {}), _jsxs("section", { id: "set-alerts", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Оповещения') }), _jsx("div", { className: "panel-sub", children: t('Когда разговор попадает в очередь на разбор и в уведомления') })] }) }), _jsx("div", { className: "panel-body", children: _jsx(NotificationsTab, {}) })] }), _jsxs("section", { id: "set-privacy", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Приватность и хранение') }), _jsx("div", { className: "panel-sub", children: t('Запись разговоров в магазинах по 152-ФЗ') })] }) }), _jsx("div", { className: "panel-body", children: _jsx(PrivacyTab, {}) })] }), TELEPHONY_ENABLED && (_jsxs("section", { className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsx("h2", { className: "panel-title", children: t('Тип продаж') }) }), _jsx("div", { className: "panel-body", children: _jsx(OrganizationTab, {}) })] })), terms.isTelephony && (_jsxs("section", { id: "set-telephony", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsx("h2", { className: "panel-title", children: t('Телефония') }) }), _jsx("div", { className: "panel-body", children: _jsx(TelephonyTab, {}) })] }))] })] }));
@@ -43,12 +45,85 @@ function SetRow({ title, desc, children }) {
 }
 function OrgSection() {
     const { data: org } = useOrganization();
-    return (_jsxs("section", { id: "set-org", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Организация') }), _jsx("div", { className: "panel-sub", children: t('Общие данные и вид интерфейса') })] }) }), _jsxs("div", { className: "panel-body", children: [_jsx(SetRow, { title: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435", desc: "\u0412\u0438\u0434\u043D\u043E \u0432 \u043E\u0442\u0447\u0451\u0442\u0430\u0445 \u0438 \u043F\u0438\u0441\u044C\u043C\u0430\u0445", children: _jsx("b", { translate: "no", children: org?.name || '—' }) }), _jsx(SetRow, { title: "\u0427\u0430\u0441\u043E\u0432\u043E\u0439 \u043F\u043E\u044F\u0441", desc: "\u0414\u043B\u044F \u0433\u0440\u0430\u0444\u0438\u043A\u043E\u0432 \u043F\u043E \u0447\u0430\u0441\u0430\u043C \u0438 \u0434\u043D\u044F\u043C", children: _jsx("span", { children: t('Москва, UTC+3') }) }), _jsx(SetRow, { title: "\u042F\u0437\u044B\u043A \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0430", desc: "\u041C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u0441\u0440\u0430\u0437\u0443 \u0434\u043B\u044F \u0432\u0430\u0448\u0435\u0439 \u0443\u0447\u0451\u0442\u043D\u043E\u0439 \u0437\u0430\u043F\u0438\u0441\u0438", children: _jsxs("div", { className: "seg", role: "group", "aria-label": t('Язык интерфейса'), children: [_jsx("button", { type: "button", "aria-pressed": !isEn, onClick: () => isEn && setLang('ru'), translate: "no", children: "\u0420\u0443\u0441\u0441\u043A\u0438\u0439" }), _jsx("button", { type: "button", "aria-pressed": isEn, onClick: () => !isEn && setLang('en'), translate: "no", children: "English" })] }) })] })] }));
+    return (_jsxs("section", { id: "set-org", className: "panel set-sec", children: [_jsx("div", { className: "panel-head", children: _jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Организация') }), _jsx("div", { className: "panel-sub", children: t('Общие данные и вид интерфейса') })] }) }), _jsxs("div", { className: "panel-body", children: [_jsx(SetRow, { title: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435", desc: "\u0412\u0438\u0434\u043D\u043E \u0432 \u043E\u0442\u0447\u0451\u0442\u0430\u0445 \u0438 \u043F\u0438\u0441\u044C\u043C\u0430\u0445", children: _jsx("b", { translate: "no", children: org?.name || '—' }) }), _jsx(LocaleRows, {}), _jsx(IndustryRows, {}), _jsx(SetRow, { title: "\u042F\u0437\u044B\u043A \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0430", desc: "\u041C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u0441\u0440\u0430\u0437\u0443 \u0434\u043B\u044F \u0432\u0430\u0448\u0435\u0439 \u0443\u0447\u0451\u0442\u043D\u043E\u0439 \u0437\u0430\u043F\u0438\u0441\u0438", children: _jsxs("div", { className: "seg", role: "group", "aria-label": t('Язык интерфейса'), children: [_jsx("button", { type: "button", "aria-pressed": !isEn, onClick: () => isEn && setLang('ru'), translate: "no", children: "\u0420\u0443\u0441\u0441\u043A\u0438\u0439" }), _jsx("button", { type: "button", "aria-pressed": isEn, onClick: () => !isEn && setLang('en'), translate: "no", children: "English" })] }) })] })] }));
+}
+// Отрасль подстраивает разбор разговоров и советы сотрудникам (auth.organizations.industry)
+const INDUSTRIES = [
+    ['coffee', 'Кофейня', 'Coffee shop'],
+    ['pharmacy', 'Аптечная сеть', 'Pharmacy chain'],
+    ['clinic', 'Медицинская клиника', 'Medical clinic'],
+    ['electronics', 'Электроника и техника', 'Electronics'],
+    ['clothing', 'Одежда и обувь', 'Clothing and shoes'],
+    ['cosmetics', 'Косметика', 'Cosmetics'],
+    ['furniture', 'Мебель', 'Furniture'],
+    ['telecom', 'Салоны связи', 'Telecom stores'],
+    ['generic', 'Другая розница', 'Other retail'],
+];
+// Часовой пояс и валюта сети: графики по часам и суммы в кабинете (auth.organizations)
+const TIMEZONES = [
+    ['Europe/Moscow', 'Москва, UTC+3', 'Moscow, UTC+3'],
+    ['Europe/Minsk', 'Минск, UTC+3', 'Minsk, UTC+3'],
+    ['Asia/Yekaterinburg', 'Екатеринбург, UTC+5', 'Yekaterinburg, UTC+5'],
+    ['Asia/Almaty', 'Алматы и Астана, UTC+5', 'Almaty and Astana, UTC+5'],
+    ['Asia/Tashkent', 'Ташкент, UTC+5', 'Tashkent, UTC+5'],
+    ['Asia/Bishkek', 'Бишкек, UTC+6', 'Bishkek, UTC+6'],
+    ['Asia/Novosibirsk', 'Новосибирск, UTC+7', 'Novosibirsk, UTC+7'],
+    ['Asia/Vladivostok', 'Владивосток, UTC+10', 'Vladivostok, UTC+10'],
+];
+const CURRENCIES = [
+    ['RUB', 'Рубль, ₽', 'Rouble, ₽'],
+    ['KZT', 'Тенге, ₸', 'Tenge, ₸'],
+    ['UZS', 'Сум', 'Uzbek sum'],
+    ['KGS', 'Сом', 'Kyrgyz som'],
+    ['BYN', 'Белорусский рубль, Br', 'Belarusian rouble, Br'],
+];
+function LocaleRows() {
+    const { data: org } = useOrganization();
+    const role = useAuthStore((s) => s.user?.role);
+    const canEdit = role === 'director' || role === 'admin';
+    const queryClient = useQueryClient();
+    const save = useMutation({
+        mutationFn: (data) => authApi.updateOrganization(data),
+        onSuccess: () => queryClient.invalidateQueries(),
+    });
+    const tz = org?.timezone || 'Europe/Moscow';
+    const cur = org?.currency || 'RUB';
+    const tzLabel = TIMEZONES.find(([code]) => code === tz);
+    const curLabel = CURRENCIES.find(([code]) => code === cur);
+    return (_jsxs(_Fragment, { children: [_jsx(SetRow, { title: "\u0427\u0430\u0441\u043E\u0432\u043E\u0439 \u043F\u043E\u044F\u0441", desc: "\u0414\u043B\u044F \u0433\u0440\u0430\u0444\u0438\u043A\u043E\u0432 \u043F\u043E \u0447\u0430\u0441\u0430\u043C \u0438 \u0434\u043D\u044F\u043C", children: canEdit ? (_jsxs("select", { className: "select-pill", value: tz, disabled: save.isPending, "aria-label": L('Часовой пояс', 'Time zone'), onChange: (e) => save.mutate({ timezone: e.target.value }), children: [TIMEZONES.map(([code, ru, en]) => _jsx("option", { value: code, children: L(ru, en) }, code)), !tzLabel && _jsx("option", { value: tz, children: tz })] })) : _jsx("span", { children: tzLabel ? L(tzLabel[1], tzLabel[2]) : tz }) }), _jsx(SetRow, { title: "\u0412\u0430\u043B\u044E\u0442\u0430", desc: "\u0412 \u043D\u0435\u0439 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0447\u0435\u043A\u0438 \u0438 \u0441\u0443\u043C\u043C\u044B", children: canEdit ? (_jsx("select", { className: "select-pill", value: cur, disabled: save.isPending, "aria-label": L('Валюта', 'Currency'), onChange: (e) => save.mutate({ currency: e.target.value }), children: CURRENCIES.map(([code, ru, en]) => _jsx("option", { value: code, children: L(ru, en) }, code)) })) : _jsx("span", { children: curLabel ? L(curLabel[1], curLabel[2]) : cur }) })] }));
+}
+function IndustryRows() {
+    const { data: org } = useOrganization();
+    const role = useAuthStore((s) => s.user?.role);
+    const canEdit = role === 'director' || role === 'admin';
+    const queryClient = useQueryClient();
+    const { data: verticals } = useQuery({ queryKey: ['verticals'], queryFn: () => verticalsApi.list(), staleTime: 10 * 60000, enabled: canEdit });
+    const save = useMutation({
+        mutationFn: (industry) => authApi.updateOrganization({ industry }),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['organization'] }),
+    });
+    const install = useMutation({
+        mutationFn: (code) => verticalsApi.install(code),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['organization'] });
+            queryClient.invalidateQueries({ queryKey: ['upsell-rules'] });
+            queryClient.invalidateQueries({ queryKey: ['cross-sell-rules'] });
+            queryClient.invalidateQueries({ queryKey: ['objection-types'] });
+        },
+    });
+    const industry = org?.industry ?? '';
+    const label = INDUSTRIES.find(([code]) => code === industry);
+    const pack = (verticals || []).find((v) => v.code === industry);
+    const count = (v) => (typeof v === 'number' ? v : v ? 1 : 0);
+    const created = install.data ? Object.values(install.data.created).reduce((a, v) => a + count(v), 0) : 0;
+    const skipped = install.data ? Object.values(install.data.skipped).reduce((a, v) => a + count(v), 0) : 0;
+    return (_jsxs(_Fragment, { children: [_jsx(SetRow, { title: "\u041E\u0442\u0440\u0430\u0441\u043B\u044C", desc: "\u041F\u043E\u0434 \u043D\u0435\u0451 \u043F\u043E\u0434\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0440\u0430\u0437\u0431\u043E\u0440 \u0434\u043E\u043F\u0440\u043E\u0434\u0430\u0436 \u0438 \u0441\u043E\u0432\u0435\u0442\u044B \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0430\u043C", children: canEdit ? (_jsxs("select", { className: "select-pill", value: industry, disabled: save.isPending, "aria-label": L('Отрасль', 'Industry'), onChange: (e) => save.mutate(e.target.value || null), children: [_jsx("option", { value: "", children: L('Не выбрана', 'Not set') }), INDUSTRIES.map(([code, ru, en]) => _jsx("option", { value: code, children: L(ru, en) }, code))] })) : (_jsx("span", { children: label ? L(label[1], label[2]) : L('Не выбрана', 'Not set') })) }), canEdit && pack && (_jsx(SetRow, { title: "\u0421\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0439 \u043F\u0430\u043A\u0435\u0442", desc: "\u0421\u043A\u0440\u0438\u043F\u0442, \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u043E\u043F\u0440\u043E\u0434\u0430\u0436, \u0442\u0438\u043F\u044B \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u0439 \u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0434\u043B\u044F \u043E\u0442\u0440\u0430\u0441\u043B\u0438. \u0423\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0435\u0435 \u043D\u0435 \u0434\u0443\u0431\u043B\u0438\u0440\u0443\u0435\u0442\u0441\u044F.", children: _jsxs("div", { className: "set-pack", children: [_jsx("button", { type: "button", className: "btn btn-outline btn-sm", disabled: install.isPending, onClick: () => install.mutate(pack.code), children: install.isPending ? L('Устанавливаем…', 'Installing…') : L(`Установить «${pack.name}»`, `Install “${pack.name}”`) }), install.isSuccess && (_jsxs("span", { className: "set-pack-note", children: [_jsx(Check, { size: 14, "aria-hidden": "true" }), L(`Добавлено: ${created}, уже было: ${skipped}`, `Added: ${created}, already there: ${skipped}`)] })), install.isError && _jsx("span", { className: "set-pack-note is-err", children: L('Не удалось установить пакет', 'Could not install the pack') })] }) }))] }));
 }
 function StoresSection() {
+    const terms = useTerms();
     const { data } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() });
     const stores = data?.items || [];
-    return (_jsxs("section", { id: "set-stores", className: "panel set-sec", children: [_jsxs("div", { className: "panel-head", children: [_jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t('Магазины') }), _jsx("div", { className: "panel-sub", children: L(`${stores.length} ${plural(stores.length, ['магазин', 'магазина', 'магазинов'], ['', ''])} в сети`, `${stores.length} stores in the network`) })] }), _jsx(Link, { className: "btn btn-sm", to: "/admin", children: t('Добавить магазин') })] }), _jsx("div", { className: "panel-body", style: { paddingTop: 6 }, children: _jsx("div", { className: "table-wrap", children: _jsxs("table", { className: "table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { scope: "col", children: t('Магазин') }), _jsx("th", { scope: "col", children: t('Адрес') }), _jsx("th", { scope: "col", className: "t-right", children: t('Продавцов') })] }) }), _jsx("tbody", { children: stores.map((s) => (_jsxs("tr", { children: [_jsxs("td", { children: [_jsx("b", { translate: "no", children: s.name }), !s.is_active && _jsxs("span", { className: "muted", children: [" \u00B7 ", t('отключён')] })] }), _jsx("td", { translate: "no", children: s.address || '—' }), _jsx("td", { className: "t-right t-num", children: s.seller_count ?? 0 })] }, s.id))) })] }) }) })] }));
+    return (_jsxs("section", { id: "set-stores", className: "panel set-sec", children: [_jsxs("div", { className: "panel-head", children: [_jsxs("div", { children: [_jsx("h2", { className: "panel-title", children: t(terms.storePlural) }), _jsx("div", { className: "panel-sub", children: L(`${stores.length} ${plural(stores.length, terms.storeForms, ['', ''])} в сети`, `${stores.length} locations in the network`) })] }), _jsx(Link, { className: "btn btn-sm", to: "/admin", children: terms.offersFirst ? L(`Добавить ${terms.isPharmacy ? 'аптеку' : 'точку'}`, 'Add a location') : t('Добавить магазин') })] }), _jsx("div", { className: "panel-body", style: { paddingTop: 6 }, children: _jsx("div", { className: "table-wrap", children: _jsxs("table", { className: "table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { scope: "col", children: t(terms.store) }), _jsx("th", { scope: "col", children: t('Адрес') }), _jsx("th", { scope: "col", className: "t-right", children: terms.offersFirst ? t(terms.sellerPlural) : t('Продавцов') })] }) }), _jsx("tbody", { children: stores.map((s) => (_jsxs("tr", { children: [_jsxs("td", { children: [_jsx("b", { translate: "no", children: s.name }), !s.is_active && _jsxs("span", { className: "muted", children: [" \u00B7 ", t('отключён')] })] }), _jsx("td", { translate: "no", children: s.address || '—' }), _jsx("td", { className: "t-right t-num", children: s.seller_count ?? 0 })] }, s.id))) })] }) }) })] }));
 }
 function UsersSection() {
     const { data } = useQuery({ queryKey: ['admin-users'], queryFn: () => adminApi.getUsers() });

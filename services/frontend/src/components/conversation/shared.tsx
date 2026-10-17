@@ -19,6 +19,7 @@ export const OUTCOME_LABELS: Record<string, string> = {
   deferred: 'Отложено',
   price_refusal: 'Отказ по цене',
   competitor: 'Ушёл к конкурентам',
+  no_purchase: 'Ушёл без покупки',
   unknown: 'Не определён',
 }
 

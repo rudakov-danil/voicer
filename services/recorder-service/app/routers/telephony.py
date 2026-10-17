@@ -480,7 +480,7 @@ async def _process_call_audio(
                      full_text, language, duration_seconds, status, whisper_model, created_at)
                 VALUES
                     (:id, :rec_id, :org_id, :store_id, :seller_id,
-                     :full_text, 'ru', :duration, :status, 'deepgram-whisper', :now)
+                     :full_text, :language, :duration, :status, 'deepgram-whisper', :now)
             """), {
                 "id": transcript_id,
                 "rec_id": recording_id,
@@ -488,6 +488,7 @@ async def _process_call_audio(
                 "store_id": uuid.UUID(store_id),
                 "seller_id": uuid.UUID(seller_id),
                 "full_text": full_text or " ".join(s["text"] for s in segments_raw),
+                "language": (whisper_result.get("language") or "ru")[:10],
                 "duration": duration_seconds,
                 "status": "diarized" if roles_assigned else "transcribed",
                 "now": now,

@@ -1,0 +1,117 @@
+/* «Спрос»: просьбы покупателей о товарах, которых не оказалось, и список к закупке (pages/DemandPage) */
+
+.dm { display: grid; gap: 14px; }
+.dm .up-band { margin: 0; }
+
+.dm-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.dm-list, .dm-feed { min-width: 0; }
+.dm-feed { position: sticky; top: 14px; }
+
+.dm-tabs { padding: 0 18px; border-bottom: 1px solid var(--line); }
+.dm-none { padding: 18px; color: var(--ink-3); font-size: 13.5px; }
+
+.dm-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.dm-table th { text-align: left; font-weight: 500; font-size: 12px; color: var(--ink-3); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.dm-table th:first-child, .dm-table td:first-child { padding-left: 18px; }
+.dm-table th:last-child, .dm-table td:last-child { padding-right: 18px; }
+.dm-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.dm-table td:first-child { min-width: 220px; }
+.dm-table td:nth-child(4) { min-width: 140px; }
+.dm-table tr:last-child td { border-bottom: 0; }
+.dm-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dm-num b { display: block; font-size: 15px; font-weight: 600; }
+.dm-num small { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; color: var(--ink-3); }
+.dm-num small.is-up { color: var(--warn-ink); font-weight: 500; }
+.dm-lost { color: var(--crit-ink); }
+
+.dm-item { display: grid; gap: 3px; text-align: left; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit; }
+.dm-item b { font-weight: 600; color: var(--ink); }
+.dm-item:hover b, .dm-item:focus-visible b { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.dm-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--ink-3); }
+.dm-cat { padding: 1px 7px; border-radius: 999px; background: var(--panel-2); color: var(--ink-2); font-size: 11.5px; }
+.dm-cat.is-warn { background: var(--warn-soft, #FFF4DC); color: var(--warn-ink); }
+
+.dm-analog { display: grid; gap: 2px; }
+.dm-analog small, .dm-muted { font-size: 12px; color: var(--ink-3); }
+.dm-stores { display: grid; gap: 2px; font-size: 12.5px; color: var(--ink-2); }
+
+.dm-status { appearance: none; -webkit-appearance: none; border: 1px solid var(--line-2); border-radius: 999px; padding: 5px 26px 5px 12px; font: inherit; font-size: 12.5px; font-weight: 500; color: var(--ink-2); cursor: pointer;
+  background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235F6684' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center; }
+.dm-status:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dm-status.is-to_order { border-color: var(--accent); color: var(--accent); background-color: var(--accent-soft, #EEF1FF); }
+.dm-status.is-ordered { border-color: var(--good); color: var(--good-ink); background-color: var(--good-soft, #E9F7EF); }
+.dm-status.is-ignored { color: var(--ink-4); }
+
+.dm-feed-list { list-style: none; display: grid; }
+.dm-feed-list li { padding: 11px 18px; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+.dm-feed-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.dm-feed-item { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; font-size: 13.5px; color: var(--ink); cursor: pointer; text-align: left; }
+.dm-feed-item:hover, .dm-feed-item:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.dm-feed-meta { font-size: 12px; color: var(--ink-3); text-decoration: none; }
+.dm-feed-meta:hover { color: var(--accent); }
+.dm-quote { font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+.dm-answer { display: flex; gap: 6px; font-size: 12.5px; color: var(--ink-3); line-height: 1.45; }
+.dm-answer svg { flex: none; margin-top: 2px; }
+
+.dm-outcome { flex: none; font-size: 11.5px; font-weight: 500; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: var(--panel-2); color: var(--ink-2); }
+.dm-outcome.is-lost { background: var(--crit-soft, #FDECEC); color: var(--crit-ink); }
+.dm-outcome.is-substituted { background: var(--good-soft, #E9F7EF); color: var(--good-ink); }
+.dm-outcome.is-ordered { background: var(--accent-soft, #EEF1FF); color: var(--accent); }
+
+.dm-empty { display: grid; justify-items: start; gap: 8px; padding: 28px; color: var(--ink-2); }
+.dm-empty svg { color: var(--ink-3); }
+.dm-empty h2 { font-size: 17px; font-weight: 600; color: var(--ink); }
+.dm-empty p { max-width: 70ch; font-size: 13.5px; line-height: 1.5; }
+
+.dm-drawer { display: grid; gap: 18px; }
+.dm-drawer-lead { font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+.dm-sec { display: grid; gap: 8px; }
+.dm-sec h3 { font-size: 13px; font-weight: 600; color: var(--ink); }
+.dm-seg { flex-wrap: wrap; }
+.dm-note { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-3); }
+.dm-note textarea { font: inherit; font-size: 13.5px; color: var(--ink); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; resize: vertical; background: var(--panel); }
+.dm-note textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dm-bars { list-style: none; display: grid; gap: 6px; }
+.dm-bars li { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(60px, 1fr) 28px; align-items: center; gap: 10px; font-size: 13px; }
+.dm-bar { height: 6px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+.dm-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.dm-bars b { text-align: right; font-variant-numeric: tabular-nums; }
+.dm-analogs, .dm-quotes { list-style: none; display: grid; gap: 10px; }
+.dm-analogs li { display: grid; gap: 1px; font-size: 13.5px; }
+.dm-analogs small { font-size: 12px; color: var(--ink-3); }
+.dm-quotes li { display: grid; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.dm-quotes li:last-child { border-bottom: 0; padding-bottom: 0; }
+
+@media (max-width: 1100px) {
+  .dm-grid { grid-template-columns: minmax(0, 1fr); }
+  .dm-feed { position: static; }
+}
+@media (max-width: 760px) {
+  .dm-table thead { display: none; }
+  .dm-table, .dm-table tbody, .dm-table tr, .dm-table td { display: block; width: 100%; }
+  .dm-table tr { padding: 12px 16px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; }
+  .dm-table td { padding: 0 !important; border: 0; }
+  .dm-table td:first-child { grid-column: 1 / -1; }
+  .dm-table td.dm-num { text-align: left; }
+  .dm-tabs { overflow-x: auto; }
+}
+
+/* Карточка разговора: «Не было в наличии» */
+.cv-demand-list { list-style: none; display: grid; gap: 12px; padding: 4px 18px 16px; }
+.cv-demand-list li { display: grid; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.cv-demand-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.cv-demand-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.cv-demand-top b { font-weight: 600; }
+.cv-demand-analog { font-size: 13px; color: var(--ink-2); }
+.cv-demand-quote { justify-self: start; background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: var(--ink-2); text-align: left; cursor: pointer; }
+.cv-demand-quote:hover, .cv-demand-quote:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+/* «Обзор» аптеки: короткий список спроса */
+.dash-demand { list-style: none; display: grid; }
+.dash-demand li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.dash-demand li:last-child { border-bottom: 0; }
+.dash-demand a { color: var(--ink); font-weight: 500; text-decoration: none; }
+.dash-demand a:hover { color: var(--accent); }
+.dash-demand-n { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.dash-demand-lost { font-size: 12px; color: var(--ink-3); }
+.dash-demand-lost.is-lost { color: var(--crit-ink); font-weight: 500; }

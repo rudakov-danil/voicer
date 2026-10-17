@@ -8,6 +8,7 @@ export const OUTCOME_LABELS: Record<string, string> = {
   deferred: 'Отложено',
   price_refusal: 'Отказ по цене',
   competitor: 'Ушёл к конкурентам',
+  no_purchase: 'Ушёл без покупки',
   // Телефония
   appointment: 'Встреча назначена',
   callback: 'Перезвон',
@@ -27,6 +28,7 @@ export const OUTCOME_COLORS: Record<string, string> = {
   deferred: '#E8A317',
   price_refusal: '#E8743B',
   competitor: '#E5484D',
+  no_purchase: '#E5484D',
   // «Встреча назначена» — кобальт (не зелёный), чтобы не было засилья зелёного.
   // «Вопрос решён» — приглушённый тёмно-зелёный, отличимый от «Покупки».
   appointment: '#2E5BFF',

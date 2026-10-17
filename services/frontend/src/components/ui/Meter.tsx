@@ -38,3 +38,21 @@ export function UpsellDots({ value }: { value: [number, number] | null | undefin
     </span>
   )
 }
+
+/** Допродажа по разбору предложений: точки — предложения, закрашенные — гость согласился */
+export function OffersCell({ offers }: { offers: { count: number; accepted: number } }) {
+  if (!offers.count) {
+    return <span className="upsell is-none" title={t('Бариста или продавец ничего не предложил сверх заказа')}>{L('не предлагали', 'no offer')}</span>
+  }
+  const { count, accepted } = offers
+  return (
+    <span className={`upsell${accepted ? ' is-full' : ''}`} role="img"
+      aria-label={L(`Предложили ${count}, взяли ${accepted}`, `Offered ${count}, accepted ${accepted}`)}>
+      <span className="upsell-dots" aria-hidden="true">
+        {Array.from({ length: Math.min(count, 6) }, (_, i) => <i key={i} className={i < accepted ? 'on is-taken' : undefined} />)}
+      </span>
+      {L(`взяли ${accepted} из ${count}`, `${accepted} of ${count} taken`)}
+    </span>
+  )
+}
+

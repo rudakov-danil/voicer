@@ -6,6 +6,7 @@ const OUTCOME_GLYPH = {
     deferred: 'is-pending',
     price_refusal: 'is-lost',
     competitor: 'is-gone',
+    no_purchase: 'is-lost',
     // Исходы телефонии
     appointment: 'is-win',
     resolved: 'is-win',

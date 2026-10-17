@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     LLM_SCRIPT_TIMEOUT: int = 120
     LLM_GENERAL_TIMEOUT: int = 60
     LLM_MAX_PARALLEL_SCRIPTS: int = 3
+    # Разбор допродаж (каждое предложение продавца) — ещё один LLM-вызов на разговор в рознице
+    OFFERS_ANALYSIS_ENABLED: bool = True
+    COFFEE_CONTEXT_FILTER_ENABLED: bool = True
+    # Клиники: протокол приёма и проверка по правилам — два вызова на приём, ответы длинные
+    LLM_CLINIC_TIMEOUT: int = 120
+    CONTEXT_FILTER_TIMEOUT: int = 45
+    RECORDER_SERVICE_URL: str = "http://recorder-service:8002"
     TRANSCRIPTION_SERVICE_URL: str = "http://transcription-service:8003"
     SCRIPTS_SERVICE_URL: str = "http://scripts-service:8005"
     AUTH_SERVICE_URL: str = "http://auth-service:8001"

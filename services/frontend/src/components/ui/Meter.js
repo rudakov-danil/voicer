@@ -19,3 +19,11 @@ export function UpsellDots({ value }) {
     const cls = done === need ? 'is-full' : done === 0 ? 'is-none' : '';
     return (_jsxs("span", { className: `upsell ${cls}`, role: "img", "aria-label": L(`Допродажа: ${done} из ${need}`, `Add-on sale: ${done} of ${need}`), children: [_jsx("span", { className: "upsell-dots", "aria-hidden": "true", children: Array.from({ length: Math.min(need, 8) }, (_, i) => _jsx("i", { className: i < done ? 'on' : undefined }, i)) }), L(`${done} из ${need}`, `${done} of ${need}`)] }));
 }
+/** Допродажа по разбору предложений: точки — предложения, закрашенные — гость согласился */
+export function OffersCell({ offers }) {
+    if (!offers.count) {
+        return _jsx("span", { className: "upsell is-none", title: t('Бариста или продавец ничего не предложил сверх заказа'), children: L('не предлагали', 'no offer') });
+    }
+    const { count, accepted } = offers;
+    return (_jsxs("span", { className: `upsell${accepted ? ' is-full' : ''}`, role: "img", "aria-label": L(`Предложили ${count}, взяли ${accepted}`, `Offered ${count}, accepted ${accepted}`), children: [_jsx("span", { className: "upsell-dots", "aria-hidden": "true", children: Array.from({ length: Math.min(count, 6) }, (_, i) => _jsx("i", { className: i < accepted ? 'on is-taken' : undefined }, i)) }), L(`взяли ${accepted} из ${count}`, `${accepted} of ${count} taken`)] }));
+}

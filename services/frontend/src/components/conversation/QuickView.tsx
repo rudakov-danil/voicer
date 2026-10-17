@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { X, AudioLines } from 'lucide-react'
+import { X, AudioLines, Check, MessageSquareQuote } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { OutcomeTag } from '@/components/OutcomeTag'
 import { Meter } from '@/components/ui/Meter'
@@ -9,6 +9,9 @@ import { Fingerprint, clock } from '@/components/ui/Fingerprint'
 import { ReviewButton } from '@/components/conversation/Coaching'
 import { parseSummary, isNoneSection } from '@/components/conversation/shared'
 import type { FingerprintData, FingerprintMark } from '@/types'
+import { useTerms } from '@/lib/terms'
+import { techniqueLabel } from '@/components/upsells/metrics'
+import type { OffersAnalysis } from '@/components/conversation/OffersReview'
 import { t, L, locale } from '@/i18n'
 
 /* Быстрый просмотр разговора из списка (ui-concept/conversations.html → .drawer):
@@ -36,6 +39,7 @@ export function QuickView({ id, row, fingerprint: fpFromList, markTitle, onClose
   markTitle?: (m: FingerprintMark) => string
   onClose: () => void
 }) {
+  const terms = useTerms()
   const open = !!id
   const closeRef = useRef<HTMLButtonElement>(null)
   const lastFocus = useRef<Element | null>(null)
@@ -74,6 +78,12 @@ export function QuickView({ id, row, fingerprint: fpFromList, markTitle, onClose
   const brief = parts?.['Итог'] || (c.summary ? String(c.summary).split('\n').find((l: string) => l.trim())?.replace(/\*\*/g, '') : null)
   const marks = fingerprint ? [...fingerprint.marks].sort((a, b) => a.t - b.t) : []
   const notScored = c.is_scorable === false
+  // Разбор допродажи (есть у заказов, разобранных после analytics 0010) — главное для кофеен
+  const offers: OffersAnalysis | null = c.offers_analysis?.order_taken ? c.offers_analysis : null
+  const realOffers = offers ? offers.offers.filter((o) => o.technique !== 'generic') : []
+  // Чего не оказалось в наличии (analytics 0012) — для аптек это материал для закупки
+  // Пока карточка грузится, c — строка списка, где unmet_demand — строка «Нурофен, Терафлю», а не список
+  const demand: Array<{ item: string; outcome: string; analog: string | null }> = Array.isArray(c.unmet_demand) ? c.unmet_demand : []
   const sourceLabel = c.source === 'badge' ? t('Запись с бейджа')
     : c.source === 'transcript' ? t('Загружен текстом — без аудио')
     : t('Загруженное аудио')
@@ -117,9 +127,9 @@ export function QuickView({ id, row, fingerprint: fpFromList, markTitle, onClose
                     <span>00:00</span><span>{clock(fingerprint.dur / 2)}</span><span>{clock(fingerprint.dur)}</span>
                   </div>
                   <div className="qv-legend">
-                    <span className="legend-item"><span className="key-bar" style={{ background: 'var(--seller)' }} />{t('Продавец')}</span>
-                    <span className="legend-item"><span className="key-bar" style={{ background: 'var(--client)' }} />{t('Покупатель')}</span>
-                    {fingerprint.talk != null && <span className="qv-talk">{L(`продавец говорит ${fingerprint.talk} %`, `seller talks ${fingerprint.talk}%`)}</span>}
+                    <span className="legend-item"><span className="key-bar" style={{ background: 'var(--seller)' }} />{t(terms.seller)}</span>
+                    <span className="legend-item"><span className="key-bar" style={{ background: 'var(--client)' }} />{t(terms.customer)}</span>
+                    {fingerprint.talk != null && <span className="qv-talk">{L(`${terms.sellerLower[0]} говорит ${fingerprint.talk} %`, `${terms.sellerLower[1]} talks ${fingerprint.talk}%`)}</span>}
                   </div>
                 </div>
               )}
@@ -144,6 +154,49 @@ export function QuickView({ id, row, fingerprint: fpFromList, markTitle, onClose
                       <span>{cap(markTitle ? markTitle(m) : t(MOMENT[m.k]))}</span>
                     </Link>
                   ))}
+                </section>
+              )}
+
+              {demand.length > 0 && (
+                <section className="qv-sec">
+                  <h3>{L('Не было в наличии', 'Out of stock')}</h3>
+                  <ul className="qv-offers">
+                    {demand.map((d, i) => (
+                      <li key={i}>
+                        <span className="up-chip is-declined" translate="no">{d.item}</span>
+                        <span className="qv-offer-how">
+                          {d.outcome === 'substituted' ? L('купил аналог', 'bought an analog') : d.outcome === 'ordered' ? L('заказали', 'ordered') : d.outcome === 'lost' ? L('ушёл без покупки', 'left without it') : L('исход неясен', 'outcome unclear')}
+                          {d.analog ? <> · <span translate="no">{d.analog}</span></> : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {offers && (
+                <section className="qv-sec">
+                  <h3>{L('Допродажа', 'Add-on')}</h3>
+                  {realOffers.length === 0
+                    ? <p className="qv-sum">{L('Сверх заказа ничего не предложили.', 'Nothing extra was offered.')}</p>
+                    : (
+                      <ul className="qv-offers">
+                        {offers.offers.map((o, i) => (
+                          <li key={i}>
+                            <span className={`up-chip is-${o.technique === 'generic' ? 'generic' : o.response}`} translate="no">
+                              {o.response === 'accepted' ? <Check size={11} strokeWidth={3} aria-hidden="true" /> : o.response === 'declined' ? <X size={11} strokeWidth={3} aria-hidden="true" /> : null}
+                              {o.technique === 'generic' ? L('«что-нибудь ещё?»', '“anything else?”') : o.item}
+                            </span>
+                            <span className="qv-offer-how">
+                              {techniqueLabel(o.technique)} · {o.response === 'accepted' ? L('согласились', 'accepted') : o.response === 'declined' ? L('отказались', 'declined') : L('без ответа', 'no answer')}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  {offers.better_phrase && (
+                    <p className="up-better"><MessageSquareQuote size={13} aria-hidden="true" />{L('Можно было: ', 'Could say: ')}<span translate="no">«{offers.better_phrase.replace(/^[«"“\s]+|[»"”\s]+$/g, '')}»</span></p>
+                  )}
                 </section>
               )}
 

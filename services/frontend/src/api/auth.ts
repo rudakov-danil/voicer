@@ -24,6 +24,12 @@ export interface OrganizationInfo {
   name: string
   slug: string
   org_type: 'retail' | 'telephony'
+  /** Отрасль: coffee | electronics | clothing | cosmetics | furniture | telecom | generic; null — не задана */
+  industry?: string | null
+  /** Валюта цен (RUB, KZT, …); null — рубли */
+  currency?: string | null
+  /** Часовой пояс сети для графиков по часам (Asia/Almaty); null — Москва */
+  timezone?: string | null
 }
 
 export const authApi = {
@@ -44,7 +50,7 @@ export const authApi = {
     return response.data
   },
 
-  updateOrganization: async (data: { org_type: 'retail' | 'telephony' }) => {
+  updateOrganization: async (data: { org_type?: 'retail' | 'telephony'; industry?: string | null; currency?: string | null; timezone?: string | null }) => {
     const response = await apiClient.patch('/api/v1/auth/organization', data)
     return response.data
   }

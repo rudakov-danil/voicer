@@ -3,7 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import {
   ArrowRight, TriangleAlert, OctagonAlert, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
 } from 'lucide-react'
-import { dashboardApi } from '@/api/dashboard'
+import { dashboardApi, periodRange } from '@/api/dashboard'
+import { upsellsApi } from '@/api/upsells'
+import { demandApi } from '@/api/demand'
+import '@/styles/demand.css'
+import { useTerms } from '@/lib/terms'
+import { PlanChip, W, num, ordersOf, offersOf } from '@/components/upsells/metrics'
 import { analyticsApi } from '@/api/analytics'
 import { outcomeColor, outcomeLabel } from '@/lib/outcomes'
 import { initials } from '@/lib/format'
@@ -30,6 +35,9 @@ export function DashboardPage() {
   const navigate = useNavigate()
 
   const { data: trends } = useQuery({ queryKey: ['trends'], queryFn: () => dashboardApi.getTrends({ weeks: 12 }) })
+  // Кофейня и аптека: почти каждый разговор — покупка, поэтому вместо конверсии и исходов — допродажи
+  const terms = useTerms()
+  const cafe = terms.offersFirst
 
   return (
     <div className="dash">
@@ -38,14 +46,15 @@ export function DashboardPage() {
       <div className="dash-a">
         <ReviewQueue period={period} />
         <div className="stack">
-          <Kpis period={period} trends={trends} />
-          <Outcomes period={period} />
+          <Kpis period={period} trends={trends} cafe={cafe} />
+          {!cafe && <Outcomes period={period} />}
           <Violations period={period} />
+          {terms.tracksDemand && <DemandPanel period={period} />}
         </div>
       </div>
 
       <div className="dash-b">
-        <Stores trends={trends} />
+        <Stores trends={trends} cafe={cafe} period={period} />
         <Objections period={period} />
       </div>
 
@@ -58,7 +67,22 @@ export function DashboardPage() {
 }
 
 /* ─── Показатели: значение за период, изменение к прошлому такому же периоду, ряд за 12 недель ── */
-function Kpis({ period, trends }: { period: number; trends?: TrendsData }) {
+/** Допродажи за период и за такой же прошлый — для кофеен вместо конверсии */
+function useUpsellPeriod(period: number, enabled: boolean) {
+  const cur = periodRange(period)
+  const prevTo = new Date(); prevTo.setDate(prevTo.getDate() - period - 1)
+  const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - period)
+  const iso = (d: Date) => d.toISOString().split('T')[0]
+  const { data } = useQuery({ queryKey: ['upsell-overview', 'all', cur.date_from, cur.date_to], queryFn: () => upsellsApi.getOverview(cur), enabled })
+  const { data: prev } = useQuery({
+    queryKey: ['upsell-overview', 'all', iso(prevFrom), iso(prevTo)],
+    queryFn: () => upsellsApi.getOverview({ date_from: iso(prevFrom), date_to: iso(prevTo) }), enabled,
+  })
+  return { data, prev }
+}
+
+function Kpis({ period, trends, cafe }: { period: number; trends?: TrendsData; cafe: boolean }) {
+  const { data: up, prev: upPrev } = useUpsellPeriod(period, cafe)
   const { data: cur } = useQuery({ queryKey: ['dashboard-overview', period], queryFn: () => dashboardApi.getOverview({ period }) })
   const { data: prev } = useQuery({ queryKey: ['dashboard-overview', period, 'prev'], queryFn: () => dashboardApi.getOverview({ period, previous: true }) })
   const net = trends?.network
@@ -100,6 +124,33 @@ function Kpis({ period, trends }: { period: number; trends?: TrendsData }) {
       note: cur ? L(`${cur.objections_total ?? 0} ${plural(cur.objections_total ?? 0, ['возражение', 'возражения', 'возражений'], ['', ''])}`, `${cur.objections_total ?? 0} objections`) : '',
     },
   ]
+  if (cafe) {
+    // Доли по неделям из ряда по дням — для мини-графика
+    const weekly = (num: 'with_offer' | 'accepted', den: 'orders' | 'offers') => {
+      const ds = up?.days || []
+      const out: number[] = []
+      for (let i = 0; i < ds.length; i += 7) {
+        const chunk = ds.slice(i, i + 7)
+        const d = chunk.reduce((a, x) => a + x[den], 0)
+        out.push(d ? (chunk.reduce((a, x) => a + x[num], 0) / d) * 100 : 0)
+      }
+      return out
+    }
+    const t0 = up?.totals, p0 = upPrev?.totals
+    const rate = (v?: number | null) => (v != null ? v * 100 : null)
+    kpis[0] = {
+      label: 'Предлагали допродажу', value: t0?.attempt_rate != null ? String(Math.round(t0.attempt_rate * 100)) : '—', unit: t0?.attempt_rate != null ? '%' : '',
+      delta: <Delta value={p0?.orders ? diff(rate(t0?.attempt_rate), rate(p0?.attempt_rate)) : null} unit={PP} />,
+      spark: weekly('with_offer', 'orders'),
+      note: t0 ? `${num(t0.with_offer)} ${ordersOf(t0.orders)}` : '',
+    }
+    kpis[2] = {
+      label: W().customer === 'гость' ? 'Гости согласились' : 'Покупатели согласились', value: t0?.acceptance_rate != null ? String(Math.round(t0.acceptance_rate * 100)) : '—', unit: t0?.acceptance_rate != null ? '%' : '',
+      delta: <Delta value={p0?.offers ? diff(rate(t0?.acceptance_rate), rate(p0?.acceptance_rate)) : null} unit={PP} />,
+      spark: weekly('accepted', 'offers'),
+      note: t0 ? `${num(t0.accepted)} ${offersOf(t0.offers)}` : '',
+    }
+  }
   return (
     <div className="kpi-grid">
       {kpis.map((k) => (
@@ -153,6 +204,7 @@ function Outcomes({ period }: { period: number }) {
 
 /* ─── Нарушения по правилам ──────────────────────────────────────────────── */
 function Violations({ period }: { period: number }) {
+  const terms = useTerms()
   const { data } = useQuery({ queryKey: ['violations-by-rule', period], queryFn: () => dashboardApi.getViolationsByRule({ period }) })
   const items = data?.items || []
   return (
@@ -161,7 +213,7 @@ function Violations({ period }: { period: number }) {
         <div>
           <h2 id="vio-title" className="panel-title">{t('Нарушения за период')}</h2>
           <div className="panel-sub">
-            {data ? L(`${data.conversations} ${plural(data.conversations, ['разговор', 'разговора', 'разговоров'], ['', ''])} · правила общения с покупателями`, `${data.conversations} conversations · customer communication rules`) : ''}
+            {data ? L(`${num(data.conversations)} ${plural(data.conversations, ['разговор', 'разговора', 'разговоров'], ['', ''])} · правила общения ${terms.withCustomers[0]}`, `${num(data.conversations)} conversations · rules for talking ${terms.withCustomers[1]}`) : ''}
           </div>
         </div>
         <Link className="link" to="/compliance">{t('Комплаенс')}<ArrowRight size={14} aria-hidden="true" /></Link>
@@ -197,7 +249,96 @@ function Violations({ period }: { period: number }) {
 }
 
 /* ─── Магазины: конверсия и балл за 12 недель ────────────────────────────── */
-function Stores({ trends }: { trends?: TrendsData }) {
+function Stores({ trends, cafe, period }: { trends?: TrendsData; cafe: boolean; period: number }) {
+  const { data: up } = useUpsellPeriod(period, cafe)
+  if (cafe) return <CafeStores data={up} />
+  return <RetailStores trends={trends} />
+}
+
+function CafeStores({ data }: { data?: import('@/api/upsells').UpsellOverview }) {
+  const terms = useTerms()
+  const rows = [...(data?.stores || [])].sort((a, b) => (b.attempt_rate ?? 0) - (a.attempt_rate ?? 0))
+  return (
+    <section className="panel" aria-labelledby="st-title">
+      <div className="panel-head">
+        <div>
+          <h2 id="st-title" className="panel-title">{t(terms.storePlural)}</h2>
+          <div className="panel-sub">{L(`Доля заказов с предложением допродажи за период и план ${terms.storeForms[1]}`, 'Share of orders with an add-on offer and each location’s plan')}</div>
+        </div>
+        <Link className="link" to="/analytics">{t('Аналитика')}<ArrowRight size={14} aria-hidden="true" /></Link>
+      </div>
+      <div className="panel-body" style={{ paddingTop: 6 }}>
+        <div className="table-wrap">
+          <table className="table st-table">
+            <thead><tr>
+              <th scope="col">{t(terms.store)}</th>
+              <th scope="col">{L('Предлагали', 'Offered')}</th>
+              <th scope="col">{L('Согласились', 'Accepted')}</th>
+            </tr></thead>
+            <tbody>
+              {rows.length === 0 && <tr><td colSpan={3} className="muted">{L(`Нет разобранных ${W().ordersGen} за период`, 'No analysed orders in the period')}</td></tr>}
+              {rows.map((s) => (
+                <tr key={s.store_id}>
+                  <td className="st-name">
+                    <b translate="no">{s.store_name || '—'}</b>
+                    <span>{num(s.orders)} {plural(s.orders, W().order, ['order', 'orders'])}</span>
+                  </td>
+                  <td>
+                    <div className="st-conv">
+                      <div>
+                        <span className="display">{s.attempt_rate != null ? Math.round(s.attempt_rate * 100) : '—'}<small>&nbsp;%</small></span>
+                        <PlanChip value={s.attempt_rate} target={s.attempt_rate_target} compact />
+                      </div>
+                    </div>
+                  </td>
+                  <td><span className="display" style={{ fontSize: 16 }}>{s.acceptance_rate != null ? Math.round(s.acceptance_rate * 100) : '—'}<small>&nbsp;%</small></span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/* ─── Спрос (аптеки): что просили, а этого не было, — коротко, со ссылкой на список к закупке ── */
+function DemandPanel({ period }: { period: number }) {
+  const { data } = useQuery({
+    queryKey: ['demand', 'all', ...Object.values(periodRange(period))],
+    queryFn: () => demandApi.get(periodRange(period)),
+  })
+  const items = (data?.items || []).filter((x) => x.requests > 0).slice(0, 5)
+  const s = data?.totals
+  return (
+    <section className="panel" aria-labelledby="dm-dash-title">
+      <div className="panel-head">
+        <div>
+          <h2 id="dm-dash-title" className="panel-title">{L('Спрос: чего не было', 'Demand: what was missing')}</h2>
+          <div className="panel-sub">
+            {s ? L(`${num(s.requests)} ${plural(s.requests, ['просьба', 'просьбы', 'просьб'], ['', ''])} за период, ушли без покупки — ${num(s.lost)}`, `${num(s.requests)} requests, ${num(s.lost)} left without buying`) : ''}
+          </div>
+        </div>
+        <Link className="link" to="/demand">{L('Список к закупке', 'Order list')}<ArrowRight size={14} aria-hidden="true" /></Link>
+      </div>
+      <div className="panel-body" style={{ paddingTop: 6 }}>
+        {items.length === 0 ? <p className="muted">{L('Пока никто не спросил того, чего нет.', 'Nobody has asked for a missing item yet.')}</p> : (
+          <ul className="dash-demand">
+            {items.map((x) => (
+              <li key={x.key}>
+                <Link to={`/demand?status=${x.status}`} className="ellipsis" translate="no">{x.title}</Link>
+                <span className="dash-demand-n">{L(`${x.requests} ${plural(x.requests, ['раз', 'раза', 'раз'], ['', ''])}`, `${x.requests}×`)}</span>
+                <span className={`dash-demand-lost${x.lost ? ' is-lost' : ''}`}>{x.lost ? L(`ушли: ${x.lost}`, `lost: ${x.lost}`) : L('закрыли аналогом', 'covered')}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function RetailStores({ trends }: { trends?: TrendsData }) {
   const sum = (a: number[]) => a.reduce((x, y) => x + y, 0)
   const rows = (trends?.stores || []).map((s) => {
     const conv = s.purchases.map((p, i) => pct(p, s.scorable[i]))
@@ -298,6 +439,7 @@ function Losses({ period }: { period: number }) {
 /* ─── Возражения: доля разговоров, отработка, конверсия к средней ─────────── */
 function Objections({ period }: { period: number }) {
   const objectionLabel = useObjectionTypeLabel()
+  const terms = useTerms()
   const { data: impact } = useQuery({ queryKey: ['objections-impact', period], queryFn: () => analyticsApi.getObjectionsImpact({ period }) })
   const { data: resolution } = useQuery({ queryKey: ['objections-resolution', period], queryFn: () => analyticsApi.getObjectionsResolution({ period }) })
   const { data: overview } = useQuery({ queryKey: ['dashboard-overview', period], queryFn: () => dashboardApi.getOverview({ period }) })
@@ -312,8 +454,11 @@ function Objections({ period }: { period: number }) {
     <section className="panel" aria-labelledby="obj-title">
       <div className="panel-head">
         <div>
-          <h2 id="obj-title" className="panel-title">{t('Возражения покупателей')}</h2>
-          <div className="panel-sub">{L(`Как часто звучат и что делают с конверсией (в среднем ${dec(base)} %)`, `How often they come up and what they do to conversion (average ${base.toFixed(1)}%)`)}</div>
+          <h2 id="obj-title" className="panel-title">{terms.isCafe ? L('Возражения гостей', 'Guest objections') : t('Возражения покупателей')}</h2>
+          <div className="panel-sub">{terms.offersFirst
+            // В кофейне и аптеке покупает почти каждый — конверсия ничего не говорит, важнее, как ответили
+            ? L(`Как часто звучат и как часто ${terms.sellerLower[0]} ответил спокойно, без давления`, `How often they come up and how often the ${terms.sellerLower[1]} responded calmly, without pressure`)
+            : L(`Как часто звучат и что делают с конверсией (в среднем ${dec(base)} %)`, `How often they come up and what they do to conversion (average ${base.toFixed(1)}%)`)}</div>
         </div>
       </div>
       <div className="panel-body" style={{ paddingTop: 6 }}>
@@ -323,8 +468,8 @@ function Objections({ period }: { period: number }) {
               <thead><tr>
                 <th scope="col">{t('Возражение')}</th>
                 <th scope="col">{t('Доля разговоров')}</th>
-                <th scope="col" className="t-right col-hide-s">{t('Отработано')}</th>
-                <th scope="col" className="t-right">{t('Конверсия')}</th>
+                <th scope="col" className={`t-right${terms.offersFirst ? '' : ' col-hide-s'}`}>{t('Отработано')}</th>
+                {!terms.offersFirst && <th scope="col" className="t-right">{t('Конверсия')}</th>}
               </tr></thead>
               <tbody>
                 {items.map((o: any) => {
@@ -343,13 +488,13 @@ function Objections({ period }: { period: number }) {
                           <span className="num">{Math.round(share)}&nbsp;%</span>
                         </div>
                       </td>
-                      <td className="t-right t-num col-hide-s">{o.resolved != null ? `${Math.round(o.resolved)} %` : '—'}</td>
-                      <td>
+                      <td className={`t-right t-num${terms.offersFirst ? '' : ' col-hide-s'}`}>{o.resolved != null ? `${Math.round(o.resolved)} %` : '—'}</td>
+                      {!terms.offersFirst && <td>
                         <div className="dv" role="img" aria-label={L(`Конверсия ${dec(o.conversion)} %, ${diff >= 0 ? 'выше' : 'ниже'} средней на ${dec(Math.abs(diff))} п. п.`, `Conversion ${o.conversion.toFixed(1)}%, ${Math.abs(diff).toFixed(1)} pp ${diff >= 0 ? 'above' : 'below'} average`)}>
                           <span className="dv-track" aria-hidden="true"><span className={`dv-bar ${diff >= 0 ? 'is-up' : 'is-down'}`} style={{ width: len }} /></span>
                           <span className="dv-val">{dec(o.conversion)}&nbsp;%</span>
                         </div>
-                      </td>
+                      </td>}
                     </tr>
                   )
                 })}

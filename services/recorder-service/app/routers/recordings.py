@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/v1/recorder", tags=["recordings"])
 
 
 def _apply_access(q, user: dict):
-    q = q.where(Recording.organization_id == user["organization_id"])
+    q = q.where(Recording.organization_id == user["organization_id"], Recording.status != "filtered")
     role = user["role"]
     if role == "rop":
         q = q.where(Recording.store_id.in_(user.get("rop_stores", [])))

@@ -10,12 +10,15 @@ from openai import APIStatusError
 from sqlalchemy import text, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clinic import analyze_visit, ensure_rules, fetch_specialty, visit_scores
 from app.config import settings
+from app.context_filter import ContextDecision, classify_context, discard_recording
 from app.database import AsyncSessionLocal
 from app.llm_client import get_llm_client
 from app.models import (
     Conversation, ConversationScriptResult, ConversationScore, Objection,
-    ConversationComplianceViolation,
+    ConversationComplianceViolation, ConversationOffer, ConversationDemand,
+    ClinicVisit, VisitCheck,
 )
 from app.prompt_builder import (
     build_script_prompt,
@@ -26,6 +29,7 @@ from app.prompt_builder import (
     build_upsell_prompt,
     build_crosssell_prompt,
     build_compliance_prompt,
+    build_offers_prompt,
     screen_contextual_script,
     is_call_context,
 )
@@ -38,6 +42,7 @@ from app.response_parser import (
     parse_redaction_response,
     parse_upsell_response,
     parse_compliance_response,
+    parse_offers_response,
     LLMResponseParseError,
 )
 from app.scorer import calculate_script_score, calculate_overall_score
@@ -164,7 +169,7 @@ async def _fetch_call_context(db: AsyncSession, recording_id: str) -> dict | Non
     """
     try:
         row = (await db.execute(text("""
-            SELECT source, call_direction, client_phone
+            SELECT source, call_direction, client_phone, session_date
             FROM recorder.recordings WHERE id = :rec_id
         """), {"rec_id": uuid.UUID(recording_id)})).fetchone()
     except Exception as e:
@@ -176,7 +181,78 @@ async def _fetch_call_context(db: AsyncSession, recording_id: str) -> dict | Non
         "source": row.source or "badge",
         "call_direction": row.call_direction,
         "client_phone": row.client_phone,
+        "session_date": row.session_date,
     }
+
+
+async def _fetch_org_industry(db: AsyncSession, organization_id: str) -> str | None:
+    """Отрасль организации (auth.organizations.industry, миграция auth 0003).
+    Нет колонки или значения → None: промпты остаются общими для розницы."""
+    try:
+        return (await db.execute(text("""
+            SELECT industry FROM auth.organizations WHERE id = :org_id
+        """), {"org_id": uuid.UUID(organization_id)})).scalar()
+    except Exception as e:
+        logger.warning("Failed to read industry for org=%s: %s", organization_id, e)
+        await db.rollback()
+        return None
+
+
+async def _fetch_focus_items(
+    db: AsyncSession, organization_id: str, store_id: str, seller_id: str
+) -> list[str]:
+    """«Товар дня» из плана смены: самый частный план (сотрудник → магазин → организация)."""
+    try:
+        row = (await db.execute(text("""
+            SELECT focus_items FROM analytics.upsell_plans
+            WHERE organization_id = :org_id
+              AND (store_id IS NULL OR store_id = :store_id)
+              AND (seller_id IS NULL OR seller_id = :seller_id)
+            ORDER BY (seller_id IS NOT NULL) DESC, (store_id IS NOT NULL) DESC
+            LIMIT 1
+        """), {
+            "org_id": uuid.UUID(organization_id),
+            "store_id": uuid.UUID(store_id),
+            "seller_id": uuid.UUID(seller_id),
+        })).fetchone()
+    except Exception as e:
+        logger.warning("Failed to read focus items for org=%s: %s", organization_id, e)
+        await db.rollback()
+        return []
+    return [f for f in (row.focus_items or []) if f] if row else []
+
+
+async def _analyze_offers(
+    segments: list[dict],
+    llm_client,
+    industry: str | None,
+    upsell_rules: list[dict],
+    crosssell_rules: list[dict],
+    focus_items: list[str],
+):
+    """Разбор допродаж: каждое предложение продавца с приёмом и реакцией клиента.
+
+    Не зависит от правил: правила и «товар дня» — только подсказки для LLM.
+    None — разбор не удался; анализ разговора при этом не падает.
+    """
+    system, user = build_offers_prompt(segments, industry, upsell_rules, crosssell_rules, focus_items)
+    try:
+        response = await llm_client.chat.completions.create(
+            model=settings.LLM_MODEL_NAME,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.0,
+            response_format={"type": "json_object"},
+            timeout=settings.LLM_GENERAL_TIMEOUT,
+        )
+        parsed = parse_offers_response(response.choices[0].message.content)
+    except Exception as e:
+        logger.error("Offers analysis failed: %s", e)
+        return None
+    if not focus_items:
+        # Без «товара дня» модель иногда помечает is_focus у удачного предложения сама
+        for offer in parsed.offers:
+            offer.is_focus = False
+    return parsed
 
 
 # Категории обращений, которые ПО УМОЛЧАНИЮ идут в рейтинг (оцениваются по скрипту).
@@ -324,7 +400,7 @@ async def _score_one_script(segments: list[dict], script: dict, llm_client) -> d
             response_format={"type": "json_object"},
             timeout=settings.LLM_SCRIPT_TIMEOUT,
         )
-        parsed = parse_script_scoring_response(response.choices[0].message.content)
+        parsed = parse_script_scoring_response(response.choices[0].message.content, script["steps"])
         step_scores = [{"step_id": s.step_id, "score": s.score} for s in parsed.step_scores]
         score = calculate_script_score(step_scores, script["steps"])
         return {
@@ -366,9 +442,11 @@ async def _score_one_script(segments: list[dict], script: dict, llm_client) -> d
 async def _general_analysis(
     segments: list[dict], llm_client, call_context: dict | None = None,
     objection_types: list[dict] | None = None,
+    industry: str | None = None,
 ) -> dict:
-    system, user = build_general_prompt(segments, call_context, objection_types)
-    try:
+    system, user = build_general_prompt(segments, call_context, objection_types, industry)
+
+    async def _call():
         response = await llm_client.chat.completions.create(
             model=settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -376,7 +454,15 @@ async def _general_analysis(
             response_format={"type": "json_object"},
             timeout=settings.LLM_GENERAL_TIMEOUT,
         )
-        parsed = parse_general_analysis_response(response.choices[0].message.content)
+        return parse_general_analysis_response(response.choices[0].message.content)
+
+    try:
+        try:
+            parsed = await _call()
+        except LLMResponseParseError as e:
+            # Модель изредка отдаёт пустой объект ({"": ""}) — второй вызов обычно проходит
+            logger.warning("General analysis returned invalid JSON (%s), retrying once", e)
+            parsed = await _call()
         return {
             "outcome": parsed.outcome,
             "outcome_confidence": parsed.outcome_confidence,
@@ -532,6 +618,7 @@ async def _general_and_compliance(
     llm_client,
     call_context: dict | None = None,
     objection_types: list[dict] | None = None,
+    industry: str | None = None,
 ) -> tuple[dict, list[dict]]:
     """Объединённый проход: общий анализ + комплаенс ОДНИМ вызовом LLM.
 
@@ -545,12 +632,14 @@ async def _general_and_compliance(
     # Слияние выключено или комплаенс-правил нет (тогда комплаенс-вызова и так не было) →
     # обычный путь: один вызов общего анализа.
     if not settings.LLM_MERGE_ANALYSIS or not compliance_rules:
-        general = await _general_analysis(segments, llm_client, call_context, objection_types)
+        general = await _general_analysis(segments, llm_client, call_context, objection_types, industry)
         compliance = await _check_compliance(segments, compliance_rules, llm_client)
         return general, compliance
 
     try:
-        system, user = build_general_compliance_prompt(segments, compliance_rules, call_context, objection_types)
+        system, user = build_general_compliance_prompt(
+            segments, compliance_rules, call_context, objection_types, industry
+        )
         response = await llm_client.chat.completions.create(
             model=settings.LLM_MODEL_NAME,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -579,7 +668,7 @@ async def _general_and_compliance(
         logger.warning(
             "Merged general+compliance failed (%s); falling back to separate calls", e
         )
-        general = await _general_analysis(segments, llm_client, call_context, objection_types)
+        general = await _general_analysis(segments, llm_client, call_context, objection_types, industry)
         compliance = await _check_compliance(segments, compliance_rules, llm_client)
         return general, compliance
 
@@ -698,6 +787,181 @@ async def _apply_redaction_to_db(
     return [dict(seg, text=new_text) for seg, new_text in zip(segments, redacted_texts)]
 
 
+def _offer_counters(offers) -> dict:
+    """Поля разговора из разбора допродаж. Разбора нет → всё NULL (не «ноль предложений»).
+
+    offers_count и offers_accepted — только настоящие предложения: «Что-нибудь ещё?» (technique=generic)
+    хранится в conversation_offers для аналитики приёмов, но попыткой допродажи не считается.
+    """
+    if offers is None:
+        return {}
+    return {
+        "offer_opportunity": offers.order_taken,
+        "offers_count": sum(1 for o in offers.offers if o.technique != "generic"),
+        "offers_accepted": sum(1 for o in offers.offers if o.response == "accepted" and o.technique != "generic"),
+        "check_total": offers.check_total,
+        "order_items": offers.order_items or None,
+        "offer_missed": offers.missed,
+        "offer_better_phrase": offers.better_phrase,
+    }
+
+
+async def _replace_conversation(db: AsyncSession, recording_id: str, conv: Conversation) -> None:
+    """Ставит новый результат анализа записи вместо прежнего.
+
+    Идемпотентность: при повторном анализе прежний разговор по этой записи удаляется, FK с
+    ondelete=CASCADE убирают его дочерние строки. План разбора привязан к разговору, поэтому
+    пункты разбора запоминаем и переносим на новый результат."""
+    kept_coaching = (await db.execute(text("""
+        SELECT ci.organization_id, ci.author_id, ci.comment, ci.moment_seconds,
+               ci.status, ci.created_at, ci.resolved_at
+        FROM analytics.coaching_items ci
+        JOIN analytics.conversations c ON c.id = ci.conversation_id
+        WHERE c.recording_id = :rec_id
+    """), {"rec_id": uuid.UUID(recording_id)})).fetchall()
+
+    await db.execute(delete(Conversation).where(Conversation.recording_id == uuid.UUID(recording_id)))
+    db.add(conv)
+    await db.flush()
+
+    for ci in kept_coaching:
+        await db.execute(text("""
+            INSERT INTO analytics.coaching_items
+                (organization_id, conversation_id, seller_id, author_id, comment,
+                 moment_seconds, status, created_at, resolved_at)
+            VALUES (:org_id, :conv_id, :seller_id, :author_id, :comment,
+                    :moment_seconds, :status, :created_at, :resolved_at)
+        """), {
+            "org_id": ci.organization_id, "conv_id": conv.id, "seller_id": conv.seller_id,
+            "author_id": ci.author_id, "comment": ci.comment, "moment_seconds": ci.moment_seconds,
+            "status": ci.status, "created_at": ci.created_at, "resolved_at": ci.resolved_at,
+        })
+
+
+async def _process_clinic_visit(
+    db: AsyncSession,
+    llm_client,
+    recording_id: str,
+    transcript_id: str,
+    seller_id: str,
+    store_id: str,
+    organization_id: str,
+    segments: list[dict],
+    call_context: dict | None,
+) -> None:
+    """Приём пациента: черновик протокола и проверка по правилам контроля качества клиники.
+
+    Скрипты, допродажи и общий розничный анализ к приёму не применяются. Если модель не ответила
+    ни на один из двух вопросов, запись уходит на повтор: пустой приём в кабинете хуже задержки."""
+    rules = await ensure_rules(db, organization_id)
+    specialty = await fetch_specialty(db, seller_id)
+    dynamics = compute_dynamics(segments)
+    result = await analyze_visit(segments, rules, llm_client, specialty)
+    protocol, quality = result["protocol"], result["quality"]
+    if protocol is None and quality is None:
+        await asyncio.sleep(5)
+        raise RuntimeError(f"Clinic analysis failed for recording={recording_id}")
+
+    is_visit = protocol["is_visit"] if protocol else True
+    if not is_visit:
+        quality = None
+    scores = visit_scores(quality)
+
+    # Анонимизация: в расшифровке и цитатах. Протокол — это медкарта, его не обезличиваем,
+    # ФИО и контакты в него и так не попадают (так задано в промпте).
+    if quality and await _is_anonymization_enabled(db, organization_id, store_id):
+        try:
+            await _apply_redaction_to_db(db, transcript_id, segments, llm_client)
+        except Exception as e:
+            logger.error("Transcript redaction failed for %s: %s", recording_id, e)
+        items = quality["checks"] + quality["violations"]
+        quotes = [i["quote"] for i in items]
+        if any(quotes):
+            for item, new_text in zip(items, await _redact_texts(quotes, llm_client)):
+                item["quote"] = new_text
+
+    present = [s for s in (scores["service_score"], scores["competence_score"]) if s is not None]
+    overall = round(sum(present) / len(present), 2) if present else None
+    reason = (protocol or {}).get("reason") or ((protocol or {}).get("protocol") or {}).get("diagnosis")
+    conv = Conversation(
+        recording_id=uuid.UUID(recording_id),
+        transcript_id=uuid.UUID(transcript_id),
+        organization_id=uuid.UUID(organization_id),
+        store_id=uuid.UUID(store_id),
+        seller_id=uuid.UUID(seller_id),
+        session_date=(call_context or {}).get("session_date") or date.today(),
+        overall_score=overall,
+        outcome="visit" if is_visit else "non_visit",
+        outcome_confidence=1,
+        topic=(reason or "")[:500] or None,
+        sentiment_avg=None,
+        is_scorable=is_visit and overall is not None,
+        analyzed_at=datetime.utcnow(),
+        llm_model=settings.LLM_MODEL_NAME,
+        talk_ratio=dynamics["talk_ratio"],
+        interruptions_count=dynamics["interruptions_count"],
+        longest_monologue_seconds=dynamics["longest_monologue_seconds"],
+        silence_ratio=dynamics["silence_ratio"],
+    )
+    await _replace_conversation(db, recording_id, conv)
+    db.add(ClinicVisit(
+        conversation_id=conv.id,
+        is_visit=is_visit,
+        visit_type=(protocol or {}).get("visit_type"),
+        note=(quality or {}).get("note"),
+        checks_done=quality is not None or not is_visit,
+        **scores,
+    ))
+    if quality:
+        rows = [(c, c["status"], c["comment"]) for c in quality["checks"]]
+        rows += [(v, "violated", v["explanation"]) for v in quality["violations"]]
+        for i, (item, status, comment) in enumerate(rows):
+            rule = item["rule"]
+            db.add(VisitCheck(
+                conversation_id=conv.id, rule_id=uuid.UUID(rule["id"]), code=rule.get("code"),
+                category=rule["category"], kind=rule["kind"], title=rule["title"][:255],
+                severity=rule.get("severity") or "medium", status=status,
+                quote=item["quote"], comment=comment, sort_order=i,
+            ))
+
+    if is_visit:
+        draft = (protocol or {}).get("protocol")
+        # Ключ — запись: повторный анализ обновляет черновик ИИ, а правки и подтверждение врача остаются.
+        # Не удалось составить заново — прежний черновик не затираем.
+        await db.execute(text("""
+            INSERT INTO analytics.visit_protocols
+                (recording_id, organization_id, store_id, seller_id, draft, status, generated_at, updated_at)
+            VALUES (:rec, :org, :store, :seller, CAST(:draft AS jsonb), :status,
+                    CASE WHEN CAST(:draft AS jsonb) IS NULL THEN NULL ELSE now() END, now())
+            ON CONFLICT (recording_id) DO UPDATE SET
+                draft = COALESCE(EXCLUDED.draft, analytics.visit_protocols.draft),
+                status = CASE
+                    WHEN analytics.visit_protocols.status = 'confirmed' THEN 'confirmed'
+                    WHEN EXCLUDED.draft IS NULL AND analytics.visit_protocols.draft IS NOT NULL
+                        THEN analytics.visit_protocols.status
+                    ELSE EXCLUDED.status END,
+                generated_at = COALESCE(EXCLUDED.generated_at, analytics.visit_protocols.generated_at),
+                store_id = EXCLUDED.store_id, seller_id = EXCLUDED.seller_id, updated_at = now()
+        """), {
+            "rec": uuid.UUID(recording_id), "org": uuid.UUID(organization_id), "store": uuid.UUID(store_id),
+            "seller": uuid.UUID(seller_id), "draft": json.dumps(draft, ensure_ascii=False) if draft else None,
+            "status": "draft" if draft else "failed",
+        })
+    else:
+        # В записи нет приёма: неподтверждённый протокол от прошлого анализа больше не нужен
+        await db.execute(text("""
+            DELETE FROM analytics.visit_protocols WHERE recording_id = :rec AND status <> 'confirmed'
+        """), {"rec": uuid.UUID(recording_id)})
+
+    await db.execute(text("UPDATE recorder.recordings SET status = 'analyzed' WHERE id = :rec_id"),
+                     {"rec_id": uuid.UUID(recording_id)})
+    await db.commit()
+    await publish("queue.cache.invalidate", {"store_id": store_id, "organization_id": organization_id})
+    logger.info("Analyzed clinic visit %s: is_visit=%s service=%s competence=%s fraud=%s protocol=%s",
+                recording_id, is_visit, scores["service_score"], scores["competence_score"],
+                scores["fraud_signals"], "ok" if protocol else "failed")
+
+
 async def _run_parallel_with_limit(coros, limit: int):
     """Run coroutines with concurrency limit."""
     semaphore = asyncio.Semaphore(limit)
@@ -726,10 +990,55 @@ async def process_analyze_message(
             logger.error("Invalid message format: %s", e)
             return  # ACK bad message, don't retry
 
-        # Step 1: Fetch transcript, scripts, upsell + crosssell + compliance rules in parallel
+        # Re-deliveries of a discarded recording must not fetch its deleted transcript.
+        state = (await db.execute(text("""
+            SELECT status, call_metadata FROM recorder.recordings
+            WHERE id = :id AND organization_id = :org
+        """), {"id": uuid.UUID(recording_id), "org": uuid.UUID(organization_id)})).mappings().first()
+        if state and state["status"] == "filtered":
+            decision = ContextDecision(**state["call_metadata"]["context_filter"])
+            if not await discard_recording(recording_id, transcript_id, organization_id, decision):
+                return
+            await publish("queue.cache.invalidate", {"store_id": store_id, "organization_id": organization_id})
+            return
+
+        # Admission comes before script/rule requests and all sales scoring.
         try:
-            segments, scripts, upsell_rules, crosssell_rules, compliance_rules, objection_types = await asyncio.gather(
-                _fetch_transcript(recording_id),
+            segments = await _fetch_transcript(recording_id)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.warning("Transcript no longer exists for recording=%s; dropping stale task", recording_id)
+                return
+            raise
+        call_context = await _fetch_call_context(db, recording_id)
+        industry = await _fetch_org_industry(db, organization_id)
+        is_call = is_call_context(call_context)
+
+        if industry == "clinic" and not is_call:
+            await _process_clinic_visit(db, llm_client, recording_id, transcript_id, seller_id, store_id,
+                                        organization_id, segments, call_context)
+            return
+
+        if settings.COFFEE_CONTEXT_FILTER_ENABLED and industry == "coffee" and not is_call:
+            try:
+                decision = await classify_context(segments, llm_client)
+            except Exception:
+                logger.exception("Context check failed for recording=%s; retrying without admission", recording_id)
+                await asyncio.sleep(5)
+                raise
+            if decision.discard:
+                # End the read transaction before recorder performs the atomic purge.
+                await db.rollback()
+                if not await discard_recording(recording_id, transcript_id, organization_id, decision):
+                    return
+                await publish("queue.cache.invalidate", {"store_id": store_id, "organization_id": organization_id})
+                logger.info("Filtered non-customer recording=%s reason=%s confidence=%s",
+                            recording_id, decision.reason, decision.confidence)
+                return
+
+        # Fetch scripts and rules only for admitted conversations.
+        try:
+            scripts, upsell_rules, crosssell_rules, compliance_rules, objection_types = await asyncio.gather(
                 _fetch_scripts(seller_id, organization_id, store_id),
                 _fetch_upsell_rules(organization_id, store_id, seller_id),
                 _fetch_crosssell_rules(organization_id, store_id, seller_id),
@@ -751,8 +1060,9 @@ async def process_analyze_message(
             raise  # Сетевые ошибки — NACK, requeue
 
         # Step 1.5: Контекст звонка (телефония) + метрики динамики из таймкодов
-        call_context = await _fetch_call_context(db, recording_id)
         dynamics = compute_dynamics(segments)
+        # Отрасль подстраивает промпты (кофейня и т.д.); «товар дня» — из плана смены
+        focus_items = [] if is_call else await _fetch_focus_items(db, organization_id, store_id, seller_id)
 
         # Step 2: Split mandatory vs contextual
         mandatory_scripts = [s for s in scripts if s.get("is_mandatory")]
@@ -784,7 +1094,7 @@ async def process_analyze_message(
             for script in scripts_to_score
         ]
         gen_comp_coro = _general_and_compliance(
-            segments, compliance_rules, llm_client, call_context, objection_types
+            segments, compliance_rules, llm_client, call_context, objection_types, industry
         )
 
         if scoring_coros:
@@ -819,13 +1129,24 @@ async def process_analyze_message(
         if not is_scorable:
             overall_score = None
 
-        # Step 5.1: Upsell + cross-sell checks параллельно — независимые LLM-проходы.
+        # Step 5.1: Upsell + cross-sell checks и разбор допродаж параллельно — независимые
+        # LLM-проходы. Разбор допродаж — только для розницы: в звонках другой сценарий.
         has_upsell_task = _check_sell(segments, upsell_rules, llm_client, kind="upsell")
         has_crosssell_task = _check_sell(segments, crosssell_rules, llm_client, kind="crosssell")
+
+        async def _no_offers():
+            return None
+
+        offers_task = (
+            _analyze_offers(segments, llm_client, industry, upsell_rules, crosssell_rules, focus_items)
+            if settings.OFFERS_ANALYSIS_ENABLED and not is_call and segments
+            else _no_offers()
+        )
         (
             (has_upsell, upsell_details),
             (has_crosssell, crosssell_details),
-        ) = await asyncio.gather(has_upsell_task, has_crosssell_task)
+            offers,
+        ) = await asyncio.gather(has_upsell_task, has_crosssell_task, offers_task)
 
         # Step 5.5: Anonymize transcripts if privacy setting is enabled.
         # Анализ уже отработал на оригинале (имена и т.п. помогают LLM понять контекст),
@@ -847,29 +1168,41 @@ async def process_analyze_message(
                     if ss.evidence:
                         evidence_items.append((ss, ss.evidence))
 
+            offer_items = list(offers.offers) if offers else []
             quotes = (
                 [ev for _, ev in evidence_items]
                 + [o.get("raw_text", "") for o in objection_items]
                 + [cv.get("evidence", "") for cv in compliance_violations]
+                # Цитаты предложений: в кофейне клиента часто зовут по имени («Анна, ваш латте»)
+                + [o.quote for o in offer_items]
+                + [o.customer_quote for o in offer_items]
             )
             if quotes:
                 try:
                     redacted_quotes = await _redact_texts(quotes, llm_client)
                     n_ev = len(evidence_items)
                     n_obj = len(objection_items)
+                    n_cv = len(compliance_violations)
+                    n_of = len(offer_items)
                     for (ss, _), new_text in zip(evidence_items, redacted_quotes[:n_ev]):
                         ss.evidence = new_text
                     for obj, new_text in zip(objection_items, redacted_quotes[n_ev:n_ev + n_obj]):
                         obj["raw_text"] = new_text
-                    for cv, new_text in zip(compliance_violations, redacted_quotes[n_ev + n_obj:]):
+                    for cv, new_text in zip(compliance_violations, redacted_quotes[n_ev + n_obj:n_ev + n_obj + n_cv]):
                         cv["evidence"] = new_text
+                    base = n_ev + n_obj + n_cv
+                    for of, new_text in zip(offer_items, redacted_quotes[base:base + n_of]):
+                        of.quote = new_text
+                    for of, new_text in zip(offer_items, redacted_quotes[base + n_of:]):
+                        of.customer_quote = new_text
                     general["objections"] = objection_items
                 except Exception as e:
                     logger.error("Evidence/raw_text redaction failed for %s: %s", recording_id, e)
 
         # Step 6: Save to DB in one transaction
-        # Determine session_date from transcript or use today
-        session_date_val = date.today()
+        # Дата смены — из записи (день, когда разговор был), а не день анализа: иначе
+        # повторный анализ старых записей переносил их в «сегодня» и ломал план смены.
+        session_date_val = (call_context or {}).get("session_date") or date.today()
 
         conv = Conversation(
             recording_id=uuid.UUID(recording_id),
@@ -896,6 +1229,7 @@ async def process_analyze_message(
             interruptions_count=dynamics["interruptions_count"],
             longest_monologue_seconds=dynamics["longest_monologue_seconds"],
             silence_ratio=dynamics["silence_ratio"],
+            **_offer_counters(offers),
         )
         # План разбора с продавцом привязан к разговору. Повторный анализ создаёт разговор
         # заново, поэтому пункты разбора запоминаем и переносим на новый результат.
@@ -1004,6 +1338,37 @@ async def process_analyze_message(
                 severity=cv.get("severity", "medium"),
                 evidence=cv.get("evidence", ""),
                 explanation=cv.get("explanation", ""),
+                sort_order=i,
+            ))
+
+        # Предложения продавца (разбор допродаж)
+        for i, of in enumerate(offers.offers if offers else []):
+            db.add(ConversationOffer(
+                conversation_id=conv.id,
+                item=of.item,
+                category=of.category,
+                kind=of.kind,
+                technique=of.technique,
+                response=of.response,
+                is_focus=of.is_focus,
+                quote=of.quote,
+                customer_quote=of.customer_quote,
+                amount=of.amount,
+                sort_order=i,
+            ))
+
+        # Неудовлетворённый спрос: что покупатель просил, а этого не оказалось (список к закупке)
+        for i, dm in enumerate(offers.unmet_demand if offers else []):
+            db.add(ConversationDemand(
+                conversation_id=conv.id,
+                item=dm.item,
+                item_key=dm.key,
+                category=dm.category,
+                reason=dm.reason,
+                outcome=dm.outcome,
+                analog=dm.analog,
+                quote=dm.quote,
+                seller_quote=dm.seller_quote,
                 sort_order=i,
             ))
 

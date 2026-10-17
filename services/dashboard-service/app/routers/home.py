@@ -10,6 +10,7 @@ from sqlalchemy import text
 from app.database import get_db
 from app.dependencies import get_current_user, org_store_conditions
 from app.config import settings
+from app.org_settings import org_tz
 from app.routers.conversations import VIEW_CONDITIONS, _sell_array, _json_len
 from app.routers.notifications import get_score_threshold
 
@@ -50,10 +51,11 @@ async def get_pulse(
 ):
     """Пульс: разговоры по дням и получасам за последние `days` дней (по умолчанию неделя)
     и сколько из них требуют внимания."""
+    tz = await org_tz(db, user["organization_id"])
     where, params = _scope(user, store_id)
     date_to = date.today()
     date_from = date_to - timedelta(days=days - 1)
-    params.update({"date_from": date_from, "date_to": date_to, "tz": settings.LOCAL_TZ})
+    params.update({"date_from": date_from, "date_to": date_to, "tz": tz})
     params["threshold"] = await get_score_threshold(db, user["organization_id"], params.get("store_id"))
     attention = VIEW_CONDITIONS["attention"]
     violations = VIEW_CONDITIONS["violations"]
@@ -85,7 +87,7 @@ async def get_pulse(
     return {
         "date_from": str(date_from),
         "date_to": str(date_to),
-        "timezone": settings.LOCAL_TZ,
+        "timezone": tz,
         "days": [
             {
                 "date": str(date_from + timedelta(days=i)),

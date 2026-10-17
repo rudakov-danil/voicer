@@ -6,7 +6,18 @@ import { z } from 'zod'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/auth'
 import { VoicerLogo } from '@/components/VoicerLogo'
-import { t, isEn, setLang } from '@/i18n'
+import { t, L, isEn, setLang } from '@/i18n'
+
+// Витрины под отрасль на поддоменах: тот же кабинет, своя подпись. Какие данные открыть, решает
+// auth-service по домену (DOMAIN_ORGS): horeca. — демо кофеен, pharma. и apteka. — демо аптек, medicine. — демо клиник.
+const SHOWCASES: Record<string, { title: string; sub: [string, string] }> = {
+  horeca: { title: 'Voicer — HoReCa', sub: ['Допродажи у стойки: речевая аналитика для кофеен', 'Counter upsells: speech analytics for coffee shops'] },
+  pharma: { title: 'Voicer — Аптеки', sub: ['Речевая аналитика для аптек: допродажи и спрос, которого не было в наличии', 'Speech analytics for pharmacies: add-ons and unmet demand'] },
+  apteka: { title: 'Voicer — Аптеки', sub: ['Речевая аналитика для аптек: допродажи и спрос, которого не было в наличии', 'Speech analytics for pharmacies: add-ons and unmet demand'] },
+  medicine: { title: 'Voicer — Клиники', sub: ['Протоколы приёмов и контроль качества работы врачей', 'Visit notes and quality control of doctors’ work'] },
+}
+const SHOWCASE = typeof window !== 'undefined' ? SHOWCASES[window.location.hostname.split('.')[0]] : undefined
+if (SHOWCASE) document.title = SHOWCASE.title
 
 const loginSchema = z.object({
   email: z.string().email('Некорректный email'),
@@ -33,7 +44,7 @@ export function LoginPage() {
       const response = await authApi.login(data)
       setTokens(response.access_token, response.refresh_token)
       setUser(response.user as import('@/types').User)
-      navigate('/dashboard')
+      navigate('/')
     } catch (error: any) {
       if (error.response?.status === 401) {
         setGeneralError('Неверный email или пароль')
@@ -61,7 +72,7 @@ export function LoginPage() {
           <VoicerLogo size={28} />
           <span className="brand-name" translate="no">{t('Войсер')}</span>
         </div>
-        <p className="login-sub">Речевая аналитика для розницы</p>
+        <p className="login-sub">{SHOWCASE ? L(...SHOWCASE.sub) : 'Речевая аналитика для розницы'}</p>
 
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="form-group">

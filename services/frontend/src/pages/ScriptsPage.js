@@ -5,11 +5,15 @@ import { useTerms } from '@/lib/terms';
 import { adminApi } from '@/api/admin';
 import { dashboardApi } from '@/api/dashboard';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { CheckSquare, Plus, Trash2, GripVertical, ChevronUp, ChevronDown, Save, X, PlayCircle, Loader, BarChart3, History, MapPin, Edit3, RotateCcw, GitCompare, Sparkles, BookOpen, HelpCircle, Command, Check, FileText, FileUp, } from 'lucide-react';
+import { useOutletContext } from 'react-router-dom';
+import { Plus, Trash2, GripVertical, ChevronUp, ChevronDown, Save, X, PlayCircle, Loader, History, MapPin, Edit3, RotateCcw, GitCompare, Sparkles, BookOpen, HelpCircle, Check, FileText, FileUp, Lightbulb, Minus, } from 'lucide-react';
 import { MultiSelect } from '@/components/scripts/MultiSelect';
 import { HelpTooltip } from '@/components/scripts/HelpTooltip';
 import { HelpModal } from '@/components/scripts/HelpModal';
-import { ScriptBreakdown } from '@/components/scripts/ScriptBreakdown';
+import { ScoreFormula, SellerHeatmap, w2 } from '@/components/scripts/ScriptBreakdown';
+import { Meter } from '@/components/ui/Meter';
+import { PageActions, PageSubtitle } from '@/components/layout/PageHeader';
+import { t, L, locale, plural } from '@/i18n';
 import { StructuralDiff } from '@/components/scripts/StructuralDiff';
 import { CommandPalette } from '@/components/scripts/CommandPalette';
 import { SkeletonScriptCard, SkeletonAnalyticsRow } from '@/components/scripts/Skeleton';
@@ -193,10 +197,12 @@ function RulesTable({ kind }) {
         mutationFn: (id) => isUpsell ? scriptsApi.deleteUpsellRule(id) : scriptsApi.deleteCrossSellRule(id),
         onSuccess: invalidate,
     });
-    return (_jsxs("div", { className: "card fade-in", children: [_jsxs("div", { className: "card-header", children: [_jsxs("div", { children: [_jsxs("div", { className: "card-title", style: { display: 'flex', alignItems: 'center', gap: 6 }, children: [isUpsell ? 'Правила апсейла' : 'Правила кросс-сейла', _jsx(HelpTooltip, { size: 14, content: _jsx("div", { style: { maxWidth: 280 }, children: isUpsell ? (_jsxs(_Fragment, { children: [_jsx("strong", { children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), " \u2014 \u043F\u0440\u043E\u0434\u0430\u0436\u0430 \u0431\u043E\u043B\u0435\u0435 \u0434\u043E\u0440\u043E\u0433\u043E\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 \u0442\u043E\u0433\u043E \u0436\u0435 \u043F\u0440\u043E\u0434\u0443\u043A\u0442\u0430.", _jsx("br", {}), "\u041F\u0440\u0438\u043C\u0435\u0440: \u043A\u043B\u0438\u0435\u043D\u0442 \u043F\u0440\u0438\u0448\u0451\u043B \u0437\u0430 iPhone 15 \u2014 \u043F\u0440\u043E\u0434\u0430\u0432\u0435\u0446 \u043F\u0440\u0435\u0434\u043B\u0430\u0433\u0430\u0435\u0442 15 Pro."] })) : (_jsxs(_Fragment, { children: [_jsx("strong", { children: "\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B" }), " \u2014 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0441\u043E\u043F\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0445 \u0442\u043E\u0432\u0430\u0440\u043E\u0432 \u043A \u043E\u0441\u043D\u043E\u0432\u043D\u043E\u0439 \u043F\u043E\u043A\u0443\u043F\u043A\u0435.", _jsx("br", {}), "\u041F\u0440\u0438\u043C\u0435\u0440: \u043A\u043B\u0438\u0435\u043D\u0442 \u0431\u0435\u0440\u0451\u0442 \u043D\u043E\u0443\u0442\u0431\u0443\u043A \u2014 \u043F\u0440\u043E\u0434\u0430\u0432\u0435\u0446 \u043E\u0431\u044F\u0437\u0430\u043D \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0438\u0442\u044C \u0441\u0443\u043C\u043A\u0443 \u0438 \u043C\u044B\u0448\u044C."] })) }) })] }), _jsxs("div", { className: "card-subtitle", children: ["LLM \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442 \u043A\u0430\u0436\u0434\u044B\u0439 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440: \u0435\u0441\u043B\u0438 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442 \u0442\u0440\u0438\u0433\u0433\u0435\u0440-\u043F\u0440\u043E\u0434\u0443\u043A\u0442 \u2014 \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u044B \u0443\u043A\u0430\u0437\u0430\u043D\u043D\u044B\u0435 \u0442\u043E\u0432\u0430\u0440\u044B.", _jsx("span", { style: { opacity: 0.7 }, children: " \u0421\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043F\u0440\u0438 \u043F\u043E\u0442\u0435\u0440\u0435 \u0444\u043E\u043A\u0443\u0441\u0430 \u043F\u043E\u043B\u044F." })] })] }), _jsxs("button", { className: "btn btn-primary btn-sm", onClick: () => createMut.mutate(), children: [_jsx(Plus, { size: 14 }), " \u041F\u0440\u0430\u0432\u0438\u043B\u043E"] })] }), _jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "\u0422\u0440\u0438\u0433\u0433\u0435\u0440-\u043F\u0440\u043E\u0434\u0443\u043A\u0442" }), _jsx("th", { children: isUpsell ? 'Обязательные предложения' : 'Сопутствующие товары' }), _jsx("th", { style: { minWidth: 200 }, children: terms.storePlural }), _jsx("th", { style: { minWidth: 200 }, children: "\u041C\u0435\u043D\u0435\u0434\u0436\u0435\u0440\u044B" }), _jsx("th", { style: { width: 90 }, children: "\u0410\u043A\u0442\u0438\u0432\u043D\u043E" }), _jsx("th", { style: { width: 50 } })] }) }), _jsxs("tbody", { children: [rules.map((r) => (_jsx(RuleRow, { rule: r, stores: stores?.items || [], sellers: sellers?.items || [], onPatch: (data) => patchMut.mutate({ id: r.id, data }), onDelete: () => { if (confirm('Удалить правило?'))
+    return (_jsxs("div", { className: "card fade-in", children: [_jsxs("div", { className: "card-header", children: [_jsxs("div", { children: [_jsxs("div", { className: "card-title", style: { display: 'flex', alignItems: 'center', gap: 6 }, children: [isUpsell ? 'Правила апсейла' : 'Правила кросс-сейла', _jsx(HelpTooltip, { size: 14, content: _jsx("div", { style: { maxWidth: 280 }, children: isUpsell ? (_jsxs(_Fragment, { children: [_jsx("strong", { children: "\u0410\u043F\u0441\u0435\u0439\u043B" }), " \u2014 ", terms.isCafe ? 'больший объём или более дорогой напиток.' : terms.isPharmacy ? 'упаковка побольше на курс или форма быстрого действия.' : 'продажа более дорогой версии того же продукта.', _jsx("br", {}), terms.isCafe ? 'Пример: гость заказал капучино 0,3 — бариста предлагает 0,4.' : terms.isPharmacy ? 'Пример: покупатель берёт ибупрофен 10 таблеток — фармацевт предлагает упаковку 20, на курс она выгоднее.' : 'Пример: клиент пришёл за iPhone 15 — продавец предлагает 15 Pro.'] })) : (_jsxs(_Fragment, { children: [_jsx("strong", { children: "\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B" }), " \u2014 ", terms.isCafe ? 'еда или добавка к напитку.' : terms.isPharmacy ? 'то, что усиливает лечение или нужно к покупке.' : 'предложение сопутствующих товаров к основной покупке.', _jsx("br", {}), terms.isCafe ? 'Пример: к кофе бариста предлагает круассан или сироп.' : terms.isPharmacy ? 'Пример: к средству от простуды фармацевт предлагает спрей для горла.' : 'Пример: клиент берёт ноутбук — продавец обязан предложить сумку и мышь.'] })) }) })] }), _jsxs("div", { className: "card-subtitle", children: [terms.isCafe
+                                        ? 'Проверяется в каждом разговоре: если гость заказал триггер-продукт, бариста должен предложить указанные позиции.'
+                                        : `Проверяется в каждом разговоре: если упомянут триггер-продукт, ${terms.sellerLower[0]} должен предложить указанные товары.`, _jsx("span", { style: { opacity: 0.7 }, children: " \u0421\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043F\u0440\u0438 \u043F\u043E\u0442\u0435\u0440\u0435 \u0444\u043E\u043A\u0443\u0441\u0430 \u043F\u043E\u043B\u044F." })] })] }), _jsxs("button", { className: "btn btn-primary btn-sm", onClick: () => createMut.mutate(), children: [_jsx(Plus, { size: 14 }), " \u041F\u0440\u0430\u0432\u0438\u043B\u043E"] })] }), _jsx("div", { className: "table-wrapper", children: _jsxs("table", { children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "\u0422\u0440\u0438\u0433\u0433\u0435\u0440-\u043F\u0440\u043E\u0434\u0443\u043A\u0442" }), _jsx("th", { children: isUpsell ? 'Обязательные предложения' : 'Сопутствующие товары' }), _jsx("th", { style: { minWidth: 150 }, children: terms.storePlural }), _jsx("th", { style: { minWidth: 140 }, children: terms.sellerPlural }), _jsx("th", { style: { width: 72 }, children: "\u0410\u043A\u0442\u0438\u0432\u043D\u043E" }), _jsx("th", { style: { width: 50 } })] }) }), _jsxs("tbody", { children: [rules.map((r) => (_jsx(RuleRow, { rule: r, stores: stores?.items || [], sellers: sellers?.items || [], onPatch: (data) => patchMut.mutate({ id: r.id, data }), onDelete: () => { if (confirm('Удалить правило?'))
                                         delMut.mutate(r.id); } }, r.id))), isLoading && rules.length === 0 && (_jsx("tr", { children: _jsx("td", { colSpan: 6, style: { padding: 12 }, children: _jsx(SkeletonAnalyticsRow, {}) }) })), !isLoading && rules.length === 0 && (_jsx("tr", { children: _jsx("td", { colSpan: 6, style: { textAlign: 'center', color: 'var(--text-muted)', padding: 20 }, children: isUpsell
-                                            ? 'Правил апсейла пока нет. Добавьте первое — LLM начнёт отмечать разговоры, где продавец забыл предложить апсейл.'
-                                            : 'Правил кросс-сейла пока нет. Например: к ноутбуку — сумка и мышь.' }) }))] })] }) })] }));
+                                            ? `Правил апсейла пока нет. Добавьте первое — анализ начнёт отмечать разговоры, где ${terms.sellerLower[0]} не предложил апсейл.`
+                                            : `Правил кросс-сейла пока нет. Например: ${terms.isCafe ? 'к кофе — круассан или сироп' : terms.isPharmacy ? 'к средству от простуды — спрей для горла' : 'к ноутбуку — сумка и мышь'}.` }) }))] })] }) })] }));
 }
 function RuleRow({ rule, stores, sellers, onPatch, onDelete }) {
     const [trigger, setTrigger] = useState(rule.trigger_product);
@@ -241,7 +247,7 @@ function RuleRow({ rule, stores, sellers, onPatch, onDelete }) {
                             patch.seller_ids = nextSellers;
                         onPatch(patch);
                         flash();
-                    }, selectAllLabel: terms.allStores, placeholder: terms.allStores }) }), _jsx("td", { children: _jsx(MultiSelect, { options: sellerOptions, selected: selectedSellerIds, onChange: (ids) => { onPatch({ seller_ids: ids }); flash(); }, selectAllLabel: "\u0412\u0441\u0435 \u043C\u0435\u043D\u0435\u0434\u0436\u0435\u0440\u044B", placeholder: "\u0412\u0441\u0435 \u043C\u0435\u043D\u0435\u0434\u0436\u0435\u0440\u044B" }) }), _jsx("td", { children: _jsx("div", { className: `toggle-switch ${rule.is_active ? 'on' : ''}`, onClick: () => { onPatch({ is_active: !rule.is_active }); flash(); } }) }), _jsx("td", { children: _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }, children: [saved && _jsx("span", { style: { fontSize: 11, color: 'var(--success)', whiteSpace: 'nowrap' }, children: "\u2713 \u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E" }), _jsx("button", { className: "btn-icon", onClick: onDelete, title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C", style: { color: 'var(--danger)' }, children: _jsx(Trash2, { size: 14 }) })] }) })] }));
+                    }, selectAllLabel: terms.allStores, placeholder: terms.allStores }) }), _jsx("td", { children: _jsx(MultiSelect, { options: sellerOptions, selected: selectedSellerIds, onChange: (ids) => { onPatch({ seller_ids: ids }); flash(); }, selectAllLabel: `Все ${terms.sellerPlural.toLowerCase()}`, placeholder: `Все ${terms.sellerPlural.toLowerCase()}` }) }), _jsx("td", { children: _jsx("div", { className: `toggle-switch ${rule.is_active ? 'on' : ''}`, onClick: () => { onPatch({ is_active: !rule.is_active }); flash(); } }) }), _jsx("td", { children: _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }, children: [saved && _jsx("span", { style: { fontSize: 11, color: 'var(--success)', whiteSpace: 'nowrap' }, children: "\u2713 \u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E" }), _jsx("button", { className: "btn-icon", onClick: onDelete, title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C", style: { color: 'var(--danger)' }, children: _jsx(Trash2, { size: 14 }) })] }) })] }));
 }
 // ─── Objection types (настраиваемый справочник типов возражений) ─────────────
 function ObjectionTypesTable() {
@@ -497,27 +503,6 @@ function LiveTestDialog({ draft, onClose, }) {
                                                             fontWeight: 600, fontSize: 14,
                                                         }, children: [s.score, "% (\u0432\u0435\u0441 ", s.weight, ")"] })] }), s.evidence && (_jsxs("div", { style: { marginTop: 4, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }, children: ["\u00AB", s.evidence, "\u00BB"] })), !s.detected && (_jsx("div", { style: { marginTop: 4, fontSize: 12, color: 'var(--danger)' }, children: "\u041D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D \u0432 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0435" }))] }, i))) }), result.violations.length > 0 && (_jsxs("div", { children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F:" }), _jsx("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 6 }, children: result.violations.map((v, i) => (_jsx("span", { className: "tag tag-danger", children: v }, i))) })] }))] }))] }), _jsx("div", { className: "modal-footer", children: !result ? (_jsxs(_Fragment, { children: [_jsx("button", { className: "btn btn-outline", onClick: onClose, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }), _jsx("button", { className: "btn btn-primary", disabled: !recordingId || testMut.isPending, onClick: () => recordingId && testMut.mutate(recordingId), children: testMut.isPending ? (_jsxs(_Fragment, { children: [_jsx(Loader, { size: 14, className: "spin" }), " \u041F\u0440\u043E\u0433\u043E\u043D... (\u0434\u043E 30 \u0441\u0435\u043A)"] })) : (_jsxs(_Fragment, { children: [_jsx(PlayCircle, { size: 14 }), " \u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0442\u0435\u0441\u0442"] })) })] })) : (_jsxs(_Fragment, { children: [_jsx("button", { className: "btn btn-outline", onClick: () => setResult(null), children: "\u2190 \u0414\u0440\u0443\u0433\u0430\u044F \u0437\u0430\u043F\u0438\u0441\u044C" }), _jsx("button", { className: "btn btn-primary", onClick: onClose, children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })] })) })] }) }));
 }
-// ─── Analytics ───────────────────────────────────────────────────────────────
-function AnalyticsPanel({ templateId }) {
-    const [days, setDays] = useState(30);
-    const { data, isLoading } = useQuery({
-        queryKey: ['template-analytics', templateId, days],
-        queryFn: () => scriptsApi.getTemplateAnalytics(templateId, { days }),
-        enabled: !!templateId,
-    });
-    return (_jsxs("div", { children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }, children: [_jsx("div", { style: { fontSize: 13, color: 'var(--text-muted)' }, children: "\u0421\u0432\u043E\u0434\u043A\u0430 \u043F\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F\u043C \u0441\u043A\u0440\u0438\u043F\u0442\u0430 \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434" }), _jsxs("select", { className: "form-select", value: days, onChange: (e) => setDays(Number(e.target.value)), style: { width: 130, padding: '6px 30px 6px 10px', fontSize: 12.5 }, children: [_jsx("option", { value: 7, children: "7 \u0434\u043D\u0435\u0439" }), _jsx("option", { value: 30, children: "30 \u0434\u043D\u0435\u0439" }), _jsx("option", { value: 90, children: "90 \u0434\u043D\u0435\u0439" }), _jsx("option", { value: 180, children: "6 \u043C\u0435\u0441\u044F\u0446\u0435\u0432" }), _jsx("option", { value: 365, children: "\u0413\u043E\u0434" })] })] }), isLoading && (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: [_jsx(SkeletonAnalyticsRow, {}), _jsx(SkeletonAnalyticsRow, {}), _jsx(SkeletonAnalyticsRow, {})] })), data && data.conversation_count === 0 && (_jsxs("div", { className: "empty-state-card", children: [_jsx(BarChart3, { size: 28, style: { opacity: 0.4, marginBottom: 8 } }), _jsx("p", { children: "\u0421\u043A\u0440\u0438\u043F\u0442 \u0435\u0449\u0451 \u043D\u0435 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u043B\u0441\u044F \u043A \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0430\u043C \u0437\u0430 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0439 \u043F\u0435\u0440\u0438\u043E\u0434." })] })), data && data.conversation_count > 0 && (_jsxs(_Fragment, { children: [_jsxs("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }, children: [_jsxs("div", { className: "metric-tile", children: [_jsx("div", { className: "metric-tile-label", children: "\u0420\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432" }), _jsx("div", { className: "metric-tile-value", children: data.conversation_count })] }), _jsxs("div", { className: "metric-tile", children: [_jsxs("div", { className: "metric-tile-label", children: ["\u0421\u0440\u0435\u0434\u043D\u0438\u0439 \u0441\u043A\u043E\u0440\u0438\u043D\u0433", _jsx(HelpTooltip, { content: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439 \u0432\u0437\u0432\u0435\u0448\u0435\u043D\u043D\u044B\u0439 \u0431\u0430\u043B\u043B \u043F\u043E \u0432\u0441\u0435\u043C \u044D\u0442\u0430\u043F\u0430\u043C \u0441\u043A\u0440\u0438\u043F\u0442\u0430, \u0430\u0433\u0440\u0435\u0433\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u043F\u043E \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0430\u043C \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434." })] }), _jsx("div", { className: "metric-tile-value", style: { color: 'var(--primary)' }, children: data.avg_script_score != null ? `${data.avg_script_score}%` : '—' })] }), _jsxs("div", { className: "metric-tile", children: [_jsx("div", { className: "metric-tile-label", children: "\u0421\u0438\u043B\u044C\u043D\u044B\u0445 (\u226570%)" }), _jsx("div", { className: "metric-tile-value", style: { color: 'var(--success)' }, children: data.strong_conversation_count })] })] }), data.script_type !== 'fulltext' ? (_jsx(ScriptBreakdown, { templateId: templateId, days: days, perStep: data.per_step })) : (_jsxs(_Fragment, { children: [_jsxs("div", { style: { fontWeight: 600, marginBottom: 8, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }, children: [data.script_type === 'fulltext' ? 'Детально по блокам' : 'Детально по этапам', _jsx(HelpTooltip, { content: data.script_type === 'fulltext' ? (_jsxs("div", { style: { maxWidth: 280 }, children: [_jsx("strong", { children: "%" }), " \u2014 \u0434\u043E\u043B\u044F \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432, \u0433\u0434\u0435 \u0431\u043B\u043E\u043A \u043F\u0440\u043E\u0437\u0432\u0443\u0447\u0430\u043B (\u043F\u043E \u0442\u0435\u043A\u0441\u0442\u0443 \u0438\u043B\u0438 \u0441\u0432\u043E\u0438\u043C\u0438 \u0441\u043B\u043E\u0432\u0430\u043C\u0438).", _jsx("br", {}), "\u0421\u0438\u0442\u0443\u0430\u0442\u0438\u0432\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E \u2014 \u043E\u043D\u0438 \u043D\u0435 \u0432\u0445\u043E\u0434\u044F\u0442 \u0432 \u0431\u0430\u043B\u043B \u043F\u043E\u043A\u0440\u044B\u0442\u0438\u044F."] })) : (_jsxs("div", { style: { maxWidth: 280 }, children: [_jsx("strong", { children: "%" }), " \u2014 \u0434\u043E\u043B\u044F \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u043E\u0432, \u0433\u0434\u0435 \u044D\u0442\u0430\u043F \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D (LLM-\u043E\u0446\u0435\u043D\u043A\u0430 \u2265 50 \u0438\u0437 100).", _jsx("br", {}), _jsx("strong", { children: "\u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D" }), " \u2014 \u044D\u0442\u0430\u043F \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0435, \u0434\u0430\u0436\u0435 \u0435\u0441\u043B\u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D \u0441\u043B\u0430\u0431\u043E."] })) })] }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: data.per_step.map((s) => {
-                                    const isFulltext = data.script_type === 'fulltext';
-                                    const na = s.not_applicable_count || 0;
-                                    // pass_rate=null — блок/этап ни разу не требовался за период
-                                    if (s.pass_rate == null) {
-                                        return (_jsxs("div", { className: "step-analytics", style: { borderLeft: '3px solid var(--border)', opacity: 0.7 }, children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, children: [_jsx("div", { style: { fontSize: 13, fontWeight: 500 }, children: s.step_name }), _jsx("div", { style: { fontSize: 12, color: 'var(--text-muted)' }, children: "\u043D\u0435 \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u043B\u0441\u044F" })] }), na > 0 && (_jsxs("div", { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }, children: ["\u0421\u0438\u0442\u0443\u0430\u0446\u0438\u044F \u043D\u0435 \u0432\u043E\u0437\u043D\u0438\u043A\u0430\u043B\u0430 \u0432 ", na, " \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440\u0430\u0445"] }))] }, s.step_id));
-                                    }
-                                    const color = s.pass_rate >= 70 ? 'var(--success)' : s.pass_rate >= 40 ? 'var(--warn)' : 'var(--danger)';
-                                    return (_jsxs("div", { className: "step-analytics", style: { borderLeft: `3px solid ${color}` }, children: [_jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }, children: [_jsx("div", { style: { fontSize: 13, fontWeight: 500 }, children: s.step_name }), _jsxs("div", { style: { fontSize: 14, fontWeight: 700, color }, children: [s.pass_rate, "%"] })] }), _jsx("div", { className: "progress-track", children: _jsx("div", { className: "progress-fill", style: { width: `${Math.max(2, s.pass_rate)}%`, background: color } }) }), _jsx("div", { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }, children: isFulltext
-                                                    ? `Прозвучал ${s.detected_count} из ${s.total_count} раз, где требовался${na ? ` · не требовался ${na} раз` : ''}`
-                                                    : `Обнаружен ${s.detected_count} из ${s.total_count} раз (${s.detection_rate}%)` })] }, s.step_id));
-                                }) })] }))] }))] }));
-}
 // ─── Versions ────────────────────────────────────────────────────────────────
 function VersionsPanel({ templateId, onRestored }) {
     const queryClient = useQueryClient();
@@ -591,83 +576,173 @@ function EditorDialog({ template, isNew, draftInfo, onClose, onSaved, onSwitchTo
                                         ? (draftInfo?.fromAi ? 'AI-черновик скрипта' : 'Новый скрипт')
                                         : (template?.name || 'Редактирование скрипта'), showTypeSwitch && (_jsxs("span", { style: { display: 'inline-flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 3 }, children: [_jsx("button", { className: "btn btn-sm", style: { background: 'var(--bg-card)', boxShadow: '0 1px 2px rgba(0,0,0,0.08)', fontWeight: 600, fontSize: 12 }, title: "\u0421\u043A\u0440\u0438\u043F\u0442 \u0438\u0437 \u044D\u0442\u0430\u043F\u043E\u0432 \u0441 \u0432\u0435\u0441\u0430\u043C\u0438 \u2014 \u043A\u043B\u0430\u0441\u0441\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0440\u0435\u0436\u0438\u043C", children: "\u042D\u0442\u0430\u043F\u043D\u044B\u0439" }), _jsxs("button", { className: "btn btn-sm", style: { background: 'transparent', color: 'var(--text-muted)', fontSize: 12 }, onClick: onSwitchToFulltext, title: "\u0421\u043A\u0440\u0438\u043F\u0442 \u0438\u0437 \u0431\u043B\u043E\u043A\u043E\u0432 \u043F\u043E\u0434\u0440\u043E\u0431\u043D\u043E\u0433\u043E \u0442\u0435\u043A\u0441\u0442\u0430 \u2014 \u043E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u0441\u043B\u043E\u0432\u043D\u043E\u0433\u043E \u043F\u043E\u043A\u0440\u044B\u0442\u0438\u044F", children: [_jsx(FileText, { size: 12, style: { marginRight: 4, verticalAlign: 'middle' } }), "\u041F\u043E\u043B\u043D\u043E\u0442\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0439"] })] }))] }), _jsxs("div", { style: { display: 'flex', gap: 8, alignItems: 'center' }, children: [_jsxs("button", { className: "btn btn-outline btn-sm", onClick: () => setShowHelp(true), title: "\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0430 \u043F\u043E \u043F\u043E\u043B\u044F\u043C \u0438 \u0441\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044E \u0441\u043A\u0440\u0438\u043F\u0442\u043E\u0432", children: [_jsx(HelpCircle, { size: 13 }), " \u041F\u043E\u043C\u043E\u0449\u044C"] }), isNew && (_jsx("button", { className: "btn btn-outline btn-sm", onClick: () => setResetKey((k) => k + 1), title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u043F\u043E\u043B\u044F \u0444\u043E\u0440\u043C\u044B", children: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C" })), _jsx("button", { className: "btn-icon", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C", children: _jsx(X, { size: 16 }) })] })] }), _jsx("div", { className: "modal-body", style: { padding: 0, display: 'flex', flexDirection: 'column' }, children: _jsx(TemplateEditor, { template: template, onSaved: (id) => onSaved(id), onShowHelp: () => setShowHelp(true) }, isNew ? (draftInfo?.fromAi ? `ai-${resetKey}` : `new-${resetKey}`) : (template?.id || 'none')) })] }), showHelp && _jsx(HelpModal, { mode: "editor", onClose: () => setShowHelp(false) })] }));
 }
-function SelectedScriptPanel({ template, onEdit, initialTab, }) {
-    const [tab, setTab] = useState(initialTab || 'analytics');
+const WEIGHT_STEP = 0.05;
+const round2 = (v) => Math.round(v * 100) / 100;
+const stepKey = (s, i) => s.id || `i${i}`;
+function ScriptView({ template, period, initialTab, onEdit, onDeleted, }) {
+    const queryClient = useQueryClient();
+    const terms = useTerms();
+    const isFulltext = template.script_type === 'fulltext';
+    const [tab, setTab] = useState(initialTab || 'stages');
+    const [showVersions, setShowVersions] = useState(false);
+    const [showTest, setShowTest] = useState(false);
     useEffect(() => { if (initialTab)
         setTab(initialTab); }, [initialTab]);
-    return (_jsxs("div", { className: "main-card", children: [_jsxs("div", { className: "main-card-header", children: [_jsxs("div", { children: [_jsxs("div", { className: "main-title", children: [template.name, template.is_active
-                                        ? _jsx("span", { className: "badge badge-success", children: "\u0410\u043A\u0442\u0438\u0432\u0435\u043D" })
-                                        : _jsx("span", { className: "badge badge-muted", children: "\u0427\u0435\u0440\u043D\u043E\u0432\u0438\u043A" }), template.script_type === 'fulltext' && (_jsxs("span", { className: "badge badge-muted", title: `Полнотекстовый скрипт${template.source_document_name ? ` из ${template.source_document_name}` : ''} — отслеживание покрытия по блокам`, children: [_jsx(FileText, { size: 11, style: { marginRight: 3, verticalAlign: 'middle' } }), "\u041F\u043E\u043B\u043D\u043E\u0442\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0439 \u00B7 ", (template.blocks || []).length, " \u0431\u043B\u043E\u043A\u043E\u0432"] }))] }), _jsx("div", { className: "main-subtitle", children: template.description || 'Без описания' })] }), _jsxs("button", { className: "btn btn-primary btn-sm", onClick: onEdit, children: [_jsx(Edit3, { size: 14 }), " \u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C"] })] }), _jsxs("div", { className: "modal-tabs main-tabs", children: [_jsxs("div", { className: `modal-tab ${tab === 'analytics' ? 'active' : ''}`, onClick: () => setTab('analytics'), children: [_jsx(BarChart3, { size: 14, style: { marginRight: 6, verticalAlign: 'middle' } }), " \u0410\u043D\u0430\u043B\u0438\u0442\u0438\u043A\u0430"] }), _jsxs("div", { className: `modal-tab ${tab === 'versions' ? 'active' : ''}`, onClick: () => setTab('versions'), children: [_jsx(History, { size: 14, style: { marginRight: 6, verticalAlign: 'middle' } }), " \u0412\u0435\u0440\u0441\u0438\u0438"] }), _jsxs("div", { className: `modal-tab ${tab === 'assignments' ? 'active' : ''}`, onClick: () => setTab('assignments'), children: [_jsx(MapPin, { size: 14, style: { marginRight: 6, verticalAlign: 'middle' } }), " \u041D\u0430\u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F"] })] }), _jsxs("div", { className: "main-card-body", children: [tab === 'analytics' && _jsx(AnalyticsPanel, { templateId: template.id }), tab === 'versions' && _jsx(VersionsPanel, { templateId: template.id, onRestored: () => setTab('analytics') }), tab === 'assignments' && _jsx(AssignmentsBlock, { template: template })] })] }));
-}
-function ScriptsSidebar({ templates, selectedId, onSelect, onCreate, onOpenLibrary, onDeleted, isLoading, }) {
-    const queryClient = useQueryClient();
-    const [filter, setFilter] = useState('all');
-    const terms = useTerms();
-    const [editId, setEditId] = useState(null);
-    const [editName, setEditName] = useState('');
-    const patchMut = useMutation({
-        mutationFn: ({ id, is_active }) => scriptsApi.patchTemplate(id, { is_active }),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['script-templates'] });
-        },
+    useEffect(() => { setTab(initialTab || 'stages'); }, [template.id]);
+    const { data: analytics } = useQuery({
+        queryKey: ['template-analytics', template.id, period],
+        queryFn: () => scriptsApi.getTemplateAnalytics(template.id, { days: period }),
     });
-    const renameMut = useMutation({
-        mutationFn: ({ id, name }) => scriptsApi.patchTemplate(id, { name }),
+    const { data: breakdown } = useQuery({
+        queryKey: ['script-breakdown', template.id, period],
+        queryFn: () => dashboardApi.getScriptBreakdown(template.id, period),
+        enabled: !isFulltext,
+    });
+    const { data: stores } = useQuery({ queryKey: ['admin-stores'], queryFn: () => adminApi.getStores() });
+    const stat = useMemo(() => new Map((analytics?.per_step || []).map((p) => [p.step_name, p])), [analytics]);
+    const patchMut = useMutation({
+        mutationFn: (is_active) => scriptsApi.patchTemplate(template.id, { is_active }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['script-templates'] });
-            if (selectedId)
-                queryClient.invalidateQueries({ queryKey: ['script-template-detail', selectedId] });
+            queryClient.invalidateQueries({ queryKey: ['script-template-detail', template.id] });
         },
     });
     const deleteMut = useMutation({
-        mutationFn: (id) => scriptsApi.deleteTemplate(id),
-        onSuccess: (_data, deletedId) => {
+        mutationFn: () => scriptsApi.deleteTemplate(template.id),
+        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['script-templates'] }); onDeleted(); },
+    });
+    // Охват: на всю сеть, на магазины или на отдельных продавцов
+    const storeNames = (template.assigned_stores || [])
+        .map((a) => (stores?.items || []).find((s) => s.id === a.store_id)?.name)
+        .filter(Boolean);
+    const scope = template.applies_to_all_stores
+        ? t('Уровень сети')
+        : storeNames.length
+            ? (storeNames.length <= 2 ? storeNames.join(', ') : L(`${storeNames.length} магазина`, `${storeNames.length} stores`))
+            : (template.assigned_sellers || []).length
+                ? L(`${template.assigned_sellers.length} продавцов`, `${template.assigned_sellers.length} sellers`)
+                : t('Не назначен');
+    const tabs = [
+        { id: 'stages', label: isFulltext ? 'Блоки скрипта' : 'Этапы и веса' },
+        ...(!isFulltext ? [{ id: 'sellers', label: terms.isCafe ? 'Выполнение по бариста' : terms.isPharmacy ? 'Выполнение по фармацевтам' : 'Выполнение по продавцам' }] : []),
+        { id: 'assignments', label: 'Назначения' },
+    ];
+    return (_jsxs("section", { className: "panel sc-view", children: [_jsxs("div", { className: "sc-head", children: [_jsxs("div", { className: "sc-title-row", children: [_jsxs("div", { style: { minWidth: 0 }, children: [_jsx("h2", { className: "sc-title", translate: "no", children: template.name }), template.description && _jsx("p", { className: "sc-desc", translate: "no", children: template.description })] }), _jsxs("div", { className: "sc-actions", children: [_jsxs("button", { type: "button", className: "btn", onClick: () => setShowVersions(true), children: [_jsx(History, { size: 15, "aria-hidden": "true" }), t('Версии')] }), !isFulltext && (_jsxs("button", { type: "button", className: "btn", onClick: () => setShowTest(true), title: t('Прогнать черновик через LLM на реальной записи'), children: [_jsx(PlayCircle, { size: 15, "aria-hidden": "true" }), t('Тест на записи')] })), _jsxs("button", { type: "button", className: "btn btn-primary", onClick: onEdit, children: [_jsx(Edit3, { size: 15, "aria-hidden": "true" }), t('Редактировать')] })] })] }), _jsxs("div", { className: "sc-chips", children: [_jsxs("button", { type: "button", className: "flag is-info sc-chip-btn", onClick: () => setTab('assignments'), title: t('Назначения'), children: [_jsx(MapPin, { "aria-hidden": "true" }), _jsx("span", { translate: storeNames.length ? 'no' : undefined, children: scope })] }), _jsxs("button", { type: "button", role: "switch", "aria-checked": template.is_active, className: `flag ${template.is_active ? 'is-good' : 'is-plain'} sc-chip-btn`, onClick: () => patchMut.mutate(!template.is_active), title: template.is_active ? t('Деактивировать') : t('Активировать'), children: [_jsx("span", { className: `sc-dot ${template.is_active ? 'is-on' : ''}`, "aria-hidden": "true" }), template.is_active ? t('Активен') : t('Черновик')] }), isFulltext && (_jsxs("span", { className: "flag is-plain", title: template.source_document_name || undefined, children: [_jsx(FileText, { "aria-hidden": "true" }), L(`Полнотекстовый · ${(template.blocks || []).length} блоков`, `Full-text · ${(template.blocks || []).length} blocks`)] })), analytics && analytics.conversation_count > 0 && (_jsx("span", { className: "flag is-plain", children: L(`${analytics.conversation_count.toLocaleString(locale)} ${plural(analytics.conversation_count, ['разговор', 'разговора', 'разговоров'], ['', ''])} за период · средний балл ${analytics.avg_script_score != null ? Math.round(analytics.avg_script_score) : '—'}`, `${analytics.conversation_count.toLocaleString(locale)} conversations in period · average ${analytics.avg_script_score != null ? Math.round(analytics.avg_script_score) : '—'}`) }))] }), _jsx("div", { className: "tabs sc-tabs", role: "tablist", children: tabs.map((x) => (_jsxs("button", { type: "button", role: "tab", "aria-selected": tab === x.id, className: `tab ${tab === x.id ? 'active' : ''}`, onClick: () => setTab(x.id), children: [t(x.label), x.count ? _jsx("span", { className: "count", children: L(`${x.count} ${plural(x.count, ['правило', 'правила', 'правил'], ['', ''])}`, `${x.count} ${x.count === 1 ? 'rule' : 'rules'}`) }) : null] }, x.id))) })] }), _jsxs("div", { className: "sc-body", children: [tab === 'stages' && (isFulltext
+                        ? _jsx(BlocksTab, { template: template, stat: stat })
+                        : _jsx(StagesTab, { template: template, stat: stat, breakdown: breakdown })), tab === 'sellers' && (breakdown ? _jsx(SellerHeatmap, { data: breakdown }) : _jsx("div", { className: "muted", children: t('Загрузка...') })), tab === 'assignments' && _jsx(AssignmentsBlock, { template: template }), _jsxs("div", { className: "sc-danger-zone", children: [_jsxs("button", { type: "button", className: "btn btn-ghost cv-danger", onClick: () => {
+                                    if (confirm(L(`Удалить скрипт «${template.name}»? Все его этапы, версии и назначения будут удалены безвозвратно.`, `Delete script “${template.name}”? All its stages, versions and assignments will be permanently removed.`)))
+                                        deleteMut.mutate();
+                                }, children: [_jsx(Trash2, { size: 14, "aria-hidden": "true" }), t('Удалить скрипт')] }), !template.is_active && _jsx("span", { className: "muted", style: { fontSize: 12.5 }, children: L(`Черновик не оценивает разговоры, пока не активирован. Назначьте его ${terms.isTelephony ? 'отделам' : 'магазинам'} и включите.`, 'A draft doesn’t score conversations until activated. Assign it and switch it on.') })] })] }), showVersions && (_jsx(ModalOverlay, { onClose: () => setShowVersions(false), children: _jsxs("div", { className: "modal-card modal-card--wide", children: [_jsxs("div", { className: "modal-header", children: [_jsxs("div", { className: "modal-title", children: [t('Версии'), " \u00B7 ", _jsx("span", { translate: "no", children: template.name })] }), _jsx("button", { className: "btn-icon", onClick: () => setShowVersions(false), "aria-label": t('Закрыть'), children: _jsx(X, { size: 16 }) })] }), _jsx("div", { className: "modal-body", children: _jsx(VersionsPanel, { templateId: template.id, onRestored: () => setShowVersions(false) }) })] }) })), showTest && _jsx(LiveTestDialog, { draft: { name: template.name, steps: template.steps }, onClose: () => setShowTest(false) })] }));
+}
+/** Этапы и веса: формула балла, этапы с весом-степпером, советом, лучшим примером и статистикой. */
+function StagesTab({ template, stat, breakdown }) {
+    const queryClient = useQueryClient();
+    const terms = useTerms();
+    const initial = useMemo(() => Object.fromEntries(template.steps.map((s, i) => [stepKey(s, i), round2(s.weight || 0)])), [template]);
+    const [weights, setWeights] = useState(initial);
+    const [inputs, setInputs] = useState({});
+    useEffect(() => { setWeights(initial); setInputs({}); }, [initial]);
+    const dirty = template.steps.some((s, i) => weights[stepKey(s, i)] !== initial[stepKey(s, i)]);
+    const sum = round2(Object.values(weights).reduce((a, v) => a + v, 0));
+    const sumOk = Math.abs(sum - 1) < 0.011;
+    const byName = new Map((breakdown?.steps || []).map((b) => [b.name, b]));
+    const setW = (key, v) => {
+        setWeights((prev) => ({ ...prev, [key]: Math.max(0, Math.min(1, round2(v))) }));
+        setInputs((prev) => { const n = { ...prev }; delete n[key]; return n; });
+    };
+    const normalize = () => {
+        const norm = normalizeWeights(template.steps.map((s, i) => ({ ...s, weight: weights[stepKey(s, i)] })));
+        setWeights(Object.fromEntries(norm.map((s, i) => [stepKey(s, i), round2(s.weight)])));
+    };
+    const saveMut = useMutation({
+        mutationFn: () => scriptsApi.replaceTemplate(template.id, {
+            name: template.name,
+            description: template.description ?? null,
+            scope: template.scope || 'org_level',
+            context_description: template.context_description ?? null,
+            steps: template.steps.map((s, i) => ({ ...s, weight: weights[stepKey(s, i)] })),
+        }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['script-template-detail', template.id] });
             queryClient.invalidateQueries({ queryKey: ['script-templates'] });
-            onDeleted(deletedId);
+            queryClient.invalidateQueries({ queryKey: ['template-versions', template.id] });
+            queryClient.invalidateQueries({ queryKey: ['script-breakdown', template.id] });
         },
     });
-    const filtered = useMemo(() => {
-        if (filter === 'active')
-            return templates.filter((t) => t.is_active);
-        if (filter === 'drafts')
-            return templates.filter((t) => !t.is_active);
-        return templates;
-    }, [templates, filter]);
-    const counts = {
-        all: templates.length,
-        active: templates.filter((t) => t.is_active).length,
-        drafts: templates.filter((t) => !t.is_active).length,
-    };
-    const commitRename = (id) => {
-        const v = editName.trim();
-        if (v)
-            renameMut.mutate({ id, name: v });
-        setEditId(null);
-    };
-    return (_jsxs("div", { className: "sidebar-card", children: [_jsxs("div", { className: "sidebar-card-header", children: [_jsx("div", { className: "sidebar-card-title", children: "\u0421\u043A\u0440\u0438\u043F\u0442\u044B" }), _jsxs("div", { style: { display: 'flex', gap: 6 }, children: [_jsxs("button", { className: "btn btn-outline btn-sm", onClick: onOpenLibrary, title: "\u0413\u043E\u0442\u043E\u0432\u044B\u0435 \u043E\u0442\u0440\u0430\u0441\u043B\u0435\u0432\u044B\u0435 \u0448\u0430\u0431\u043B\u043E\u043D\u044B \u0438\u043B\u0438 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F \u0441\u043A\u0440\u0438\u043F\u0442\u0430 \u0447\u0435\u0440\u0435\u0437 AI", children: [_jsx(Sparkles, { size: 13 }), " AI / \u0428\u0430\u0431\u043B\u043E\u043D"] }), _jsxs("button", { className: "btn btn-primary btn-sm", onClick: onCreate, title: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043D\u043E\u0432\u044B\u0439 \u0441\u043A\u0440\u0438\u043F\u0442 \u0441 \u043D\u0443\u043B\u044F", children: [_jsx(Plus, { size: 13 }), " \u041D\u043E\u0432\u044B\u0439"] })] })] }), _jsxs("div", { className: "pill-filters", children: [_jsxs("button", { className: `pill ${filter === 'all' ? 'pill--active' : ''}`, onClick: () => setFilter('all'), children: ["\u0412\u0441\u0435 ", _jsx("span", { className: "pill-count", children: counts.all })] }), _jsxs("button", { className: `pill ${filter === 'active' ? 'pill--active' : ''}`, onClick: () => setFilter('active'), children: ["\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 ", _jsx("span", { className: "pill-count", children: counts.active })] }), _jsxs("button", { className: `pill ${filter === 'drafts' ? 'pill--active' : ''}`, onClick: () => setFilter('drafts'), children: ["\u0427\u0435\u0440\u043D\u043E\u0432\u0438\u043A\u0438 ", _jsx("span", { className: "pill-count", children: counts.drafts })] })] }), _jsxs("div", { className: "scripts-list", children: [isLoading && (_jsxs(_Fragment, { children: [_jsx(SkeletonScriptCard, {}), _jsx(SkeletonScriptCard, {}), _jsx(SkeletonScriptCard, {})] })), !isLoading && filtered.map((t) => (_jsxs("div", { className: `script-item ${selectedId === t.id ? 'script-item--selected' : ''}`, onClick: () => editId !== t.id && onSelect(t.id), onDoubleClick: () => { setEditId(t.id); setEditName(t.name); }, children: [_jsx("div", { className: `script-item-icon ${t.is_active ? 'is-active' : 'is-draft'}`, children: _jsx(CheckSquare, { size: 16 }) }), _jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [editId === t.id ? (_jsx("input", { className: "form-input form-input--inline", autoFocus: true, value: editName, onChange: (e) => setEditName(e.target.value), onBlur: () => commitRename(t.id), onKeyDown: (e) => {
-                                            if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                commitRename(t.id);
-                                            }
-                                            if (e.key === 'Escape')
-                                                setEditId(null);
-                                        }, onClick: (e) => e.stopPropagation() })) : (_jsx("div", { className: "script-item-title", children: t.name })), _jsxs("div", { className: "script-item-meta", children: [t.script_type === 'fulltext'
-                                                ? `${t.block_count ?? t.blocks?.length ?? 0} блоков · текст`
-                                                : `${t.step_count ?? t.steps?.length ?? 0} этапов`, ' · ', t.is_active ? 'Активен' : 'Черновик', t.applies_to_all_stores && ` · ${terms.allStores.toLowerCase()}`] })] }), _jsxs("div", { className: "script-item-actions", children: [_jsx("div", { className: `toggle-switch ${t.is_active ? 'on' : ''}`, onClick: (e) => { e.stopPropagation(); patchMut.mutate({ id: t.id, is_active: !t.is_active }); }, title: t.is_active ? 'Активен' : 'Черновик' }), _jsx("button", { className: "btn-icon script-item-delete", onClick: (e) => {
-                                            e.stopPropagation();
-                                            if (confirm(`Удалить скрипт «${t.name}»? Все его этапы, версии и назначения будут удалены безвозвратно.`)) {
-                                                deleteMut.mutate(t.id);
-                                            }
-                                        }, title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043A\u0440\u0438\u043F\u0442", children: _jsx(Trash2, { size: 14 }) })] })] }, t.id))), !isLoading && filtered.length === 0 && (_jsxs("div", { className: "empty-state-card", style: { margin: 12 }, children: [_jsx(BookOpen, { size: 28, style: { opacity: 0.4, marginBottom: 8 } }), _jsx("p", { style: { marginBottom: 12, fontSize: 13 }, children: filter === 'all' ? 'Скриптов пока нет' : filter === 'active' ? 'Нет активных скриптов' : 'Нет черновиков' }), _jsxs("div", { style: { display: 'flex', gap: 8, justifyContent: 'center' }, children: [_jsxs("button", { className: "btn btn-primary btn-sm", onClick: onCreate, children: [_jsx(Plus, { size: 12 }), " \u0421 \u043D\u0443\u043B\u044F"] }), _jsxs("button", { className: "btn btn-outline btn-sm", onClick: onOpenLibrary, children: [_jsx(Sparkles, { size: 12 }), " \u0418\u0437 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0438 / AI"] })] })] }))] }), _jsx("div", { className: "sidebar-card-footer", children: _jsxs("span", { style: { fontSize: 11, color: 'var(--text-muted)' }, children: [_jsx(Command, { size: 11, style: { verticalAlign: 'middle' } }), " + K \u2014 \u0431\u044B\u0441\u0442\u0440\u0430\u044F \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F"] }) })] }));
+    if (template.steps.length === 0) {
+        return _jsx("div", { className: "empty", children: _jsx("p", { children: t('Этапов пока нет') }) });
+    }
+    return (_jsxs(_Fragment, { children: [_jsx(ScoreFormula, { steps: template.steps.map((s, i) => ({ name: s.name, weight: weights[stepKey(s, i)] })), stat: stat }), (dirty || !sumOk) && (_jsxs("div", { className: `sc-savebar ${sumOk ? '' : 'is-bad'}`, role: "status", children: [_jsx("span", { children: sumOk
+                            ? t('Веса изменены. Сохранение создаст новую версию скрипта.')
+                            : L(`Сумма весов ${w2(sum)} — должна быть 1,00.`, `Weights sum to ${sum.toFixed(2)} — must be 1.00.`) }), !sumOk && _jsx("button", { type: "button", className: "btn btn-sm", onClick: normalize, children: t('Нормализовать') }), dirty && _jsx("button", { type: "button", className: "btn btn-sm btn-ghost", onClick: () => { setWeights(initial); setInputs({}); }, children: t('Отменить') }), dirty && (_jsxs("button", { type: "button", className: "btn btn-sm btn-primary", disabled: !sumOk || saveMut.isPending, onClick: () => saveMut.mutate(), children: [_jsx(Save, { size: 13, "aria-hidden": "true" }), saveMut.isPending ? t('Сохранение...') : t('Сохранить')] })), saveMut.isError && _jsx("span", { style: { color: 'var(--crit-ink)' }, children: t('Не удалось сохранить') })] })), template.steps.map((s, i) => {
+                const key = stepKey(s, i);
+                const st = stat.get(s.name);
+                const b = byName.get(s.name);
+                const skip = st?.pass_rate != null ? Math.round(100 - st.pass_rate) : null;
+                const hint = s.recommendation_text || b?.hint;
+                return (_jsxs("div", { className: "step", children: [_jsx("span", { className: "step-num", children: i + 1 }), _jsxs("div", { style: { minWidth: 0 }, children: [_jsxs("div", { className: "step-top", children: [_jsx("span", { className: "step-name", translate: "no", children: s.name }), _jsx("span", { className: "tag tag-neutral", children: s.is_required ? t('обязательный') : t('по ситуации') })] }), s.description && _jsx("p", { className: "step-desc", translate: "no", children: s.description }), hint && (_jsxs("div", { className: "step-rec", children: [_jsx(Lightbulb, { size: 15, "aria-hidden": "true" }), _jsxs("span", { children: [_jsx("b", { children: terms.isCafe ? t('Совет бариста:') : terms.isPharmacy ? L('Совет фармацевту:', 'Tip for the pharmacist:') : t('Совет продавцу:') }), " ", _jsx("span", { translate: "no", children: hint })] })] }))] }), _jsxs("div", { className: "step-side", children: [_jsxs("div", { className: "wctl", children: [_jsx("label", { htmlFor: `w-${key}`, children: t('Вес в балле') }), _jsxs("span", { className: "stepper", children: [_jsx("button", { type: "button", "aria-label": t('Уменьшить вес'), onClick: () => setW(key, weights[key] - WEIGHT_STEP), children: _jsx(Minus, { size: 13 }) }), _jsx("input", { id: `w-${key}`, inputMode: "decimal", value: inputs[key] ?? w2(weights[key]), onChange: (e) => setInputs((prev) => ({ ...prev, [key]: e.target.value })), onBlur: (e) => {
+                                                        const v = parseFloat(e.target.value.replace(',', '.'));
+                                                        if (Number.isFinite(v))
+                                                            setW(key, v > 1 ? v / 100 : v);
+                                                        else
+                                                            setInputs((prev) => { const n = { ...prev }; delete n[key]; return n; });
+                                                    }, onKeyDown: (e) => { if (e.key === 'Enter')
+                                                        e.target.blur(); } }), _jsx("button", { type: "button", "aria-label": t('Увеличить вес'), onClick: () => setW(key, weights[key] + WEIGHT_STEP), children: _jsx(Plus, { size: 13 }) })] })] }), _jsxs("div", { className: "stat-mini", children: [_jsxs("div", { className: "row", children: [_jsx("span", { children: t('Средний балл') }), _jsx(Meter, { score: st?.avg_score ?? null })] }), _jsxs("div", { className: "row", children: [_jsx("span", { children: t('Пропускают') }), _jsx("b", { className: skip != null && skip >= 25 ? 'is-bad' : '', children: skip != null ? `${skip} %` : '—' })] })] })] })] }, key));
+            })] }));
 }
-// ─── Main page ───────────────────────────────────────────────────────────────
+/** Полнотекстовый скрипт: блоки текста и как часто они звучат. */
+function BlocksTab({ template, stat }) {
+    const blocks = [...(template.blocks || [])].sort((a, b) => a.block_order - b.block_order);
+    if (!blocks.length)
+        return _jsx("div", { className: "empty", children: _jsx("p", { children: t('Блоков нет — добавьте хотя бы один') }) });
+    return (_jsxs(_Fragment, { children: [_jsx("p", { className: "muted", style: { fontSize: 13, marginBottom: 6 }, children: t('Процент — доля разговоров, где блок прозвучал (по тексту или своими словами). Ситуативные блоки не входят в балл покрытия.') }), blocks.map((b, i) => {
+                const st = stat.get(b.title);
+                const rate = st?.pass_rate;
+                return (_jsxs("div", { className: "step", children: [_jsx("span", { className: "step-num", children: i + 1 }), _jsxs("div", { style: { minWidth: 0 }, children: [_jsxs("div", { className: "step-top", children: [_jsx("span", { className: "step-name", translate: "no", children: b.title }), _jsx("span", { className: "tag tag-neutral", children: b.is_mandatory ? t('обязательный') : t('ситуативный') })] }), _jsx("p", { className: "step-desc sc-clamp", translate: "no", children: b.text })] }), _jsx("div", { className: "step-side", children: _jsxs("div", { className: "stat-mini", children: [_jsxs("div", { className: "row", children: [_jsx("span", { children: t('Прозвучал') }), _jsx("b", { className: rate != null && rate < 50 ? 'is-bad' : '', children: rate != null ? `${Math.round(rate)} %` : '—' })] }), _jsxs("div", { className: "row", children: [_jsx("span", { children: t('Разговоров') }), _jsx("b", { children: st?.total_count ?? '—' })] })] }) })] }, b.id || i));
+            })] }));
+}
+// ─── Список скриптов слева: карточки ──────────────────────────────────────────
+function ScriptCard({ template, selected, period, onSelect }) {
+    const isFulltext = template.script_type === 'fulltext';
+    const { data } = useQuery({
+        queryKey: ['template-analytics', template.id, period],
+        queryFn: () => scriptsApi.getTemplateAnalytics(template.id, { days: period }),
+        staleTime: 60000,
+    });
+    const parts = [
+        isFulltext
+            ? L(`${template.block_count ?? 0} блоков · текст`, `${template.block_count ?? 0} blocks · text`)
+            : L(`${template.step_count ?? 0} этапов`, `${template.step_count ?? 0} stages`),
+        template.seller_count ? L(`${template.seller_count} продавцов`, `${template.seller_count} sellers`) : null,
+    ].filter(Boolean);
+    return (_jsxs("button", { type: "button", className: "rail-card", "aria-current": selected ? 'true' : undefined, onClick: onSelect, children: [_jsx("span", { className: "rail-name", translate: "no", children: template.name }), _jsx("span", { className: "rail-meta", children: parts.join(' · ') }), template.description && !selected && _jsx("span", { className: "rail-ctx", translate: "no", children: template.description }), _jsx("span", { className: "rail-foot", children: !template.is_active
+                    ? _jsxs(_Fragment, { children: [_jsx("span", { className: "flag is-plain", children: t('Черновик') }), _jsx("span", { className: "muted", style: { fontSize: 12 }, children: t('не оценивает разговоры') })] })
+                    : data && data.conversation_count > 0
+                        ? _jsxs(_Fragment, { children: [_jsx(Meter, { score: data.avg_script_score }), _jsx("span", { className: "muted", style: { fontSize: 12 }, children: t('средний балл') })] })
+                        : _jsx("span", { className: "muted", style: { fontSize: 12 }, children: t('Нет разговоров за период') }) })] }));
+}
+function OrgRules() {
+    const terms = useTerms();
+    const [tab, setTab] = useState('upsell');
+    const { data: upsellRules } = useQuery({ queryKey: ['upsell-rules'], queryFn: () => scriptsApi.listUpsellRules() });
+    const { data: crossRules } = useQuery({ queryKey: ['cross-sell-rules'], queryFn: () => scriptsApi.listCrossSellRules() });
+    const tabs = [
+        { id: 'upsell', label: 'Апсейл', count: upsellRules?.length },
+        { id: 'crosssell', label: 'Кросс-сейл', count: crossRules?.length },
+        { id: 'objections', label: 'Типы возражений' },
+    ];
+    return (_jsxs("section", { className: "panel sc-view sc-org", "aria-labelledby": "sc-org-title", children: [_jsxs("div", { className: "sc-head", children: [_jsx("h2", { id: "sc-org-title", className: "sc-title", children: t('Правила для всех скриптов') }), _jsx("p", { className: "sc-desc", children: terms.isCafe
+                            ? L('Допродажа и возражения проверяются в каждом разговоре, какой бы скрипт ни применялся. Правило можно ограничить точками и бариста.', 'Add-on sales and objections are checked in every conversation, whatever script applies. A rule can be limited to locations and baristas.')
+                            : terms.isPharmacy
+                                ? L('Допродажа и возражения проверяются в каждом разговоре, какой бы скрипт ни применялся. Правило можно ограничить аптеками и фармацевтами.', 'Add-on sales and objections are checked in every conversation, whatever script applies. A rule can be limited to pharmacies and pharmacists.')
+                                : t('Допродажа и возражения проверяются в каждом разговоре, какой бы скрипт ни применялся. Правило можно ограничить магазинами и продавцами.') }), _jsx("div", { className: "tabs sc-tabs", role: "tablist", children: tabs.map((x) => (_jsxs("button", { type: "button", role: "tab", "aria-selected": tab === x.id, className: `tab ${tab === x.id ? 'active' : ''}`, onClick: () => setTab(x.id), children: [t(x.label), x.count ? _jsx("span", { className: "count", children: L(`${x.count} ${plural(x.count, ['правило', 'правила', 'правил'], ['', ''])}`, `${x.count} ${x.count === 1 ? 'rule' : 'rules'}`) }) : null] }, x.id))) })] }), _jsx("div", { className: "sc-body", children: _jsxs("div", { className: "sc-stack", children: [tab === 'upsell' && _jsx(RulesTable, { kind: "upsell" }), tab === 'crosssell' && _jsx(RulesTable, { kind: "crosssell" }), tab === 'objections' && _jsx(ObjectionTypesTable, {})] }) })] }));
+}
 export function ScriptsPage() {
     const queryClient = useQueryClient();
+    const { period } = useOutletContext();
     const [selectedId, setSelectedId] = useState(null);
     const [forcedTab, setForcedTab] = useState(undefined);
     const [showLibrary, setShowLibrary] = useState(false);
-    const [showRulesHelp, setShowRulesHelp] = useState(false);
-    const [rulesTab, setRulesTab] = useState('upsell');
     const [editorMode, setEditorMode] = useState(null);
     const [aiDraft, setAiDraft] = useState(null);
     const [docDraft, setDocDraft] = useState(null);
@@ -675,6 +750,14 @@ export function ScriptsPage() {
         queryKey: ['script-templates'],
         queryFn: () => scriptsApi.getTemplates(),
     });
+    // Активные — первыми; без выбора открываем первый скрипт, как в концепте
+    const sorted = useMemo(() => [...(templates || [])].sort((a, b) => Number(b.is_active) - Number(a.is_active)), [templates]);
+    useEffect(() => {
+        if (!selectedId && !editorMode && !docDraft && sorted.length)
+            setSelectedId(sorted[0].id);
+        if (selectedId && templates && !templates.some((x) => x.id === selectedId))
+            setSelectedId(sorted[0]?.id ?? null);
+    }, [sorted, selectedId, templates, editorMode, docDraft]);
     const { data: selectedDetail } = useQuery({
         queryKey: ['script-template-detail', selectedId],
         queryFn: () => scriptsApi.getTemplate(selectedId),
@@ -707,16 +790,14 @@ export function ScriptsPage() {
     const handleAiDraft = (draft) => {
         setAiDraft(draft);
         setEditorMode('ai');
-        setSelectedId(null);
     };
-    const handleDocDraft = (draft) => {
-        setDocDraft(draft);
-        setSelectedId(null);
-    };
+    const handleDocDraft = (draft) => setDocDraft(draft);
+    const startNew = () => { setEditorMode('new'); setAiDraft(null); };
     // Редактирование существующего fulltext-скрипта идёт через FulltextEditorDialog
     const editingFulltext = editorMode === 'edit' && selectedDetail?.script_type === 'fulltext';
-    return (_jsxs("div", { className: "scripts-page", children: [_jsxs("div", { className: "scripts-layout", children: [_jsx(ScriptsSidebar, { templates: templates || [], selectedId: selectedId, onSelect: (id) => { setSelectedId(id); setForcedTab(undefined); }, onCreate: () => { setEditorMode('new'); setAiDraft(null); setSelectedId(null); }, onOpenLibrary: () => setShowLibrary(true), onDeleted: (id) => { if (id === selectedId)
-                            setSelectedId(null); }, isLoading: templatesLoading }), selectedDetail ? (_jsx(SelectedScriptPanel, { template: selectedDetail, onEdit: () => setEditorMode('edit'), initialTab: forcedTab })) : (_jsx("div", { className: "main-card main-card--empty", children: _jsxs("div", { className: "empty-state-card", children: [_jsx(BookOpen, { size: 36, style: { color: 'var(--text-muted)', marginBottom: 12, opacity: 0.4 } }), _jsx("p", { style: { fontWeight: 500, color: 'var(--text)', marginBottom: 6 }, children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043A\u0440\u0438\u043F\u0442 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430" }), _jsx("p", { style: { fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 16 }, children: "\u0417\u0434\u0435\u0441\u044C \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u0430\u043D\u0430\u043B\u0438\u0442\u0438\u043A\u0430, \u0438\u0441\u0442\u043E\u0440\u0438\u044F \u0432\u0435\u0440\u0441\u0438\u0439 \u0438 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0430\u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439." }), _jsxs("div", { style: { display: 'flex', gap: 8, justifyContent: 'center' }, children: [_jsxs("button", { className: "btn btn-primary btn-sm", onClick: () => { setEditorMode('new'); setAiDraft(null); }, children: [_jsx(Plus, { size: 12 }), " \u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0441\u043A\u0440\u0438\u043F\u0442"] }), _jsxs("button", { className: "btn btn-outline btn-sm", onClick: () => setShowLibrary(true), children: [_jsx(Sparkles, { size: 12 }), " \u0428\u0430\u0431\u043B\u043E\u043D\u044B / AI"] })] })] }) }))] }), _jsxs("div", { className: "rules-section", children: [_jsxs("div", { className: "rules-tabs", children: [_jsxs("div", { className: `rules-tab ${rulesTab === 'upsell' ? 'rules-tab--active' : ''}`, onClick: () => setRulesTab('upsell'), children: ["\u0410\u043F\u0441\u0435\u0439\u043B", _jsx(HelpTooltip, { content: "\u041F\u0440\u043E\u0434\u0430\u0436\u0430 \u0431\u043E\u043B\u0435\u0435 \u0434\u043E\u0440\u043E\u0433\u043E\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 \u0442\u043E\u0433\u043E \u0436\u0435 \u043F\u0440\u043E\u0434\u0443\u043A\u0442\u0430 (iPhone 15 \u2192 15 Pro)." })] }), _jsxs("div", { className: `rules-tab ${rulesTab === 'crosssell' ? 'rules-tab--active' : ''}`, onClick: () => setRulesTab('crosssell'), children: ["\u041A\u0440\u043E\u0441\u0441-\u0441\u0435\u0439\u043B", _jsx(HelpTooltip, { content: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0441\u043E\u043F\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0445 \u0442\u043E\u0432\u0430\u0440\u043E\u0432 \u043A \u043E\u0441\u043D\u043E\u0432\u043D\u043E\u0439 \u043F\u043E\u043A\u0443\u043F\u043A\u0435 (\u043D\u043E\u0443\u0442\u0431\u0443\u043A \u2192 \u0441\u0443\u043C\u043A\u0430, \u043C\u044B\u0448\u044C)." })] }), _jsxs("div", { className: `rules-tab ${rulesTab === 'objections' ? 'rules-tab--active' : ''}`, onClick: () => setRulesTab('objections'), children: ["\u0422\u0438\u043F\u044B \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u0439", _jsx(HelpTooltip, { content: "\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A \u0442\u0438\u043F\u043E\u0432, \u043F\u043E \u043A\u043E\u0442\u043E\u0440\u044B\u043C AI \u043A\u043B\u0430\u0441\u0441\u0438\u0444\u0438\u0446\u0438\u0440\u0443\u0435\u0442 \u0432\u043E\u0437\u0440\u0430\u0436\u0435\u043D\u0438\u044F \u043A\u043B\u0438\u0435\u043D\u0442\u043E\u0432. \u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0441\u0432\u043E\u0438 \u043E\u0442\u0440\u0430\u0441\u043B\u0435\u0432\u044B\u0435 \u0442\u0438\u043F\u044B \u0441 \u043F\u0440\u0438\u043C\u0435\u0440\u0430\u043C\u0438 \u0444\u0440\u0430\u0437." })] }), _jsxs("button", { className: "btn btn-outline btn-sm", style: { marginLeft: 'auto' }, onClick: () => setShowRulesHelp(true), children: [_jsx(HelpCircle, { size: 12 }), " \u041F\u043E\u0434\u0440\u043E\u0431\u043D\u0435\u0435"] })] }), rulesTab === 'upsell' && _jsx(RulesTable, { kind: "upsell" }), rulesTab === 'crosssell' && _jsx(RulesTable, { kind: "crosssell" }), rulesTab === 'objections' && _jsx(ObjectionTypesTable, {})] }), _jsx(CommandPalette, { scripts: (templates || []).map((t) => ({ id: t.id, name: t.name, is_active: t.is_active })), onCreate: () => { setEditorMode('new'); setAiDraft(null); setSelectedId(null); }, onOpenLibrary: () => setShowLibrary(true), onSelectScript: (id) => { setSelectedId(id); setForcedTab('analytics'); }, onJumpAssignments: (id) => { setSelectedId(id); setForcedTab('assignments'); } }), editorMode && !editingFulltext && (_jsx(EditorDialog, { template: editorTemplate, isNew: editorMode !== 'edit', draftInfo: { fromAi: editorMode === 'ai' }, onClose: closeEditor, onSaved: handleEditorSaved, onSwitchToFulltext: () => {
+    const total = templates?.length || 0;
+    const active = (templates || []).filter((x) => x.is_active).length;
+    return (_jsxs("div", { className: "scripts-page", children: [_jsx(PageSubtitle, { children: L(`${total} скриптов · ${active} активных · оценка каждого разговора по этапам`, `${total} scripts · ${active} active · every conversation scored stage by stage`) }), _jsxs(PageActions, { children: [_jsxs("button", { type: "button", className: "btn", onClick: () => setShowLibrary(true), title: t('Готовые отраслевые шаблоны или генерация скрипта через AI'), children: [_jsx(Sparkles, { size: 15, "aria-hidden": "true" }), t('Шаблоны и AI')] }), _jsxs("button", { type: "button", className: "btn btn-primary", onClick: startNew, children: [_jsx(Plus, { size: 15, "aria-hidden": "true" }), t('Новый скрипт')] })] }), _jsxs("div", { className: "sc-grid", children: [_jsxs("nav", { className: "rail", "aria-label": t('Скрипты'), children: [templatesLoading && _jsxs(_Fragment, { children: [_jsx(SkeletonScriptCard, {}), _jsx(SkeletonScriptCard, {})] }), sorted.map((x) => (_jsx(ScriptCard, { template: x, selected: x.id === selectedId, period: period, onSelect: () => { setSelectedId(x.id); setForcedTab(undefined); } }, x.id))), _jsxs("button", { type: "button", className: "rail-add", onClick: startNew, children: [_jsx(Plus, { size: 15, "aria-hidden": "true" }), t('Новый скрипт')] })] }), selectedDetail ? (_jsx(ScriptView, { template: selectedDetail, period: period, initialTab: forcedTab, onEdit: () => setEditorMode('edit'), onDeleted: () => setSelectedId(null) })) : !templatesLoading && total === 0 ? (_jsx("section", { className: "panel", children: _jsxs("div", { className: "empty", children: [_jsx(BookOpen, { size: 32, "aria-hidden": "true", style: { color: 'var(--ink-4)', margin: '0 auto 10px' } }), _jsx("h3", { children: t('Скриптов пока нет') }), _jsx("p", { children: t('Скрипт — это список этапов, которые продавец должен пройти в разговоре. Начните с готового шаблона или опишите задачу — AI соберёт черновик.') }), _jsxs("div", { style: { display: 'flex', gap: 8, justifyContent: 'center' }, children: [_jsxs("button", { className: "btn btn-primary", onClick: () => setShowLibrary(true), children: [_jsx(Sparkles, { size: 14, "aria-hidden": "true" }), t('Шаблоны и AI')] }), _jsxs("button", { className: "btn", onClick: startNew, children: [_jsx(Plus, { size: 14, "aria-hidden": "true" }), t('С нуля')] })] })] }) })) : (_jsx("section", { className: "panel", children: _jsx("div", { className: "empty", children: _jsx("p", { className: "muted", children: t('Загрузка...') }) }) }))] }), _jsx(OrgRules, {}), _jsx(CommandPalette, { scripts: (templates || []).map((x) => ({ id: x.id, name: x.name, is_active: x.is_active })), onCreate: startNew, onOpenLibrary: () => setShowLibrary(true), onSelectScript: (id) => { setSelectedId(id); setForcedTab('stages'); }, onJumpAssignments: (id) => { setSelectedId(id); setForcedTab('assignments'); } }), editorMode && !editingFulltext && (_jsx(EditorDialog, { template: editorTemplate, isNew: editorMode !== 'edit', draftInfo: { fromAi: editorMode === 'ai' }, onClose: closeEditor, onSaved: handleEditorSaved, onSwitchToFulltext: () => {
                     closeEditor();
                     setDocDraft({ name: '', description: '', full_text: null, source_document_name: null, blocks: [] });
                 } })), editingFulltext && selectedDetail && (_jsx(FulltextEditorDialog, { templateId: selectedDetail.id, initial: {
@@ -727,5 +808,5 @@ export function ScriptsPage() {
                     blocks: (selectedDetail.blocks || []).map((b) => ({
                         title: b.title, text: b.text, block_type: b.block_type, is_mandatory: b.is_mandatory,
                     })),
-                }, onClose: closeEditor, onSaved: handleEditorSaved })), docDraft && (_jsx(FulltextEditorDialog, { templateId: null, initial: docDraft, onClose: () => setDocDraft(null), onSaved: (id) => { setDocDraft(null); handleEditorSaved(id); } })), showLibrary && (_jsx(LibraryDialog, { onClose: () => setShowLibrary(false), onCreated: handlePresetCreated, onUseDraft: handleAiDraft, onUseDocDraft: handleDocDraft })), showRulesHelp && _jsx(HelpModal, { mode: "rules", onClose: () => setShowRulesHelp(false) })] }));
+                }, onClose: closeEditor, onSaved: handleEditorSaved })), docDraft && (_jsx(FulltextEditorDialog, { templateId: null, initial: docDraft, onClose: () => setDocDraft(null), onSaved: (id) => { setDocDraft(null); handleEditorSaved(id); } })), showLibrary && (_jsx(LibraryDialog, { onClose: () => setShowLibrary(false), onCreated: handlePresetCreated, onUseDraft: handleAiDraft, onUseDocDraft: handleDocDraft }))] }));
 }

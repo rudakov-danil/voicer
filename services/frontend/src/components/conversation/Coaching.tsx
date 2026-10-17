@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore'
 import { toast } from '@/components/ui/Toast'
 import { clock } from '@/components/ui/Fingerprint'
 import type { CoachingItem } from '@/types'
+import { useTerms } from '@/lib/terms'
 import { t, L, locale } from '@/i18n'
 
 /* «Разобрать с продавцом» (ui-concept/conversation.html): разговор попадает в план
@@ -25,6 +26,7 @@ export function useCoaching(conversationId: string) {
 
 /** Кнопка в шапке разговора: добавить в план разбора или убрать из него. */
 export function ReviewButton({ conversationId, sellerName }: { conversationId: string; sellerName?: string | null }) {
+  const terms = useTerms()
   const { items, refresh } = useCoaching(conversationId)
   const planned = items.find((i) => !i.comment && i.status === 'open')
 
@@ -60,7 +62,7 @@ export function ReviewButton({ conversationId, sellerName }: { conversationId: s
   }
   return (
     <button type="button" className="btn btn-primary" disabled={add.isPending} onClick={() => add.mutate()}>
-      <ListChecks size={15} aria-hidden="true" />{t('Разобрать с продавцом')}
+      <ListChecks size={15} aria-hidden="true" />{t(terms.reviewWith)}
     </button>
   )
 }
@@ -73,6 +75,7 @@ export function CoachingComments({ conversationId, sellerName, now, onSeek }: {
   now: number
   onSeek: (sec: number) => void
 }) {
+  const terms = useTerms()
   const { items, refresh } = useCoaching(conversationId)
   const userId = useAuthStore((s) => s.user?.id)
   const role = useAuthStore((s) => s.user?.role)
@@ -106,11 +109,13 @@ export function CoachingComments({ conversationId, sellerName, now, onSeek }: {
     <section className="panel cv-comment" aria-labelledby="cv-comment-title">
       <div className="panel-head">
         <div>
-          <h2 id="cv-comment-title" className="panel-title">{t('Комментарий продавцу')}</h2>
+          <h2 id="cv-comment-title" className="panel-title">{terms.isCafe ? t('Комментарий бариста') : terms.isPharmacy ? L('Комментарий фармацевту', 'Comment for the pharmacist') : t('Комментарий продавцу')}</h2>
           <div className="panel-sub">
             {sellerName
               ? L(`${sellerName} · попадёт в план разбора на странице «Команда»`, `${sellerName} · goes to the coaching plan on the Team page`)
-              : t('Попадёт в план разбора продавца на странице «Команда»')}
+              : terms.isCafe ? t('Попадёт в план разбора бариста на странице «Команда»')
+                : terms.isPharmacy ? L('Попадёт в план разбора фармацевта на странице «Команда»', 'Goes to the pharmacist’s coaching plan on the Team page')
+                : t('Попадёт в план разбора продавца на странице «Команда»')}
           </div>
         </div>
       </div>

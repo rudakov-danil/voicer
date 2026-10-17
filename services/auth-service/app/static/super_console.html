@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Voicer · техническая консоль</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --text: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+    --accent: #3b5bdb; --accent-text: #fff; --ok: #2b8a3e; --bad: #c92a2a; --warn: #e67700;
+    --chip: #eef1f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171d; --panel: #1c2028; --text: #e6e9ef; --muted: #98a0b3; --line: #2c323d;
+      --accent: #5c7cfa; --accent-text: #fff; --ok: #51cf66; --bad: #ff6b6b; --warn: #ffa94d;
+      --chip: #262b35;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--panel);
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header .sp { flex: 1; }
+  nav { display: flex; gap: 4px; padding: 8px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+        overflow-x: auto; }
+  nav button { background: none; border: 0; color: var(--muted); padding: 8px 12px; border-radius: 6px;
+               cursor: pointer; font: inherit; white-space: nowrap; }
+  nav button.on { background: var(--chip); color: var(--text); font-weight: 600; }
+  main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .bar h2 { margin: 0; font-size: 18px; }
+  .bar .sp { flex: 1; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em;
+       background: var(--panel); position: sticky; top: 0; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--chip); font-size: 12px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  button.btn, a.btn { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 6px;
+                      padding: 7px 14px; cursor: pointer; font: inherit; text-decoration: none; }
+  button.ghost { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px;
+                 padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+  button.ghost:hover { border-color: var(--accent); }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  input, select, textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+                            border-radius: 6px; padding: 7px 9px; width: 100%; }
+  label { display: block; margin-bottom: 10px; }
+  label span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  label.check { display: flex; gap: 8px; align-items: center; }
+  label.check input { width: auto; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text);
+           padding: 20px; width: min(520px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h3 { margin: 0 0 14px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .err { color: var(--bad); margin: 8px 0; min-height: 1em; }
+  #login { max-width: 360px; margin: 12vh auto; }
+  #toast { position: fixed; right: 16px; bottom: 16px; background: var(--text); color: var(--bg); padding: 10px 14px;
+           border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 420px; }
+  #toast.show { opacity: .95; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .tile b { display: block; font-size: 13px; }
+  @media (max-width: 640px) { main { padding: 12px 16px; } .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<dialog id="dlg"><form id="dlgForm" method="dialog"></form></dialog>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const API = "/api/v1/auth/super";
+const TOKEN_KEY = "voiceiq-super";
+const INDUSTRIES = ["", "coffee", "pharmacy", "electronics", "clothing", "cosmetics", "furniture", "telecom", "generic"];
+const CURRENCIES = ["", "RUB", "KZT", "UZS", "KGS", "BYN", "USD", "EUR"];
+const ROLES = { director: "директор", admin: "админ", rop: "РОП", manager: "менеджер" };
+const STATUS_RU = {
+  processing: "обработка", mobile_queued: "моб. очередь", mobile_processing: "моб. обработка",
+  segmented: "нарезана", transcribed: "распознана", analyzed: "проанализирована", failed: "ошибка",
+  filtered: "отсеяна"
+};
+
+let token = null;
+try { token = sessionStorage.getItem(TOKEN_KEY); } catch (e) {}
+let me = null, orgs = [], orgFilter = "", tab = "system";
+try { tab = sessionStorage.getItem(TOKEN_KEY + "-tab") || "system"; } catch (e) {}
+const cache = {};
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const dt = v => v ? new Date(v).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "—";
+const yes = v => v ? '<span class="ok">да</span>' : '<span class="bad">нет</span>';
+const active = v => v ? '<span class="chip ok">активен</span>' : '<span class="chip bad">отключён</span>';
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+async function api(path, opts = {}) {
+  const resp = await fetch(API + path, {
+    method: opts.method || "GET",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (resp.status === 401 && path !== "/login") { logout(); throw new Error("Сессия истекла, войдите снова"); }
+  let data = null;
+  try { data = await resp.json(); } catch (e) {}
+  if (!resp.ok) {
+    let d = data && data.detail;
+    if (Array.isArray(d)) d = d.map(x => (x.loc || []).slice(1).join(".") + ": " + x.msg).join("; ");
+    throw new Error(d || ("Ошибка " + resp.status));
+  }
+  return data;
+}
+
+function logout() {
+  token = null; me = null;
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  renderLogin();
+}
+
+// ---------- вход ----------
+
+function renderLogin() {
+  $("#app").innerHTML = `
+    <div id="login" class="card">
+      <h2 style="margin-top:0">Техническая консоль</h2>
+      <form id="lf">
+        <label><span>Email</span><input name="email" type="email" autocomplete="username" required></label>
+        <label><span>Пароль</span><input name="password" type="password" autocomplete="current-password" required></label>
+        <div class="err" id="lerr"></div>
+        <button class="btn" type="submit">Войти</button>
+      </form>
+    </div>`;
+  $("#lf").onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      const r = await api("/login", { method: "POST", body: { email: f.get("email"), password: f.get("password") } });
+      token = r.access_token;
+      try { sessionStorage.setItem(TOKEN_KEY, token); } catch (e) {}
+      boot();
+    } catch (err) { $("#lerr").textContent = err.message === "Invalid credentials" ? "Неверный email или пароль" : err.message; }
+  };
+}
+
+// ---------- каркас ----------
+
+const TABS = [
+  ["system", "Состояние"], ["orgs", "Организации"], ["users", "Пользователи"], ["stores", "Магазины"],
+  ["sellers", "Продавцы"], ["devices", "Бейджи"], ["licenses", "Лицензии"], ["admins", "Тех. админы"],
+];
+
+async function boot() {
+  try { me = await api("/me"); } catch (e) { return renderLogin(); }
+  await loadOrgs();
+  $("#app").innerHTML = `
+    <header>
+      <h1>Voicer · техническая консоль</h1>
+      <span class="sp"></span>
+      <label style="margin:0;min-width:220px"><select id="orgSel"></select></label>
+      <span class="muted">${esc(me.email)}</span>
+      <button class="ghost" id="out">Выйти</button>
+    </header>
+    <nav id="nav">${TABS.map(([k, v]) => `<button data-t="${k}">${v}</button>`).join("")}</nav>
+    <main id="main"></main>`;
+  $("#out").onclick = logout;
+  $("#nav").onclick = e => { const b = e.target.closest("button"); if (b) { tab = b.dataset.t; show(); } };
+  fillOrgSelect();
+  $("#orgSel").onchange = e => { orgFilter = e.target.value; show(); };
+  show();
+}
+
+async function loadOrgs() { orgs = (await api("/organizations")).items; }
+
+function fillOrgSelect() {
+  $("#orgSel").innerHTML = `<option value="">Все организации</option>` +
+    orgs.map(o => `<option value="${o.id}" ${o.id === orgFilter ? "selected" : ""}>${esc(o.name)} (${esc(o.slug)})</option>`).join("");
+}
+
+const orgName = id => (orgs.find(o => o.id === id) || {}).name || "—";
+const q = () => orgFilter ? "?organization_id=" + orgFilter : "";
+
+async function show() {
+  try { sessionStorage.setItem(TOKEN_KEY + "-tab", tab); } catch (e) {}
+  document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.t === tab));
+  const main = $("#main");
+  main.innerHTML = `<p class="muted">Загрузка…</p>`;
+  try { await VIEWS[tab](main); } catch (e) { main.innerHTML = `<div class="card bad">${esc(e.message)}</div>`; }
+}
+
+function table(cols, rows, actions) {
+  if (!rows.length) return `<div class="card muted">Пусто</div>`;
+  return `<div class="wrap"><table><thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}${actions ? "<th></th>" : ""}</tr></thead>
+    <tbody>${rows.map((r, i) => `<tr>${cols.map(c => `<td class="${c[2] || ""}">${c[1](r)}</td>`).join("")}
+      ${actions ? `<td><div class="acts">${actions(r, i)}</div></td>` : ""}</tr>`).join("")}</tbody></table></div>`;
+}
+
+function bar(title, btn) {
+  return `<div class="bar"><h2>${title}</h2><span class="sp"></span>${btn ? `<button class="btn" id="add">${btn}</button>` : ""}</div>`;
+}
+
+function bindRows(main, rows, handlers) {
+  main.querySelectorAll("[data-a]").forEach(b => {
+    b.onclick = () => handlers[b.dataset.a](rows[+b.dataset.i]);
+  });
+}
+
+// ---------- диалог-форма ----------
+
+function field(f, value) {
+  const v = value ?? f.value ?? "";
+  if (f.type === "check") return `<label class="check"><input type="checkbox" name="${f.name}" ${v ? "checked" : ""}> ${f.label}</label>`;
+  if (f.type === "select") return `<label><span>${f.label}</span><select name="${f.name}">${f.options.map(([k, t]) =>
+    `<option value="${esc(k)}" ${String(k) === String(v) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`;
+  if (f.type === "textarea") return `<label><span>${f.label}</span><textarea name="${f.name}" rows="3">${esc(v)}</textarea></label>`;
+  return `<label><span>${f.label}</span><input name="${f.name}" type="${f.type || "text"}" value="${esc(v)}"
+    ${f.required ? "required" : ""} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ""}
+    ${f.type === "password" ? 'autocomplete="new-password" minlength="8"' : ""}></label>`;
+}
+
+function form(title, fields, values, onSubmit, note) {
+  const dlg = $("#dlg"), fm = $("#dlgForm");
+  const gen = form.gen = (form.gen || 0) + 1;   // onSubmit может открыть следующую форму
+  fm.innerHTML = `<h3>${title}</h3>${note ? `<p class="muted" style="margin-top:-6px">${note}</p>` : ""}
+    ${fields.map(f => f.html || field(f, values ? values[f.name] : undefined)).join("")}
+    <div class="err" id="ferr"></div>
+    <div class="acts"><button class="btn" type="submit" value="ok">Сохранить</button>
+    <button class="ghost" type="button" id="fcancel">Отмена</button></div>`;
+  $("#fcancel").onclick = () => dlg.close();
+  fm.onsubmit = async e => {
+    e.preventDefault();
+    const out = {};
+    for (const f of fields) {
+      if (!f.name) continue;
+      const el = fm.elements[f.name];
+      if (!el) continue;
+      if (f.type === "check") out[f.name] = el.checked;
+      else {
+        let v = el.value.trim();
+        if (f.type === "password" && !v) continue;          // пустой пароль — не менять
+        if (f.type === "datetime-local") v = v ? new Date(v).toISOString() : null;
+        else if (v === "" && f.nullable) v = null;
+        else if (v === "" && f.skipEmpty) continue;
+        out[f.name] = v;
+      }
+    }
+    try { await onSubmit(out); if (form.gen === gen) dlg.close(); }
+    catch (err) { if (form.gen === gen) $("#ferr").textContent = err.message; else toast(err.message); }
+  };
+  if (!dlg.open) dlg.showModal();
+  const first = fm.querySelector("input, select"); if (first) first.focus();
+}
+
+function confirmDo(msg, fn) { if (confirm(msg)) fn().catch(e => toast(e.message)); }
+
+async function storesFor(orgId) {
+  const key = "stores:" + orgId;
+  if (!cache[key]) cache[key] = (await api("/stores?organization_id=" + orgId)).items;
+  return cache[key];
+}
+async function sellersFor(orgId) {
+  const key = "sellers:" + orgId;
+  if (!cache[key]) cache[key] = (await api("/sellers?organization_id=" + orgId)).items;
+  return cache[key];
+}
+function dropCache() { for (const k in cache) delete cache[k]; }
+
+function orgOptions(withEmpty) {
+  return (withEmpty ? [["", "—"]] : []).concat(orgs.map(o => [o.id, `${o.name} (${o.slug})`]));
+}
+
+async function pickOrg(title) {
+  if (orgFilter) return orgFilter;
+  return new Promise(resolve => {
+    form(title, [{ name: "organization_id", label: "Организация", type: "select", options: orgOptions() }], null,
+      async v => resolve(v.organization_id));
+  });
+}
+
+// ---------- разделы ----------
+
+const VIEWS = {};
+
+VIEWS.system = async main => {
+  const s = await api("/system");
+  const stuck = s.stuck_recordings;
+  main.innerHTML = `${bar("Состояние сервиса")}
+    <p class="muted">Проверено ${dt(s.checked_at)}. Воркеры (stitch, transcribe, diarize, analyze, cache) HTTP не слушают —
+      об их работе видно по зависшим записям ниже.</p>
+    <div class="tiles">${s.services.map(x => `<div class="tile"><b>${esc(x.name)}</b>
+      ${x.ok ? `<span class="ok">● работает</span>` : `<span class="bad">● не отвечает</span>`}
+      <span class="muted"> ${x.status ?? esc(x.error || "")} · ${x.ms} мс</span></div>`).join("")}</div>
+    <h3>Записи по статусам</h3>
+    ${table([["Статус", r => esc(STATUS_RU[r.status] || r.status) + ` <span class="muted mono">${esc(r.status)}</span>`],
+             ["Всего", r => r.count, "num"]], s.recordings_by_status)}
+    <h3>За последние 24 часа</h3>
+    ${table([["Организация", r => esc(r.organization_name || "—")], ["Статус", r => esc(STATUS_RU[r.status] || r.status)],
+             ["Записей", r => r.count, "num"]], s.last_24h)}
+    <h3>${stuck.length ? `<span class="warn">Зависли больше часа: ${stuck.length}</span>` : "Зависших записей нет"}</h3>
+    ${stuck.length ? table([["Запись", r => `<span class="mono">${esc(r.id)}</span>`], ["Организация", r => esc(r.organization_name || "—")],
+       ["Источник", r => esc(r.source)], ["Статус", r => esc(STATUS_RU[r.status] || r.status)],
+       ["Создана", r => dt(r.created_at)], ["Изменена", r => dt(r.updated_at)]], stuck) : ""}
+    <p><button class="ghost" id="re">Обновить</button></p>`;
+  $("#re").onclick = show;
+};
+
+const ORG_FIELDS = [
+  { name: "org_type", label: "Тип", type: "select", options: [["retail", "розница (бейджи, магазины)"], ["telephony", "телефония"]] },
+  { name: "industry", label: "Отрасль (подстраивает промпты анализа)", type: "select", options: INDUSTRIES.map(x => [x, x || "не задана"]), nullable: true },
+  { name: "currency", label: "Валюта", type: "select", options: CURRENCIES.map(x => [x, x || "по умолчанию (RUB)"]), nullable: true },
+  { name: "timezone", label: "Часовой пояс (IANA)", placeholder: "Asia/Almaty", nullable: true },
+];
+
+VIEWS.orgs = async main => {
+  await loadOrgs(); fillOrgSelect();
+  const rows = orgs;
+  main.innerHTML = bar("Организации", "+ Организация") + table([
+    ["Название", r => `<b>${esc(r.name)}</b><br><span class="muted mono">${esc(r.slug)}</span>`],
+    ["Тип / отрасль", r => `${esc(r.org_type)}<br><span class="muted">${esc(r.industry || "—")}</span>`],
+    ["Валюта / пояс", r => `${esc(r.currency || "RUB")}<br><span class="muted">${esc(r.timezone || "—")}</span>`],
+    ["Польз.", r => r.users, "num"], ["Магаз.", r => r.stores, "num"], ["Продавц.", r => r.sellers, "num"],
+    ["Бейджи", r => r.devices, "num"], ["Записей", r => r.recordings ?? 0, "num"],
+    ["Последняя запись", r => dt(r.last_recording_at)], ["Статус", r => active(r.is_active)],
+  ], rows, (r, i) => `<button class="ghost" data-a="edit" data-i="${i}">Изменить</button>
+       <button class="ghost" data-a="open" data-i="${i}">Пользователи</button>
+       <button class="ghost" data-a="toggle" data-i="${i}">${r.is_active ? "Отключить" : "Включить"}</button>`);
+  $("#add").onclick = () => form("Новая организация", [
+    { name: "org_name", label: "Название", required: true },
+    { name: "org_slug", label: "Slug (латиница, уникальный)", required: true, placeholder: "coffee-almaty" },
+    ...ORG_FIELDS,
+    { html: `<h4 style="margin:10px 0 8px">Первый директор</h4>` },
+    { name: "director_email", label: "Email директора", type: "email", required: true },
+    { name: "director_password", label: "Пароль директора (от 8 символов)", type: "password", required: true },
+    { html: `<div class="grid2">` }, { name: "director_first_name", label: "Имя", required: true },
+    { name: "director_last_name", label: "Фамилия", required: true }, { html: `</div>` },
+  ], { org_type: "retail" }, async v => {
+    await api("/organizations", { method: "POST", body: v });
+    toast("Организация создана"); show();
+  });
+  bindRows(main, rows, {
+    edit: r => form("Организация · " + esc(r.slug), [{ name: "name", label: "Название", required: true }, ...ORG_FIELDS], r,
+      async v => { await api("/organizations/" + r.id, { method: "PATCH", body: v }); toast("Сохранено"); show(); }),
+    open: r => { orgFilter = r.id; fillOrgSelect(); tab = "users"; show(); },
+    toggle: r => confirmDo(r.is_active
+        ? `Отключить «${r.name}»? Пользователи организации не смогут войти и обновить сессию.`
+        : `Включить «${r.name}»?`,
+      async () => { await api("/organizations/" + r.id, { method: "PATCH", body: { is_active: !r.is_active } }); show(); }),
+  });
+};
+
+function storeSelect(stores, withEmpty) {
+  return (withEmpty ? [["", "— не задан —"]] : []).concat(stores.map(s => [s.id, s.name + (s.is_active ? "" : " (откл.)")]));
+}
+
+VIEWS.users = async main => {
+  const rows = (await api("/users" + q())).items;
+  main.innerHTML = bar("Пользователи кабинета", "+ Пользователь") +
+    `<p class="muted">«Войти как» открывает кабинет в новой вкладке от имени пользователя.
+      Вход в кабинет в этом браузере при этом заменяется.</p>` + table([
+    ["Пользователь", r => `<b>${esc([r.first_name, r.last_name].filter(Boolean).join(" ") || "—")}</b><br><span class="muted">${esc(r.email)}</span>`],
+    ["Организация", r => esc(r.organization_name)], ["Роль", r => `<span class="chip">${esc(ROLES[r.role] || r.role)}</span>`],
+    ["Магазин", r => esc(r.store_name || "—")], ["Последний вход", r => dt(r.last_login_at)], ["Статус", r => active(r.is_active)],
+  ], rows, (r, i) => `<button class="ghost" data-a="as" data-i="${i}">Войти как</button>
+     <button class="ghost" data-a="edit" data-i="${i}">Изменить</button>
+     <button class="ghost" data-a="toggle" data-i="${i}">${r.is_active ? "Отключить" : "Включить"}</button>`);
+
+  const userFields = async (orgId, isNew) => {
+    const stores = await storesFor(orgId);
+    return [
+      { name: "email", label: "Email", type: "email", required: true },
+      { name: "password", label: isNew ? "Пароль (от 8 символов)" : "Новый пароль (пусто — не менять)", type: "password", required: isNew },
+      { name: "role", label: "Роль", type: "select", options: Object.entries(ROLES) },
+      { name: "store_id", label: "Магазин (обязателен для менеджера)", type: "select", options: storeSelect(stores, true), nullable: true },
+      { html: `<div class="grid2">` }, { name: "first_name", label: "Имя" }, { name: "last_name", label: "Фамилия" }, { html: `</div>` },
+    ];
+  };
+  $("#add").onclick = async () => {
+    const orgId = await pickOrg("Организация нового пользователя");
+    form("Новый пользователь · " + esc(orgName(orgId)), await userFields(orgId, true), { role: "manager" }, async v => {
+      await api("/users", { method: "POST", body: { ...v, organization_id: orgId } });
+      toast("Пользователь создан"); show();
+    });
+  };
+  bindRows(main, rows, {
+    as: r => confirmDo(`Открыть кабинет «${r.organization_name}» от имени ${r.email} (${ROLES[r.role] || r.role})?`, async () => {
+      const t = await api(`/users/${r.id}/impersonate`, { method: "POST" });
+      localStorage.setItem("voiceiq-auth", JSON.stringify({
+        state: { accessToken: t.access_token, refreshToken: t.refresh_token, user: t.user }, version: 0 }));
+      window.open("/", "_blank", "noopener");
+    }),
+    edit: async r => form("Пользователь · " + esc(r.email), await userFields(r.organization_id, false), r, async v => {
+      await api("/users/" + r.id, { method: "PATCH", body: v }); toast("Сохранено"); show();
+    }, "Смена роли, пароля или отключение закрывают открытые сессии пользователя."),
+    toggle: r => confirmDo(`${r.is_active ? "Отключить" : "Включить"} ${r.email}?`, async () => {
+      await api("/users/" + r.id, { method: "PATCH", body: { is_active: !r.is_active } }); show();
+    }),
+  });
+};
+
+VIEWS.stores = async main => {
+  const rows = (await api("/stores" + q())).items;
+  main.innerHTML = bar("Магазины", "+ Магазин") + table([
+    ["Магазин", r => `<b>${esc(r.name)}</b><br><span class="muted">${esc(r.address || "")}</span>`],
+    ["Организация", r => esc(r.organization_name || "—")], ["Продавцы", r => r.sellers, "num"], ["Бейджи", r => r.devices, "num"],
+    ["Создан", r => dt(r.created_at)], ["Статус", r => active(r.is_active)],
+  ], rows, (r, i) => `<button class="ghost" data-a="edit" data-i="${i}">Изменить</button>`);
+  const fields = [{ name: "name", label: "Название", required: true }, { name: "address", label: "Адрес", nullable: true },
+                  { name: "is_active", label: "Активен", type: "check" }];
+  $("#add").onclick = async () => {
+    const orgId = await pickOrg("Организация нового магазина");
+    form("Новый магазин · " + esc(orgName(orgId)), fields, { is_active: true }, async v => {
+      await api("/stores", { method: "POST", body: { ...v, organization_id: orgId } }); dropCache(); toast("Магазин создан"); show();
+    });
+  };
+  bindRows(main, rows, {
+    edit: r => form("Магазин · " + esc(r.name), fields, r, async v => {
+      await api("/stores/" + r.id, { method: "PATCH", body: v }); dropCache(); toast("Сохранено"); show();
+    }),
+  });
+};
+
+VIEWS.sellers = async main => {
+  const rows = (await api("/sellers" + q())).items;
+  main.innerHTML = bar("Продавцы (сотрудники, чьи разговоры пишутся)", "+ Продавец") + table([
+    ["Продавец", r => `<b>${esc(r.last_name)} ${esc(r.first_name)}</b>`], ["Организация", r => esc(r.organization_name || "—")],
+    ["Магазин", r => esc(r.store_name || "—")], ["Приложение", r => yes(r.has_mobile)], ["Статус", r => active(r.is_active)],
+  ], rows, (r, i) => `<button class="ghost" data-a="edit" data-i="${i}">Изменить</button>`);
+  const fields = async orgId => [
+    { name: "store_id", label: "Магазин", type: "select", options: storeSelect(await storesFor(orgId)) },
+    { html: `<div class="grid2">` }, { name: "first_name", label: "Имя", required: true },
+    { name: "last_name", label: "Фамилия", required: true }, { html: `</div>` },
+    { name: "is_active", label: "Активен", type: "check" },
+  ];
+  $("#add").onclick = async () => {
+    const orgId = await pickOrg("Организация нового продавца");
+    form("Новый продавец · " + esc(orgName(orgId)), await fields(orgId), { is_active: true }, async v => {
+      await api("/sellers", { method: "POST", body: v }); dropCache(); toast("Продавец создан"); show();
+    });
+  };
+  bindRows(main, rows, {
+    edit: async r => form("Продавец · " + esc(r.last_name), await fields(r.organization_id), r, async v => {
+      await api("/sellers/" + r.id, { method: "PATCH", body: v }); dropCache(); toast("Сохранено"); show();
+    }),
+  });
+};
+
+VIEWS.devices = async main => {
+  const rows = (await api("/devices" + q())).items;
+  main.innerHTML = bar("Бейджи", "+ Бейдж") + table([
+    ["Серийный номер", r => `<span class="mono">${esc(r.serial_number)}</span><br><span class="muted">${esc(r.model || "")}</span>`],
+    ["Организация", r => esc(r.organization_name || "—")], ["Магазин", r => esc(r.store_name || "—")],
+    ["Продавец", r => esc(r.seller_name || "—")], ["Был на связи", r => dt(r.last_seen_at)], ["Статус", r => active(r.is_active)],
+  ], rows, (r, i) => `<button class="ghost" data-a="edit" data-i="${i}">Изменить</button>`);
+  const fields = async orgId => [
+    { name: "serial_number", label: "Серийный номер", required: true }, { name: "model", label: "Модель", nullable: true },
+    { name: "store_id", label: "Магазин", type: "select", options: storeSelect(await storesFor(orgId)) },
+    { name: "seller_id", label: "Продавец", type: "select", nullable: true,
+      options: [["", "— не закреплён —"]].concat((await sellersFor(orgId)).map(s => [s.id, `${s.last_name} ${s.first_name} · ${s.store_name || ""}`])) },
+    { name: "is_active", label: "Активен", type: "check" },
+  ];
+  $("#add").onclick = async () => {
+    const orgId = await pickOrg("Организация нового бейджа");
+    form("Новый бейдж · " + esc(orgName(orgId)), await fields(orgId), { is_active: true }, async v => {
+      await api("/devices", { method: "POST", body: v }); toast("Бейдж добавлен"); show();
+    });
+  };
+  bindRows(main, rows, {
+    edit: async r => form("Бейдж · " + esc(r.serial_number), await fields(r.organization_id), r, async v => {
+      await api("/devices/" + r.id, { method: "PATCH", body: v }); toast("Сохранено"); show();
+    }),
+  });
+};
+
+const localInput = v => v ? new Date(new Date(v).getTime() - new Date(v).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+
+VIEWS.licenses = async main => {
+  const rows = (await api("/licenses" + q())).items;
+  main.innerHTML = bar("Лицензии магазинов", "+ Лицензия") +
+    `<p class="muted">Справочная таблица: сервис сейчас не ограничивает работу по лицензиям.</p>` + table([
+    ["Магазин", r => esc(r.store_name || "—")], ["Организация", r => esc(r.organization_name || "—")],
+    ["С", r => dt(r.starts_at)], ["По", r => dt(r.expires_at)], ["Заметка", r => esc(r.notes || "")], ["Статус", r => active(r.is_active)],
+  ], rows, (r, i) => `<button class="ghost" data-a="edit" data-i="${i}">Изменить</button>`);
+  const common = [
+    { name: "starts_at", label: "Начало", type: "datetime-local" }, { name: "expires_at", label: "Окончание (пусто — бессрочно)", type: "datetime-local" },
+    { name: "notes", label: "Заметка", type: "textarea", nullable: true }, { name: "is_active", label: "Активна", type: "check" },
+  ];
+  $("#add").onclick = async () => {
+    const orgId = await pickOrg("Организация");
+    form("Новая лицензия · " + esc(orgName(orgId)),
+      [{ name: "store_id", label: "Магазин", type: "select", options: storeSelect(await storesFor(orgId)) }, ...common],
+      { is_active: true }, async v => { await api("/licenses", { method: "POST", body: v }); toast("Лицензия добавлена"); show(); });
+  };
+  bindRows(main, rows, {
+    edit: r => form("Лицензия · " + esc(r.store_name), common,
+      { ...r, starts_at: localInput(r.starts_at), expires_at: localInput(r.expires_at) },
+      async v => { await api("/licenses/" + r.id, { method: "PATCH", body: v }); toast("Сохранено"); show(); }),
+  });
+};
+
+VIEWS.admins = async main => {
+  const rows = (await api("/admins")).items;
+  main.innerHTML = bar("Технические администраторы", "+ Администратор") +
+    `<p class="muted">Полный доступ ко всем организациям через эту консоль.</p>` + table([
+    ["Email", r => esc(r.email) + (r.id === me.id ? ' <span class="chip">это вы</span>' : "")],
+    ["Создан", r => dt(r.created_at)], ["Статус", r => active(r.is_active)],
+  ], rows, (r, i) => `<button class="ghost" data-a="pwd" data-i="${i}">Сменить пароль</button>
+     ${r.id === me.id ? "" : `<button class="ghost" data-a="toggle" data-i="${i}">${r.is_active ? "Отключить" : "Включить"}</button>`}`);
+  $("#add").onclick = () => form("Новый технический администратор", [
+    { name: "email", label: "Email", type: "email", required: true },
+    { name: "password", label: "Пароль (от 8 символов)", type: "password", required: true },
+  ], null, async v => { await api("/admins", { method: "POST", body: v }); toast("Администратор создан"); show(); });
+  bindRows(main, rows, {
+    pwd: r => form("Пароль · " + esc(r.email), [{ name: "password", label: "Новый пароль (от 8 символов)", type: "password", required: true }],
+      null, async v => { await api("/admins/" + r.id, { method: "PATCH", body: v }); toast("Пароль изменён"); }),
+    toggle: r => confirmDo(`${r.is_active ? "Отключить" : "Включить"} ${r.email}?`, async () => {
+      await api("/admins/" + r.id, { method: "PATCH", body: { is_active: !r.is_active } }); show();
+    }),
+  });
+};
+
+token ? boot() : renderLogin();
+</script>
+</body>
+</html>

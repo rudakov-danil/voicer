@@ -91,9 +91,11 @@ async def create_from_preset(
         ))
 
     await db.flush()
+    # Снимок версии читает и steps, и blocks: без загрузки blocks — ленивый запрос
+    # вне greenlet и MissingGreenlet (создание из библиотеки падало с 500)
     seeded = (await db.execute(
         select(ScriptTemplate)
-        .options(selectinload(ScriptTemplate.steps))
+        .options(selectinload(ScriptTemplate.steps), selectinload(ScriptTemplate.blocks))
         .where(ScriptTemplate.id == template.id)
     )).scalar_one()
     await _create_version(db, seeded, user, note=f"from preset:{preset_id}")

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { FingerprintData, FingerprintMark } from '@/types'
+import { useTerms } from '@/lib/terms'
 import { L, t } from '@/i18n'
 
 /* «Отпечаток» разговора (ui-concept/assets/voicer.js → V.fingerprint).
@@ -29,6 +30,7 @@ interface FingerprintProps {
 }
 
 export function Fingerprint({ data, height = 34, marks: showMarks = true, markTitle }: FingerprintProps) {
+  const terms = useTerms()
   const ref = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(0)
 
@@ -55,7 +57,7 @@ export function Fingerprint({ data, height = 34, marks: showMarks = true, markTi
     const marks = showMarks ? data.marks : []
     label = [
       L(`Разговор ${clock(data.dur)}`, `Conversation ${clock(data.dur)}`),
-      data.talk != null ? L(`продавец говорит ${data.talk} %`, `seller talks ${data.talk}%`) : '',
+      data.talk != null ? L(`${terms.sellerLower[0]} говорит ${data.talk} %`, `${terms.sellerLower[1]} talks ${data.talk}%`) : '',
       marks.map((m) => t(MARK_LABEL[m.k])).join(', '),
     ].filter(Boolean).join('; ')
     body = (

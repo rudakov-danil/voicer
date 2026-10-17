@@ -102,6 +102,7 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ORG_NAME: ${BOOTSTRAP_ORG_NAME:-Demo}
       BOOTSTRAP_ORG_SLUG: ${BOOTSTRAP_ORG_SLUG:-demo}
+      SUPER_CONSOLE_PATH: ${SUPER_CONSOLE_PATH:-}
       ENVIRONMENT: development
       LOG_LEVEL: INFO
     depends_on:
@@ -173,6 +174,12 @@ services:
       DEEPGRAM_API_URL: ${DEEPGRAM_API_URL:-https://api.deepgram.com/v1/listen}
       DEEPGRAM_LANGUAGE: ${DEEPGRAM_LANGUAGE:-ru}
       DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-3}
+      STT_PROVIDER: ${STT_PROVIDER:-deepgram}
+      STT_MODEL: ${STT_MODEL:-elevenlabs/scribe-v2}
+      STT_LANGUAGE: ${STT_LANGUAGE:-kk}
+      LLM_SERVER_URL: ${LLM_SERVER_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      DEEPGRAM_RU_DETECT_MIN: ${DEEPGRAM_RU_DETECT_MIN:-0.9}
       ENVIRONMENT: development
       LOG_LEVEL: INFO
     depends_on:
@@ -220,6 +227,10 @@ services:
       DEEPGRAM_API_URL: ${DEEPGRAM_API_URL:-https://api.deepgram.com/v1/listen}
       DEEPGRAM_LANGUAGE: ${DEEPGRAM_LANGUAGE:-ru}
       DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-3}
+      STT_PROVIDER: ${STT_PROVIDER:-deepgram}
+      STT_MODEL: ${STT_MODEL:-elevenlabs/scribe-v2}
+      STT_LANGUAGE: ${STT_LANGUAGE:-kk}
+      DEEPGRAM_RU_DETECT_MIN: ${DEEPGRAM_RU_DETECT_MIN:-0.9}
       LLM_SERVER_URL: ${LLM_SERVER_URL}
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_FOLDER_ID: ${LLM_FOLDER_ID:-}
@@ -252,6 +263,10 @@ services:
       DEEPGRAM_API_URL: ${DEEPGRAM_API_URL:-https://api.deepgram.com/v1/listen}
       DEEPGRAM_LANGUAGE: ${DEEPGRAM_LANGUAGE:-ru}
       DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-3}
+      STT_PROVIDER: ${STT_PROVIDER:-deepgram}
+      STT_MODEL: ${STT_MODEL:-elevenlabs/scribe-v2}
+      STT_LANGUAGE: ${STT_LANGUAGE:-kk}
+      DEEPGRAM_RU_DETECT_MIN: ${DEEPGRAM_RU_DETECT_MIN:-0.9}
       LLM_SERVER_URL: ${LLM_SERVER_URL}
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_FOLDER_ID: ${LLM_FOLDER_ID:-}

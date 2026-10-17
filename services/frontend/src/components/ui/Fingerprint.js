@@ -1,5 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useLayoutEffect, useRef, useState } from 'react';
+import { useTerms } from '@/lib/terms';
 import { L, t } from '@/i18n';
 /* «Отпечаток» разговора (ui-concept/assets/voicer.js → V.fingerprint).
    Две дорожки: продавец над осью (кобальт), покупатель под осью (серый).
@@ -16,6 +17,7 @@ export function clock(sec) {
     return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 export function Fingerprint({ data, height = 34, marks: showMarks = true, markTitle }) {
+    const terms = useTerms();
     const ref = useRef(null);
     const [w, setW] = useState(0);
     useLayoutEffect(() => {
@@ -40,7 +42,7 @@ export function Fingerprint({ data, height = 34, marks: showMarks = true, markTi
         const marks = showMarks ? data.marks : [];
         label = [
             L(`Разговор ${clock(data.dur)}`, `Conversation ${clock(data.dur)}`),
-            data.talk != null ? L(`продавец говорит ${data.talk} %`, `seller talks ${data.talk}%`) : '',
+            data.talk != null ? L(`${terms.sellerLower[0]} говорит ${data.talk} %`, `${terms.sellerLower[1]} talks ${data.talk}%`) : '',
             marks.map((m) => t(MARK_LABEL[m.k])).join(', '),
         ].filter(Boolean).join('; ');
         body = (_jsxs(_Fragment, { children: [_jsx("rect", { x: 0, y: axis, width: w, height: 1, className: "fp-axis" }), data.segs.map(([s, e, lane], i) => {

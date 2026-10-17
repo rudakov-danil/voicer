@@ -4,28 +4,30 @@
 :root {
     color-scheme: light;
 
-    /* ── Дизайн-система «Студийный пульт» (ui-concept/assets/voicer.css) ── */
+    /* ── Дизайн-система концепта (ui-concept/assets/voicer.css) в дружелюбной редакции:
+       для управляющих и продавцов магазинов — мягче фон, светлее чернила, круглее формы,
+       подписи без капслока. Бренд-кобальт тот же. ── */
     --font-ui: 'Onest Variable', 'Onest', system-ui, -apple-system, 'Segoe UI', sans-serif;
     --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
 
-    /* Поверхности */
-    --paper: #F2F3F5;
+    /* Поверхности: светлый фон с лёгким голубым оттенком вместо серого */
+    --paper: #F4F6FB;
     --panel: #FFFFFF;
-    --panel-2: #F7F8FA;
-    --hover: #F1F3F6;
-    --line: #E5E7EC;
-    --line-2: #D6DAE1;
+    --panel-2: #F7F8FD;
+    --hover: #EFF2FA;
+    --line: #E3E7F1;
+    --line-2: #D2D8E6;
 
-    /* Текст */
-    --ink: #0B0E14;
-    --ink-2: #4A5261;
-    --ink-3: #5F6778;
-    --ink-4: #9AA1AE;
+    /* Текст: индиго-чернила вместо почти чёрного */
+    --ink: #1C2140;
+    --ink-2: #454C69;
+    --ink-3: #5F6684;
+    --ink-4: #9BA2BA;
 
     /* Бренд: кобальт из логотипа — голос продавца и главное действие */
     --accent: #2E5BFF;
     --accent-hover: #2449E8;
-    --accent-soft: #EBF0FF;
+    --accent-soft: #EDF1FF;
     --accent-line: #C9D5FF;
     --seller: #2E5BFF;
     --client: #8A93A3;
@@ -41,7 +43,7 @@
     --console-2: #FFFFFF;
     --console-3: #EEF2FA;
     --console-line: #DCE2EE;
-    --console-ink: #0B0E14;
+    --console-ink: #1C2140;
     --console-ink-2: #5A6376;
     --console-bar: #8490A6;
     --console-bar-hover: #5E6980;
@@ -58,14 +60,14 @@
     --seq-5: #7890F6;
     --seq-6: #5873EC;
 
-    /* Форма */
-    --r-xs: 4px;
-    --r-s: 7px;
-    --r: 10px;
-    --r-l: 14px;
-    --r-xl: 20px;
-    --shadow-panel: 0 1px 2px rgba(11, 14, 20, .04);
-    --shadow-pop: 0 18px 40px -12px rgba(11, 14, 20, .28), 0 0 0 1px rgba(11, 14, 20, .06);
+    /* Форма: круглее углы, мягкая тень с оттенком чернил */
+    --r-xs: 5px;
+    --r-s: 8px;
+    --r: 12px;
+    --r-l: 16px;
+    --r-xl: 22px;
+    --shadow-panel: 0 1px 2px rgba(28, 33, 64, .04), 0 2px 8px -4px rgba(28, 33, 64, .06);
+    --shadow-pop: 0 18px 40px -12px rgba(28, 33, 64, .26), 0 0 0 1px rgba(28, 33, 64, .06);
     --focus: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
     --ease: cubic-bezier(.2, .7, .2, 1);
 
@@ -101,11 +103,11 @@
     --text-secondary: var(--ink-2);
     --text-muted: var(--ink-3);
     --border: var(--line);
-    --border-light: #EEF0F3;
+    --border-light: #EDF0F7;
 
     --shadow-sm: var(--shadow-panel);
-    --shadow: 0 1px 3px rgba(11, 14, 20, .06);
-    --shadow-md: 0 6px 16px -6px rgba(11, 14, 20, .14);
+    --shadow: 0 1px 3px rgba(28, 33, 64, .06);
+    --shadow-md: 0 6px 16px -6px rgba(28, 33, 64, .14);
     --shadow-lg: var(--shadow-pop);
 
     --radius-sm: var(--r-s);
@@ -143,7 +145,7 @@ table { border-collapse: collapse; width: 100%; }
 .mono { font-family: var(--font-mono); font-size: .86em; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--ink-3); }
-.eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.eyebrow { font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
@@ -209,9 +211,9 @@ table { border-collapse: collapse; width: 100%; }
     flex: none;
     width: 30px;
     height: 30px;
-    border-radius: 8px;
-    background: var(--ink);
-    color: var(--panel);
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
     font-size: 13px;
     font-weight: 600;
 }
@@ -220,11 +222,9 @@ table { border-collapse: collapse; width: 100%; }
 
 .nav { display: flex; flex-direction: column; gap: 1px; }
 .nav-label {
-    padding: 14px 10px 6px;
-    font-size: 11px;
+    padding: 16px 10px 6px;
+    font-size: 12px;
     font-weight: 600;
-    letter-spacing: .06em;
-    text-transform: uppercase;
     color: var(--ink-3);
 }
 .nav-item {
@@ -233,8 +233,8 @@ table { border-collapse: collapse; width: 100%; }
     align-items: center;
     gap: 10px;
     width: 100%;
-    padding: 7px 10px;
-    border-radius: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
     color: var(--ink-2);
     font-weight: 500;
     font-size: 13.5px;
@@ -243,21 +243,11 @@ table { border-collapse: collapse; width: 100%; }
 }
 .nav-item svg { flex: none; width: 16px; height: 16px; stroke-width: 1.75; }
 .nav-item:hover { background: var(--hover); color: var(--ink); }
-.nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--ink); }
-.nav-item[aria-current="page"]::before {
-    content: "";
-    position: absolute;
-    left: -12px;
-    top: 7px;
-    bottom: 7px;
-    width: 3px;
-    border-radius: 0 3px 3px 0;
-    background: var(--accent);
-}
+.nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
 .nav-item[aria-current="page"] svg { color: var(--accent); }
 .nav-count { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .nav-view { font-weight: 400; }
-.nav-dot { flex: none; width: 8px; height: 8px; margin: 0 4px; border-radius: 2px; }
+.nav-dot { flex: none; width: 8px; height: 8px; margin: 0 4px; border-radius: 50%; }
 
 .sidebar-foot {
     margin-top: auto;
@@ -288,12 +278,11 @@ table { border-collapse: collapse; width: 100%; }
     color: var(--ink-2);
     font-size: 11.5px;
     font-weight: 600;
-    letter-spacing: .04em;
     transition: background .15s, color .15s;
 }
 .lang-btn:hover { background: var(--hover); color: var(--ink); }
 
-/* Аватар: нейтральный, без радуги (старые экраны красят его инлайном — перекрываем) */
+/* Аватар: один мягкий оттенок бренда, без радуги (старые экраны красят его инлайном — перекрываем) */
 .avatar{
     display: inline-grid;
     place-items: center;
@@ -301,12 +290,11 @@ table { border-collapse: collapse; width: 100%; }
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: var(--panel-2) !important;
-    box-shadow: inset 0 0 0 1px var(--line-2);
-    color: var(--ink-2) !important;
+    background: var(--accent-soft) !important;
+    box-shadow: inset 0 0 0 1px var(--accent-line);
+    color: var(--accent-hover) !important;
     font-size: 10.5px;
     font-weight: 600;
-    letter-spacing: .02em;
 }
 
 /* ============================================================================
@@ -346,14 +334,14 @@ table { border-collapse: collapse; width: 100%; }
     display: inline-flex;
     padding: 3px;
     gap: 2px;
-    border-radius: 10px;
+    border-radius: 999px;
     background: var(--panel-2);
     border: 1px solid var(--line);
 }
 .seg button {
     height: 26px;
-    padding: 0 11px;
-    border-radius: 7px;
+    padding: 0 12px;
+    border-radius: 999px;
     font-size: 12.5px;
     font-weight: 500;
     color: var(--ink-2);
@@ -364,7 +352,7 @@ table { border-collapse: collapse; width: 100%; }
 .seg button[aria-pressed="true"] {
     background: var(--panel);
     color: var(--ink);
-    box-shadow: 0 1px 2px rgba(11, 14, 20, .06), 0 0 0 1px var(--line-2);
+    box-shadow: 0 1px 2px rgba(28, 33, 64, .08), 0 0 0 1px var(--line-2);
 }
 
 /* Period pill — нативный select под видом кнопки-селекта концепта */
@@ -555,10 +543,8 @@ table { border-collapse: collapse; width: 100%; }
 .table-wrapper { position: relative; overflow-x: auto; }
 table th {
     text-align: left;
-    font-size: 11.5px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .04em;
+    font-size: 12.5px;
+    font-weight: 500;
     color: var(--ink-3);
     padding: 10px 12px;
     border-bottom: 1px solid var(--line);
@@ -584,8 +570,8 @@ table tbody tr:last-child td { border-bottom: none; }
     align-items: center;
     gap: 5px;
     height: 22px;
-    padding: 0 8px;
-    border-radius: 6px;
+    padding: 0 9px;
+    border-radius: 999px;
     font-size: 11.5px;
     font-weight: 600;
     white-space: nowrap;
@@ -624,9 +610,9 @@ table tbody tr:last-child td { border-bottom: none; }
     justify-content: center;
     gap: 7px;
     height: 34px;
-    padding: 0 13px;
+    padding: 0 14px;
     line-height: 1.2;
-    border-radius: 9px;
+    border-radius: 10px;
     border: 1px solid var(--line-2);
     background: var(--panel);
     color: var(--ink);
@@ -641,7 +627,7 @@ table tbody tr:last-child td { border-bottom: none; }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn svg { display: block; flex-shrink: 0; }
 
-.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 1px 2px rgba(46, 91, 255, .24); }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 
 .btn-outline { border-color: var(--line-2); color: var(--ink); background: var(--panel); }
@@ -785,7 +771,7 @@ table tbody tr:last-child td { border-bottom: none; }
 .qv-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 11.5px; color: var(--ink-2); }
 .qv-talk { margin-left: auto; }
 .qv-sec { padding-top: 18px; }
-.qv-sec h3 { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
+.qv-sec h3 { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); margin-bottom: 8px; }
 .qv-sec h3 .tag { text-transform: none; letter-spacing: 0; height: 18px; }
 .qv-sum { font-size: 14px; line-height: 1.55; }
 .qv-risk { margin-top: 8px; color: var(--crit-ink); font-size: 13.5px; }
@@ -1314,11 +1300,10 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
     :root { --sidebar-width: 72px; }
     .sidebar { padding: 14px 10px; align-items: center; }
     .brand { padding: 2px 0 10px; }
-    .brand-name, .org-switch > div, .nav-label, .nav-item span, .me-meta { display: none; }
+    .sidebar .brand-name, .org-switch > div, .nav-label, .nav-item span, .me-meta { display: none; }
     .nav-item .nav-dot { display: block; margin: 0; width: 10px; height: 10px; }
     .org-switch { justify-content: center; padding: 6px; }
     .nav-item { justify-content: center; width: 44px; height: 40px; padding: 0; }
-    .nav-item[aria-current="page"]::before { left: -10px; }
     .me { padding: 4px 0; justify-content: center; flex-direction: column; gap: 6px; }
     .topbar { padding: 22px 22px 16px; }
     .content { padding: 4px 22px 56px; }
@@ -1516,10 +1501,8 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
     align-items: center;
     padding: 2px 8px;
     border-radius: 999px;
-    font-size: 11px;
+    font-size: 11.5px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
 }
 .badge-success { background: var(--success-light); color: var(--success); }
 .badge-muted { background: var(--bg); color: var(--text-muted); }
@@ -2772,6 +2755,7 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
 
 .profile { position: sticky; top: 16px; }
 .pf-head { display: flex; align-items: center; gap: 14px; padding: 18px 18px 0; }
+.pf-head .pf-upsell { margin-left: auto; flex: none; }
 .avatar.avatar-lg { width: 56px; height: 56px; font-size: 17px; flex: none; }
 .pf-name { font-weight: 600; font-size: 20px; line-height: 1.25; letter-spacing: -.01em; }
 .pf-sub { margin-top: 4px; font-size: 13px; color: var(--ink-2); }
@@ -2879,7 +2863,7 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
 .heat td.cell.is-empty { color: var(--ink-4); background: var(--panel-2); font-weight: 400; }
 .heat td.cell.is-median { color: var(--ink-2); background: transparent; box-shadow: inset 0 0 0 1px var(--line); font-weight: 500; }
 .heat td.total { text-align: right; padding-left: 10px; }
-.b1, .b2, .b3, .b4, .b5, .b6 { color: #0B0E14; }
+.b1, .b2, .b3, .b4, .b5, .b6 { color: var(--ink); }
 .b1 { background: var(--seq-1); }
 .b2 { background: var(--seq-2); }
 .b3 { background: var(--seq-3); }
@@ -3076,7 +3060,6 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
     }
     .mobile-nav .nav-item span, .mobile-nav .nav-label, .mobile-nav .nav-count { display: revert; }
     .mobile-nav .nav-item { width: 100%; height: auto; padding: 9px 10px; justify-content: flex-start; }
-    .mobile-nav .nav-item[aria-current="page"]::before { display: none; }
     .topbar { padding: 16px 16px 12px; }
     .topbar-inner { flex-direction: column; align-items: stretch; gap: 12px; }
     .topbar-right { justify-content: flex-start; flex-wrap: nowrap; }
@@ -3111,3 +3094,111 @@ textarea.form-input { resize: vertical; min-height: 60px; font-family: inherit; 
     .store-card-nums { gap: 12px; }
     .store-card-nums .display { font-size: 18px; }
 }
+
+/* ============================================================================
+   СКРИПТЫ — компоновка по концепту (ui-concept/scripts.html)
+   ============================================================================ */
+/* Слоты шапки страницы (PageSubtitle / PageActions) */
+.page-slot:empty { display: none; }
+.page-actions-slot { display: flex; align-items: center; gap: 8px; }
+
+.sc-grid { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start; }
+
+/* Список скриптов */
+/* Колонка прилипает и прокручивается сама, если скриптов больше, чем влезает по высоте */
+.rail { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 0; max-height: calc(100vh - 130px); overflow-y: auto; scrollbar-width: thin; padding: 1px; }
+.rail-card {
+    display: flex; flex-direction: column; gap: 8px; padding: 14px; text-align: left; width: 100%;
+    border-radius: var(--r-l); background: var(--panel); border: 1px solid var(--line); transition: border-color .15s;
+}
+.rail-card:hover { border-color: var(--line-2); }
+.rail-card[aria-current="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.rail-name { font-weight: 600; line-height: 1.3; }
+.rail-meta { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+.rail-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
+.rail-ctx {
+    font-size: 12px; color: var(--ink-2); padding: 6px 8px; border-radius: 8px; background: var(--panel-2); line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.rail-add { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border-radius: var(--r-l); border: 1.5px dashed var(--line-2); color: var(--ink-2); font-weight: 500; }
+.rail-add:hover { border-color: var(--ink-3); color: var(--ink); }
+
+/* Вид скрипта */
+.sc-view { overflow: hidden; }
+.sc-head { padding: 20px 22px 0; }
+.sc-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; }
+.sc-title { font-weight: 600; font-size: 21px; line-height: 1.25; letter-spacing: -.015em; }
+.sc-desc { margin-top: 8px; color: var(--ink-2); max-width: 70ch; }
+.sc-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.sc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.sc-chip-btn { cursor: pointer; }
+.sc-chip-btn:hover { filter: brightness(.97); }
+.sc-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); }
+.sc-dot.is-on { background: var(--good); }
+.sc-tabs { margin: 16px -22px 0; padding: 0 22px; margin-bottom: 0; }
+.sc-body { padding: 20px 22px 24px; }
+.sc-stack { display: flex; flex-direction: column; gap: 20px; }
+.sc-h3 { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; margin-bottom: 8px; }
+.sc-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sc-danger-zone { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+/* Панель сохранения весов */
+.sc-savebar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: -6px 0 14px; padding: 10px 12px; border-radius: 10px;
+    background: var(--accent-soft); font-size: 13px;
+}
+.sc-savebar > span:first-child { flex: 1; min-width: 200px; }
+.sc-savebar.is-bad { background: var(--crit-soft); color: var(--crit-ink); }
+
+/* Этап: описание, вес-степпер */
+.step-desc { margin-top: 4px; color: var(--ink-2); font-size: 13.5px; line-height: 1.5; }
+.wctl { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wctl label { font-size: 12px; color: var(--ink-3); }
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; background: var(--panel); }
+.stepper button { display: grid; place-items: center; width: 28px; height: 30px; color: var(--ink-2); }
+.stepper button:hover { background: var(--hover); color: var(--ink); }
+.stepper input { width: 52px; height: 30px; border: 0; text-align: center; font-family: var(--font-mono); font-size: 12.5px; background: transparent; color: var(--ink); outline: none; }
+.stepper:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+@media (max-width: 1100px) {
+    .sc-grid { grid-template-columns: minmax(0, 1fr); }
+    .rail { position: static; flex-direction: row; overflow-x: auto; max-height: none; padding-bottom: 4px; }
+    .rail-card, .rail-add { flex: 0 0 260px; }
+}
+@media (max-width: 760px) {
+    .sc-head { padding: 16px 16px 0; }
+    .sc-tabs { margin: 14px -16px 0; padding: 0 16px; }
+    .sc-body { padding: 16px; }
+    .step { grid-template-columns: 30px minmax(0, 1fr); }
+    .step .step-side { grid-column: 2; }
+}
+/* В панели скрипта подписи этапов уже — пять этапов и «Итог» помещаются без прокрутки */
+.sc-body .heat-step { max-width: 72px; }
+.sc-body .heat { min-width: 560px; }
+/* Таблицы правил и типов возражений внутри панели скрипта — без второй рамки */
+.sc-body .card { border: 0; box-shadow: none; padding: 0; background: transparent; border-radius: 0; }
+.sc-body .card + .card { padding-top: 20px; border-top: 1px solid var(--line); }
+.sc-body .card-header { margin-bottom: 10px; }
+.sc-body .table-wrapper th, .sc-body .table-wrapper td { padding-left: 8px; padding-right: 8px; }
+.sc-body .table-wrapper td input.form-input { width: 100%; min-width: 0; }
+/* Правила допродажи: фиксированные доли колонок, чтобы таблица помещалась в панель */
+.sc-body .sc-stack .table-wrapper table { table-layout: fixed; }
+.sc-body .sc-stack .table-wrapper th:nth-child(1) { width: 18%; }
+.sc-body .sc-stack .table-wrapper th:nth-child(2) { width: 27%; }
+.sc-body .sc-stack .table-wrapper th:nth-child(3) { width: 23%; min-width: 0 !important; }
+.sc-body .sc-stack .table-wrapper th:nth-child(4) { width: 18%; min-width: 0 !important; }
+.sc-body .sc-stack .table-wrapper th:nth-child(5) { width: 9%; }
+.sc-body .sc-stack .table-wrapper th:nth-child(6) { width: 5%; }
+.sc-body .sc-stack .table-wrapper .ms-trigger { min-width: 0; }
+
+/* Настройки → Организация: стартовый пакет отрасли */
+.set-pack { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; justify-content: flex-end; }
+.set-pack-note { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--good-ink); }
+.set-pack-note.is-err { color: var(--crit-ink); }
+
+/* Скрипты: правила для всех скриптов — отдельный блок под сеткой */
+.sc-org { margin-top: 16px; }
+
+/* Допродажа по разбору предложений: закрашенная точка — гость согласился */
+.upsell-dots i.is-taken { background: var(--good); }

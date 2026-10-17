@@ -69,6 +69,21 @@ class Conversation(Base):
     # Краткая причина обращения клиента (тегирование причин звонков)
     contact_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # ─── Допродажи (разбор предложений, миграция 0010) ───────────────────────────
+    # NULL во всех полях — разбор не выполнялся (звонок, сбой LLM, старый разговор).
+    # Была ли возможность предложить: клиент что-то заказывал/покупал
+    offer_opportunity: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    offers_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    offers_accepted: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Сумма чека, если прозвучала в разговоре
+    check_total: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    # Состав заказа: ["капучино 0,3", "круассан"]
+    order_items: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Что можно было предложить, если предложения не было или оно было слабым
+    offer_missed: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Как можно было сказать лучше — готовая фраза для сотрудника
+    offer_better_phrase: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     script_results: Mapped[list["ConversationScriptResult"]] = relationship(
         "ConversationScriptResult", back_populates="conversation", cascade="all, delete-orphan"
     )
@@ -152,6 +167,111 @@ class ConversationComplianceViolation(Base):
     severity: Mapped[str] = mapped_column(String(10), nullable=False, default="medium")
     evidence: Mapped[str] = mapped_column(Text, nullable=False, default="")
     explanation: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ConversationOffer(Base):
+    """Одно предложение продавца в разговоре: что предложил, каким приёмом и как
+    отреагировал клиент. Основа аналитики допродаж и экрана «Моя смена»."""
+    __tablename__ = "conversation_offers"
+    __table_args__ = (
+        Index("idx_offers_conversation", "conversation_id"),
+        {"schema": "analytics"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("analytics.conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    item: Mapped[str] = mapped_column(String(255), nullable=False)
+    # size | addon | food | drink | loyalty | promo | other
+    category: Mapped[str] = mapped_column(String(20), nullable=False, default="other")
+    # upsell | cross_sell
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="cross_sell")
+    # generic | specific | choice | benefit | promo
+    technique: Mapped[str] = mapped_column(String(20), nullable=False, default="specific")
+    # accepted | declined | no_answer
+    response: Mapped[str] = mapped_column(String(20), nullable=False, default="no_answer")
+    # Предложен «товар дня» из плана
+    is_focus: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    customer_quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Цена предложенного (для upsell — доплата), если прозвучала; NULL — неизвестна
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ConversationDemand(Base):
+    """Неудовлетворённый спрос: покупатель спросил товар, которого нет в наличии или в ассортименте.
+    Из этих строк руководитель собирает список к закупке (dashboard /demand)."""
+    __tablename__ = "conversation_demand"
+    __table_args__ = (
+        Index("idx_demand_conversation", "conversation_id"),
+        Index("idx_demand_item_key", "item_key"),
+        {"schema": "analytics"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("analytics.conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    item: Mapped[str] = mapped_column(String(255), nullable=False)
+    item_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    # rx | otc | supplement | medical | cosmetics | baby | other
+    category: Mapped[str] = mapped_column(String(20), nullable=False, default="other")
+    # out_of_stock | not_carried
+    reason: Mapped[str] = mapped_column(String(20), nullable=False, default="out_of_stock")
+    # substituted | ordered | lost | unknown
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
+    analog: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    seller_quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ClinicVisit(Base):
+    """Итог проверки приёма в клинике (миграция 0014): баллы и число сигналов. Протокол — в
+    visit_protocols (ключ — запись, чтобы повторный анализ не стирал правки врача)."""
+    __tablename__ = "clinic_visits"
+    __table_args__ = {"schema": "analytics"}
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("analytics.conversations.id", ondelete="CASCADE"), primary_key=True
+    )
+    is_visit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # primary | follow_up
+    visit_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    service_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    competence_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    issue_signals: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fraud_signals: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checks_done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class VisitCheck(Base):
+    """Результат правила контроля на приёме: «должно быть» — met | partial | missed | na,
+    «не должно быть» — violated (хранятся только сработавшие). Название — снимок на момент анализа."""
+    __tablename__ = "visit_checks"
+    __table_args__ = (
+        Index("idx_visit_checks_conversation", "conversation_id"),
+        Index("idx_visit_checks_rule", "rule_id"),
+        {"schema": "analytics"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("analytics.conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    severity: Mapped[str] = mapped_column(String(10), nullable=False, default="medium")
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    quote: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 

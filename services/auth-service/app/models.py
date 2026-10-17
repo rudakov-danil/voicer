@@ -23,6 +23,13 @@ class Organization(Base):
     # telephony — продажи по телефону (звонки, отделы/операторы).
     # Влияет на терминологию UI и доступность телефонийных фич.
     org_type = Column(String(20), nullable=False, default="retail", server_default="retail")
+    # Отрасль: coffee | electronics | clothing | ... NULL — не задана (общие промпты розницы).
+    # Подстраивает промпты анализа (analytics-engine читает колонку напрямую).
+    industry = Column(String(30), nullable=True)
+    # Валюта цен в кабинете (ISO 4217: RUB, KZT, …) и часовой пояс сети для графиков по часам.
+    # NULL — по умолчанию: рубли и LOCAL_TZ сервисов (Москва).
+    currency = Column(String(3), nullable=True)
+    timezone = Column(String(64), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)

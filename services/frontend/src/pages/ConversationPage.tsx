@@ -24,8 +24,12 @@ import {
 import { ReviewButton, CoachingComments } from '@/components/conversation/Coaching'
 import { ReanalyzeButton } from '@/components/conversation/Reanalyze'
 import { SellerDayPanel } from '@/components/conversation/SellerDay'
+import { OffersReview, type OffersAnalysis } from '@/components/conversation/OffersReview'
+import { DemandReview } from '@/components/conversation/DemandReview'
 import { outcomeLabel } from '@/lib/outcomes'
 import { t, L, locale } from '@/i18n'
+import { currency } from '@/components/upsells/metrics'
+import { useTerms } from '@/lib/terms'
 
 /* Карточка разговора по концепту (ui-concept/conversation.html): шапка с вердиктом,
    плеер-консоль с дорожками, расшифровка с пометками на полях и разбор справа.
@@ -52,6 +56,7 @@ function fmtWeight(w: number | null | undefined) {
 }
 
 export function ConversationPage() {
+  const terms = useTerms()
   const { id = '' } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -253,6 +258,8 @@ export function ConversationPage() {
     }
     return need ? [done, need] as const : null
   })()
+  // Разбор допродажи (analytics 0010): есть у разговоров, проанализированных после обновления
+  const offers: OffersAnalysis | null = c.offers_analysis?.order_taken ? c.offers_analysis : null
   const q = query.trim().toLowerCase()
   const isCall = !!c.call_direction || (c.source || '').startsWith('call')
   const sourceLabel = c.source === 'badge' ? t('Бейдж · вырезан из записи смены')
@@ -296,12 +303,20 @@ export function ConversationPage() {
         </div>
         <div>
           <div className="cv-verdict">
-            <div className="cv-card">
-              <div className="cv-card-label">
-                {t('Исход')}{c.outcome_confidence != null && L(` · уверенность ${Math.round(c.outcome_confidence * 100)} %`, ` · confidence ${Math.round(c.outcome_confidence * 100)}%`)}
+            {terms.offersFirst && offers?.check_total != null ? (
+              // В кофейне исход почти всегда «покупка» — полезнее показать чек
+              <div className="cv-card">
+                <div className="cv-card-label">{L('Чек', 'Check')}</div>
+                <div className="cv-card-value">{Math.round(offers.check_total).toLocaleString(locale)} <small>{currency()}</small></div>
               </div>
-              <OutcomeTag outcome={c.outcome || 'unknown'} />
-            </div>
+            ) : (
+              <div className="cv-card">
+                <div className="cv-card-label">
+                  {t('Исход')}{c.outcome_confidence != null && L(` · уверенность ${Math.round(c.outcome_confidence * 100)} %`, ` · confidence ${Math.round(c.outcome_confidence * 100)}%`)}
+                </div>
+                <OutcomeTag outcome={c.outcome || 'unknown'} />
+              </div>
+            )}
             <div className="cv-card">
               <div className="cv-card-label">{t('Балл по скрипту')}</div>
               <div className="cv-card-value">{notScored || score == null ? '—' : <>{score} <small>/ 100</small></>}</div>
@@ -312,7 +327,11 @@ export function ConversationPage() {
             </div>
             <div className="cv-card">
               <div className="cv-card-label">{t('Допродажа')}</div>
-              <div className="cv-card-value">{upsell ? <>{upsell[0]} <small>{L(`из ${upsell[1]}`, `of ${upsell[1]}`)}</small></> : '—'}</div>
+              <div className="cv-card-value">
+                {offers
+                  ? (offers.offers_count ? <>{offers.offers_accepted ?? 0} <small>{L(`из ${offers.offers_count} взяли`, `of ${offers.offers_count} accepted`)}</small></> : <small>{L('не предлагали', 'not offered')}</small>)
+                  : upsell ? <>{upsell[0]} <small>{L(`из ${upsell[1]}`, `of ${upsell[1]}`)}</small></> : '—'}
+              </div>
             </div>
           </div>
           <div className="cv-actions">
@@ -379,7 +398,7 @@ export function ConversationPage() {
                 const stage = located.stageAt.get(i)
                 const notes = located.notes.get(i) || []
                 const hit = q && seg.text.toLowerCase().includes(q)
-                const who = seg.lane === 's' ? (isCall ? t('Оператор') : t('Продавец')) : seg.lane === 'c' ? t('Покупатель') : '—'
+                const who = seg.lane === 's' ? (isCall ? t('Оператор') : t(terms.seller)) : seg.lane === 'c' ? t(terms.customer) : '—'
                 return (
                   <div key={i}>
                     {gap >= PAUSE_SEC && (
@@ -504,7 +523,20 @@ export function ConversationPage() {
             </section>
           )}
 
-          {(upsellResults.length > 0 || crosssellResults.length > 0) && (
+          {offers && (
+            <OffersReview data={offers} onSeek={(quote) => {
+              const idx = locateQuote(quote, segments)
+              if (idx >= 0) playerRef.current?.seek(segments[idx].start, true)
+            }} />
+          )}
+
+          <DemandReview items={Array.isArray(c.unmet_demand) ? c.unmet_demand : []} onSeek={(quote) => {
+            const idx = locateQuote(quote, segments)
+            if (idx >= 0) playerRef.current?.seek(segments[idx].start, true)
+          }} />
+
+          {/* Есть разбор предложений — он и есть допродажа; правила показываем только для старых разговоров */}
+          {!offers && (upsellResults.length > 0 || crosssellResults.length > 0) && (
             <section className="panel">
               <div className="panel-head"><h2 className="panel-title">{t('Допродажа')}</h2></div>
               <div className="panel-body">
@@ -647,17 +679,19 @@ function SummaryPanel({ conversationId, cached, outcome }: { conversationId: str
 
 /** Динамика: кто сколько говорил, перебивания, монолог, тишина. */
 function DynamicsPanel({ c, segments }: { c: any; segments: Array<{ start: number; end: number; lane: string }> }) {
+  const terms = useTerms()
   const seller = segments.filter((s) => s.lane === 's').reduce((a, s) => a + (s.end - s.start), 0)
   const customer = segments.filter((s) => s.lane === 'c').reduce((a, s) => a + (s.end - s.start), 0)
   const share = c.talk_ratio != null ? Math.round(c.talk_ratio * 100) : (seller + customer ? Math.round((seller / (seller + customer)) * 100) : null)
   if (share == null) return null
-  const tooMuch = share > 65
+  // В кофейне бариста почти всегда говорит больше гостя — норма продаж 40–60 % там не применима
+  const tooMuch = !terms.offersFirst && share > 65
   return (
     <section className="panel">
       <div className="panel-head">
         <div>
           <h2 className="panel-title">{t('Динамика разговора')}</h2>
-          <div className="panel-sub">{t('Доля времени речи сотрудника. Ориентир для продаж — 40–60%')}</div>
+          <div className="panel-sub">{terms.isCafe ? t('Доля времени речи бариста') : terms.isPharmacy ? L('Доля времени речи фармацевта', 'Share of time the pharmacist speaks') : t('Доля времени речи сотрудника. Ориентир для продаж — 40–60%')}</div>
         </div>
       </div>
       <div className="panel-body">
@@ -666,8 +700,8 @@ function DynamicsPanel({ c, segments }: { c: any; segments: Array<{ start: numbe
           <span style={{ flex: 100 - share }} />
         </div>
         <div className="cv-talk-legend">
-          <span>{t('Продавец')} <b>{share} %</b></span>
-          <span>{t('Покупатель')} <b>{100 - share} %</b></span>
+          <span>{t(terms.seller)} <b>{share} %</b></span>
+          <span>{t(terms.customer)} <b>{100 - share} %</b></span>
         </div>
         {tooMuch && <div className="cv-talk-note"><AlertCircle size={14} aria-hidden="true" />{t('Продавец говорит больше нормы — покупатель мало рассказал о задаче.')}</div>}
         <div className="cv-dyn-grid">

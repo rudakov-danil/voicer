@@ -1,0 +1,188 @@
+/* ============================================================================
+   КЛИНИКИ — обзор, приёмы, карточка приёма с протоколом, врачи, правила контроля
+   (pages/Clinic*.tsx, pages/Visit*.tsx, pages/Doctor*.tsx, pages/QualityRulesPage.tsx).
+   Токены — из index.css, плитки метрик (.m-tile) — из upsells.css. Цвет статуса
+   всегда дублируется значком или текстом.
+   ============================================================================ */
+
+.cl { display: flex; flex-direction: column; gap: 16px; }
+.cl-muted { font-size: 13px; color: var(--ink-3); line-height: 1.5; }
+.cl-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cl-toolbar-gap { flex: 1; }
+.cl-search {
+    display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; min-width: 240px;
+    border: 1px solid var(--line-2); border-radius: 999px; background: var(--panel); color: var(--ink-3);
+}
+.cl-search input { flex: 1; border: 0; background: transparent; font-size: 13px; color: var(--ink); outline: none; }
+.cl-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cl-search svg { width: 15px; height: 15px; flex: none; }
+.cl-demo { padding: 10px 14px; border-radius: var(--r); background: var(--accent-soft); color: var(--ink-2); font-size: 13px; }
+
+/* Баллы и статусы */
+.cl-score { font-weight: 600; font-variant-numeric: tabular-nums; }
+.cl-score.is-good { color: var(--good-ink); }
+.cl-score.is-warn { color: var(--warn-ink); }
+.cl-score.is-crit { color: var(--crit-ink); }
+.cl-score.is-none { color: var(--ink-4); font-weight: 400; }
+.cl-status-ico { width: 17px; height: 17px; flex: none; }
+.cl-status-ico.is-good { color: var(--good); }
+.cl-status-ico.is-warn { color: var(--warn); }
+.cl-status-ico.is-crit { color: var(--crit); }
+.cl-status-ico.is-na { color: var(--ink-4); }
+
+.cl-signal {
+    display: inline-flex; align-items: center; gap: 4px; min-height: 22px; padding: 1px 9px;
+    border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.cl-signal svg { width: 13px; height: 13px; flex: none; }
+.cl-signal.is-fraud { background: var(--crit-soft); color: var(--crit-ink); }
+.cl-signal.is-issue { background: var(--warn-soft); color: var(--warn-ink); }
+.cl-signals { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.cl-proto-badge { display: inline-flex; align-items: center; min-height: 22px; padding: 1px 9px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.cl-proto-badge.is-confirmed { background: var(--good-soft); color: var(--good-ink); font-weight: 500; }
+.cl-proto-badge.is-draft { background: var(--panel-2); color: var(--ink-2); border: 1px solid var(--line-2); }
+.cl-proto-badge.is-failed { background: var(--warn-soft); color: var(--warn-ink); }
+.cl-proto-badge.is-none { color: var(--ink-4); }
+
+.cl-cat { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 500; background: var(--panel-2); color: var(--ink-3); border: 1px solid var(--line); white-space: nowrap; }
+.cl-cat.is-fraud { background: var(--crit-soft); color: var(--crit-ink); border-color: transparent; }
+
+/* Сетка обзора */
+.cl-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .cl-grid { grid-template-columns: minmax(0, 1fr); } }
+.cl-panel-body { padding: 4px 20px 18px; }
+
+/* Очередь на разбор */
+.cl-queue { list-style: none; display: flex; flex-direction: column; }
+.cl-queue li + li { border-top: 1px solid var(--line); }
+.cl-q { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; width: 100%; padding: 12px 4px; text-align: left; border-radius: var(--r-s); }
+.cl-q:hover { background: var(--hover); }
+.cl-q-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; font-weight: 600; }
+.cl-q-when { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cl-q-quote { grid-column: 1 / -1; font-size: 13.5px; line-height: 1.5; color: var(--ink); }
+.cl-q-meta { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-3); }
+
+/* Сигналы по правилам */
+.cl-sig-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.cl-sig-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13.5px; font-weight: 600; }
+.cl-sig-n { font-variant-numeric: tabular-nums; }
+.cl-sig-who { margin-top: 3px; font-size: 12.5px; color: var(--ink-3); }
+
+/* Таблицы */
+.cl-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.cl-table th { padding: 8px 10px; text-align: left; font-size: 12px; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.cl-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.cl-table tbody tr { cursor: pointer; transition: background .12s; }
+.cl-table tbody tr:hover { background: var(--hover); }
+.cl-table tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cl-table .t-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cl-who { display: flex; flex-direction: column; min-width: 0; }
+.cl-who b { font-weight: 600; }
+.cl-who span { font-size: 12px; color: var(--ink-3); }
+.cl-reason { display: flex; flex-direction: column; gap: 2px; min-width: 180px; }
+.cl-reason span { font-size: 12px; color: var(--ink-3); }
+.cl-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cl-time span { display: block; font-size: 12px; color: var(--ink-3); }
+.cl-more { display: flex; justify-content: center; padding: 14px; }
+
+/* Критерии */
+.cl-crit-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.cl-crit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 140px) 52px; align-items: center; gap: 12px; }
+.cl-crit-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13.5px; }
+.cl-crit-title { flex-wrap: wrap; row-gap: 2px; }
+.cl-crit-base { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.cl-bar { position: relative; height: 8px; border-radius: 999px; background: var(--console-3); overflow: hidden; }
+.cl-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--seq-5); }
+.cl-bar i.is-warn { background: var(--warn); }
+.cl-bar i.is-crit { background: var(--crit); }
+.cl-bar b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink-2); border-radius: 1px; }
+.cl-crit .t-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+@media (max-width: 760px) { .cl-crit { grid-template-columns: minmax(0, 1fr) 90px 46px; } }
+
+/* Карточка приёма */
+.cl-visit { display: flex; flex-direction: column; gap: 16px; padding: 20px 24px 32px; max-width: 1400px; }
+.cl-crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); }
+.cl-crumbs a { color: var(--accent); }
+.cl-crumbs svg { width: 14px; height: 14px; }
+.cl-visit-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
+.cl-visit-title { font-size: 22px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+.cl-visit-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--ink-3); }
+.cl-visit-scores { display: flex; gap: 10px; flex-wrap: wrap; }
+.cl-visit-scores .m-tile { min-width: 150px; padding: 10px 14px; }
+.cl-visit-scores .m-tile-value { font-size: 22px; }
+.cl-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: var(--r-l); font-size: 14.5px; line-height: 1.45; font-weight: 500; background: var(--panel-2); border: 1px solid var(--line); }
+.cl-note svg { flex: none; margin-top: 1px; width: 18px; height: 18px; }
+.cl-note.is-crit { background: var(--crit-soft); border-color: rgba(229, 72, 77, .25); }
+.cl-note.is-crit svg { color: var(--crit-ink); }
+.cl-note.is-warn { background: var(--warn-soft); border-color: rgba(232, 163, 23, .3); }
+.cl-note.is-warn svg { color: var(--warn-ink); }
+.cl-note.is-good { background: var(--good-soft); border-color: rgba(18, 161, 80, .28); }
+.cl-note.is-good svg { color: var(--good-ink); }
+.cl-visit-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .cl-visit-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.cl-proto-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.cl-proto-state { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--ink-3); }
+.cl-protocol { display: flex; flex-direction: column; }
+.cl-protocol-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.cl-protocol-row:last-child { border-bottom: 0; }
+.cl-protocol dt { font-size: 12.5px; font-weight: 500; color: var(--ink-3); padding-top: 1px; }
+.cl-protocol dd { font-size: 14px; line-height: 1.5; white-space: pre-line; }
+@media (max-width: 760px) { .cl-protocol-row { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+.cl-disclaimer { margin-top: 10px; font-size: 12px; color: var(--ink-3); }
+
+.cl-checks { list-style: none; display: flex; flex-direction: column; }
+.cl-check { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.cl-check:last-child { border-bottom: 0; }
+.cl-check-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 13.5px; font-weight: 500; }
+.cl-check-status { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.cl-check-comment { margin-top: 2px; font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+.cl-quote {
+    display: block; margin-top: 6px; padding: 6px 10px; width: 100%; text-align: left;
+    border-left: 3px solid var(--line-2); border-radius: 0 var(--r-s) var(--r-s) 0;
+    background: var(--panel-2); font-size: 13px; line-height: 1.45; color: var(--ink);
+}
+button.cl-quote:hover { background: var(--hover); }
+.cl-quote.is-crit { border-left-color: var(--crit); }
+.cl-quote.is-good { border-left-color: var(--good); }
+.cl-group-title { margin: 14px 0 2px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+.cl-group-title:first-child { margin-top: 0; }
+
+.cl-transcript { list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 640px; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+.cl-line { display: grid; grid-template-columns: 44px 78px minmax(0, 1fr); gap: 8px; padding: 6px 8px; border-radius: var(--r-s); font-size: 13.5px; line-height: 1.5; }
+.cl-line-time { color: var(--ink-4); font-size: 12px; padding-top: 2px; font-variant-numeric: tabular-nums; }
+.cl-line-who { font-size: 12px; font-weight: 600; padding-top: 2px; }
+.cl-line.is-doctor .cl-line-who { color: var(--seller); }
+.cl-line.is-patient .cl-line-who { color: var(--ink-3); }
+.cl-line.is-hit { background: var(--warn-soft); }
+.cl-line.is-hit.is-crit { background: var(--crit-soft); }
+.cl-line.is-focus { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Врач */
+.cl-doc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.cl-doc-head .avatar { width: 44px; height: 44px; font-size: 15px; }
+.cl-doc-name { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+.cl-doc-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 2px; font-size: 13px; color: var(--ink-3); }
+.cl-spec { display: inline-flex; align-items: center; gap: 6px; }
+.cl-spec input { height: 28px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: 999px; font-size: 13px; width: 200px; }
+.cl-app { display: flex; flex-direction: column; gap: 10px; }
+.cl-app-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cl-app-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cl-app-link input { flex: 1; min-width: 260px; height: 34px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); font-size: 13px; background: var(--panel-2); }
+
+/* Правила контроля */
+.cl-rules { display: flex; flex-direction: column; gap: 16px; }
+.cl-rule { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 14px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.cl-rule:last-of-type { border-bottom: 0; }
+.cl-rule.is-off { opacity: .55; }
+.cl-rule-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cl-rule-title { width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r-s); font-size: 14px; font-weight: 500; background: var(--panel); }
+.cl-rule-desc { width: 100%; min-height: 58px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: var(--r-s); font-size: 13px; line-height: 1.45; resize: vertical; background: var(--panel); }
+.cl-rule-title:focus, .cl-rule-desc:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cl-rule-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.cl-rule-side .select-pill { height: 30px; font-size: 12.5px; }
+.cl-rule-ro-title { font-size: 14px; font-weight: 500; }
+.cl-rule-ro-desc { font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+.cl-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.cl-savebar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; border-radius: var(--r-l); background: var(--panel); border: 1px solid var(--line-2); box-shadow: var(--shadow-pop); }

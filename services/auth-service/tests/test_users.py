@@ -70,3 +70,28 @@ async def test_list_users_forbidden_for_manager(client: AsyncClient, db_session,
 
     resp = await client.get("/api/v1/auth/users", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_update_user_changes_password(client: AsyncClient, test_user):
+    """Кабинет меняет пароль через PATCH /users/{id}: раньше поле молча отбрасывалось."""
+    token = await _get_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    created = await client.post(
+        "/api/v1/auth/users",
+        json={"email": "pwd_mgr@test.ru", "password": "oldpassword1", "role": "manager",
+              "store_id": "00000000-0000-0000-0000-000000000001"},
+        headers=headers,
+    )
+    user_id = created.json()["id"]
+
+    short = await client.patch(f"/api/v1/auth/users/{user_id}", json={"password": "solt"}, headers=headers)
+    assert short.status_code == 400
+
+    resp = await client.patch(f"/api/v1/auth/users/{user_id}",
+                              json={"first_name": "Слава", "password": "newpassword1"}, headers=headers)
+    assert resp.status_code == 200
+    old = await client.post("/api/v1/auth/login", json={"email": "pwd_mgr@test.ru", "password": "oldpassword1"})
+    new = await client.post("/api/v1/auth/login", json={"email": "pwd_mgr@test.ru", "password": "newpassword1"})
+    assert old.status_code == 401
+    assert new.status_code == 200

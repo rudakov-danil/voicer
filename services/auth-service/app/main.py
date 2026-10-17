@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.routers import auth, users
+from app.routers import auth, users, mobile, super_admin
 
 
 @asynccontextmanager
@@ -26,6 +26,9 @@ Instrumentator().instrument(app).expose(app)
 
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(mobile.router)
+app.include_router(super_admin.router)
+app.include_router(super_admin.console_router)
 
 
 @app.get("/health")

@@ -8,9 +8,25 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.config import settings
-from app.routers import chunks, recordings, telephony, upload, mobile
+from app.routers import chunks, recordings, telephony, upload, mobile, context
 
 logger = logging.getLogger(__name__)
+
+
+async def _consume_forever(name: str, start) -> None:
+    """Слушатель очереди внутри API-процесса. Первое connect_robust падает, если RabbitMQ
+    ещё не поднялся (после перезагрузки сервера Docker стартует всё сразу, depends_on
+    не учитывается), и без повтора задача молча умирала — API работал без слушателя."""
+    log = logging.getLogger(__name__)
+    while True:
+        try:
+            await start()
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("%s consumer failed, retrying in 5 s", name)
+            await asyncio.sleep(5)
 
 
 @asynccontextmanager
@@ -19,12 +35,9 @@ async def lifespan(app: FastAPI):
     from worker.stitch_worker import run_stitch_worker
     from app.database import async_session_maker
 
-    try:
-        worker_task = asyncio.create_task(run_stitch_worker(async_session_maker))
-        logger.info("Stitch worker task started")
-    except Exception as e:
-        logger.warning(f"Could not start stitch worker: {e}")
-        worker_task = None
+    worker_task = asyncio.create_task(
+        _consume_forever("queue.stitch", lambda: run_stitch_worker(async_session_maker)))
+    logger.info("Stitch worker task started")
 
     mobile_task = asyncio.create_task(mobile.process_mobile_queue())
     yield
@@ -35,7 +48,7 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
-    if worker_task and not worker_task.done():
+    if not worker_task.done():
         worker_task.cancel()
         try:
             await worker_task
@@ -47,6 +60,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="VoiceIQ Recorder Service", version="1.0.0", lifespan=lifespan)
+app.include_router(context.router)
 
 app.add_middleware(
     CORSMiddleware,

@@ -2,6 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play, RotateCcw, RotateCw } from 'lucide-react';
 import { clock } from '@/components/ui/Fingerprint';
+import { useTerms } from '@/lib/terms';
 import { L, t } from '@/i18n';
 const SPEEDS = [1, 1.5, 2];
 // Длинные записи не декодируем целиком — это дорого по памяти; рисуем реплики полосами
@@ -59,6 +60,7 @@ function rulerStep(duration, width) {
     return steps.find((s) => duration / s <= 9 && (width <= 0 || (width * s) / duration >= 56)) ?? 3600;
 }
 export const ConversationPlayer = forwardRef(function ConversationPlayer({ src, duration, segments, stages, events, sourceLabel, audioNote, onTime }, ref) {
+    const terms = useTerms();
     const audioRef = useRef(null);
     const areaRef = useRef(null);
     const [w, setW] = useState(0);
@@ -187,7 +189,7 @@ export const ConversationPlayer = forwardRef(function ConversationPlayer({ src, 
                                 const low = st.score != null && st.score < 60;
                                 return (_jsxs("g", { className: "cv-ev", role: "button", tabIndex: 0, "aria-label": `${st.n}. ${st.title} — ${clock(st.start)}`, onClick: (e) => { e.stopPropagation(); seek(st.start, true); }, onKeyDown: (e) => { if (e.key === 'Enter')
                                         seek(st.start, true); }, children: [_jsx("title", { children: `${st.n}. ${st.title}${st.score != null ? ` · ${Math.round(st.score)}` : ''}` }), _jsx("rect", { x: x0, y: 2, width: sw, height: 24, rx: 6, className: `cv-chap ${time >= st.start && time < st.end ? 'is-now' : ''}` }), _jsx("clipPath", { id: `chap-${st.n}-${Math.round(st.start)}`, children: _jsx("rect", { x: x0, y: 2, width: sw - 4, height: 24 }) }), _jsx("text", { x: x0 + 8, y: 18, className: "cv-chap-lbl", clipPath: `url(#chap-${st.n}-${Math.round(st.start)})`, children: sw > 70 ? `${st.n} · ${st.title}` : String(st.n) }), st.score != null && sw > 150 && (_jsx("text", { x: x0 + sw - 8, y: 18, textAnchor: "end", className: `cv-chap-score ${low ? 'is-low' : ''}`, children: Math.round(st.score) }))] }, `${st.n}-${st.start}`));
-                            }) }) }), _jsxs("div", { className: "cv-track-label", children: [_jsx("span", { className: "key-bar", style: { background: 'var(--seller)' } }), t('Продавец')] }), _jsx("div", { className: "cv-lane", children: _jsx("svg", { "aria-hidden": "true", children: bars.s }) }), _jsxs("div", { className: "cv-track-label", children: [_jsx("span", { className: "key-bar", style: { background: 'var(--client)' } }), t('Покупатель')] }), _jsx("div", { className: "cv-lane", children: _jsx("svg", { "aria-hidden": "true", children: bars.c }) }), _jsx("div", { className: "cv-track-label", children: t('События') }), _jsx("div", { className: "cv-lane cv-lane-events", children: _jsx("svg", { children: events.map((ev, i) => {
+                            }) }) }), _jsxs("div", { className: "cv-track-label", children: [_jsx("span", { className: "key-bar", style: { background: 'var(--seller)' } }), t(terms.seller)] }), _jsx("div", { className: "cv-lane", children: _jsx("svg", { "aria-hidden": "true", children: bars.s }) }), _jsxs("div", { className: "cv-track-label", children: [_jsx("span", { className: "key-bar", style: { background: 'var(--client)' } }), t(terms.customer)] }), _jsx("div", { className: "cv-lane", children: _jsx("svg", { "aria-hidden": "true", children: bars.c }) }), _jsx("div", { className: "cv-track-label", children: t('События') }), _jsx("div", { className: "cv-lane cv-lane-events", children: _jsx("svg", { children: events.map((ev, i) => {
                                 const cx = Math.min(w - 10, Math.max(10, x(ev.t)));
                                 return (_jsxs("g", { className: "cv-ev", role: "button", tabIndex: 0, "aria-label": `${clock(ev.t)} · ${ev.label}`, onClick: (e) => { e.stopPropagation(); seek(ev.t - 1, true); }, onKeyDown: (e) => { if (e.key === 'Enter')
                                         seek(ev.t - 1, true); }, children: [_jsx("title", { children: `${clock(ev.t)} · ${ev.label}` }), _jsx("circle", { cx: cx, cy: 12, r: 10, className: "cv-ev-bg" }), evGlyph(ev.kind, cx)] }, i));

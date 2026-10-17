@@ -12,6 +12,7 @@ import {
   useInsights, StoreConversion, Drivers, Funnel, HourlyLoad, PriceAnswers, TalkScatter,
 } from '@/components/analytics/Insights'
 import { t } from '@/i18n'
+import { UpsellAnalytics } from '@/components/analytics/UpsellAnalytics'
 
 interface OutletContext { period: number }
 
@@ -100,8 +101,16 @@ const OBJECTION_LABELS: Record<string, string> = {
 const FUNNEL_COLORS = ['#5873EC', '#7890F6', '#97ADFC', '#B4C4FF', '#D2DCFF', '#12A150']
 
 export function AnalyticsPage() {
-  const [activeTab, setActiveTab] = useState('objections')
+  const terms = useTerms()
   const { period } = useOutletContext<OutletContext>()
+  // У кофеен почти каждый разговор — покупка, поэтому розничные блоки про конверсию пусты.
+  // Их аналитика — это допродажи: доля заказов с предложением, согласия, чек, часы, приёмы.
+  if (terms.offersFirst) return <UpsellAnalytics days={period} />
+  return <RetailAnalytics period={period} />
+}
+
+function RetailAnalytics({ period }: { period: number }) {
+  const [activeTab, setActiveTab] = useState('objections')
   const { data: insights } = useInsights(period)
   const { data: trends } = useQuery({ queryKey: ['trends'], queryFn: () => dashboardApi.getTrends({ weeks: 12 }) })
 

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, Check, Play } from 'lucide-react'
+import { ArrowRight, Check, PackagePlus, Play } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { adminApi } from '@/api/admin'
 import { useTerms } from '@/lib/terms'
@@ -58,10 +58,10 @@ export function TeamPage() {
       return { conversion: pct(purchases, scorable), score, sellers: list.length }
     }
     return [
-      { id: '', name: t('Все магазины'), ...agg(sellers || []) },
+      { id: '', name: t(terms.allStores), ...agg(sellers || []) },
       ...[...groups.values()].sort((a, b) => a.name.localeCompare(b.name, 'ru')).map((g) => ({ id: g.id, name: g.name, ...agg(g.sellers) })),
     ]
-  }, [sellers])
+  }, [sellers, terms.allStores])
 
   const rows = useMemo(() => {
     const list = (sellers || []).filter((s) => !store || s.store_id === store).map((s) => {
@@ -96,7 +96,7 @@ export function TeamPage() {
               <span><span className="display">{c.score != null ? Math.round(c.score) : '—'}</span><span className="lbl">{t('балл')}</span></span>
             </span>
             <span className="store-card-foot">
-              {c.sellers} {plural(c.sellers, ['продавец', 'продавца', 'продавцов'], ['seller', 'sellers'])}
+              {c.sellers} {plural(c.sellers, terms.sellerForms, terms.isCafe ? ['barista', 'baristas'] : ['seller', 'sellers'])}
             </span>
           </button>
         ))}
@@ -208,6 +208,9 @@ function Profile({ seller, period, trends }: { seller: Seller; period: number; t
             {months != null && <> · {months < 1 ? t('в команде меньше месяца') : L(`в команде ${months} мес.`, `on the team ${months} mo`)}</>}
           </div>
         </div>
+        <Link className="btn btn-outline btn-sm pf-upsell" to={`/upsells?seller=${seller.id}`}>
+          <PackagePlus size={14} aria-hidden="true" />{L('Допродажи за день', 'Add-on sales today')}
+        </Link>
       </div>
 
       <div className="pf-kpis">
@@ -361,6 +364,7 @@ function StepDots({ steps }: { steps: SellerBenchmark['steps'] }) {
 }
 /* План разбора: разговоры и комментарии руководителей из карточки разговора */
 function CoachingPlan({ sellerId }: { sellerId: string }) {
+  const terms = useTerms()
   const queryClient = useQueryClient()
   const { data: items = [] } = useQuery({
     queryKey: ['coaching', 'seller', sellerId],
@@ -377,7 +381,7 @@ function CoachingPlan({ sellerId }: { sellerId: string }) {
     <div className="pf-sec">
       <div className="pf-sec-h"><h3>{t('План разбора')}</h3><span className="muted" style={{ fontSize: 12 }}>{byConv.size ? L(`${byConv.size} ${plural(byConv.size, ['разговор', 'разговора', 'разговоров'], ['', ''])}`, `${byConv.size} conversations`) : ''}</span></div>
       {byConv.size === 0 ? (
-        <p className="muted" style={{ fontSize: 13 }}>{t('Пусто. Добавить разговор можно кнопкой «Разобрать с продавцом» в его карточке.')}</p>
+        <p className="muted" style={{ fontSize: 13 }}>{t(`Пусто. Добавить разговор можно кнопкой «${terms.reviewWith}» в его карточке.`)}</p>
       ) : [...byConv.entries()].map(([convId, list]) => {
         const head = list[0]
         return (

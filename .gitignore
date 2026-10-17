@@ -34,3 +34,25 @@ redis_data/
 node_modules/
 dist/
 .next/
+
+# Локальные данные разработчика: подключение к серверу, ключи, одноразовые скрипты (не коммитить)
+.local/
+
+# Secrets, local state and generated artifacts
+.env.*
+!.env.example
+*.env.bak*
+.env-*
+*.pem
+*.key
+*.p12
+*.pfx
+._*
+.pytest_cache/
+.vite/
+*.tsbuildinfo
+.claude/
+.codex/
+outputs/
+backups/
+voiceiq_dump*.sql

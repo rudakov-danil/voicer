@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["analytics"])
 # v2 — cache namespace bump so prior buggy responses don't stick around.
 CACHE_VERSION = "v3"
 
-REFUSAL_OUTCOMES = ("price_refusal", "competitor", "deferred")
+REFUSAL_OUTCOMES = ("price_refusal", "competitor", "deferred", "no_purchase")
 
 FUNNEL_STAGES = [
     "Все разговоры",
@@ -187,7 +187,7 @@ async def get_objections_impact(
         SELECT type,
                COUNT(*) AS conversations,
                SUM(CASE WHEN outcome = 'purchase' THEN 1 ELSE 0 END) AS purchases,
-               SUM(CASE WHEN outcome IN ('price_refusal', 'competitor', 'deferred') THEN 1 ELSE 0 END) AS refusals
+               SUM(CASE WHEN outcome IN ('price_refusal', 'competitor', 'deferred', 'no_purchase') THEN 1 ELSE 0 END) AS refusals
         FROM obj_conv
         GROUP BY type
         ORDER BY conversations DESC
@@ -407,7 +407,7 @@ async def get_conversion_outcomes(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Распределение исходов: purchase / deferred / price_refusal / competitor / unknown."""
+    """Распределение исходов, включая явный уход без покупки (no_purchase)."""
     org_id, forced_store_id = org_store_conditions(user)
     effective_store_id = forced_store_id or store_id
     date_from, date_to = _resolve_period(period)

@@ -91,17 +91,21 @@ VIEW_CONDITIONS: dict[str, str] = {
         WHERE o.conversation_id = c.id AND o.type = 'price' AND o.is_resolved IS NOT TRUE
     )""",
     "competitor": "c.outcome = 'competitor'",
-    # Правила допродажи сработали, но продавец не предложил ничего из положенного («0 из N»)
+    # Без допродажи. Есть разбор предложений (analytics 0010) — заказ, где ничего не предложили;
+    # нет разбора — правила допродажи сработали, но продавец не предложил ничего из положенного («0 из N»)
     "no_upsell": f"""(
-        EXISTS(
+        (c.offer_opportunity IS TRUE AND COALESCE(c.offers_count, 0) = 0)
+        OR (c.offer_opportunity IS NULL AND EXISTS(
             SELECT 1 FROM jsonb_array_elements({_sell_array('c.upsell_results')} || {_sell_array('c.crosssell_results')}) e
             WHERE {_json_len("e->'required_offers'")} > 0
         )
         AND NOT EXISTS(
             SELECT 1 FROM jsonb_array_elements({_sell_array('c.upsell_results')} || {_sell_array('c.crosssell_results')}) e
             WHERE {_json_len("e->'offered_items'")} > 0
-        )
+        ))
     )""",
+    # Спросили товар, а его не оказалось (analytics 0012) — материал для списка к закупке
+    "unmet_demand": "EXISTS(SELECT 1 FROM analytics.conversation_demand d WHERE d.conversation_id = c.id)",
 }
 
 
@@ -238,6 +242,11 @@ async def list_conversations(
             c.call_category,
             c.upsell_results,
             c.crosssell_results,
+            c.offer_opportunity, c.offers_count, c.offers_accepted, c.check_total,
+            (
+                SELECT string_agg(d.item, ', ' ORDER BY d.sort_order) FROM analytics.conversation_demand d
+                WHERE d.conversation_id = c.id
+            ) AS demand_items,
             r.started_at,
             r.duration_seconds,
             r.source,
@@ -403,6 +412,12 @@ async def list_conversations(
             "has_crosssell": _resolve(r, r.has_crosssell, 1),
             # Допродажа «предложено из положенного» по сработавшим правилам: [сделано, нужно]
             "upsell": list(u) if (u := fp.upsell_score(r.upsell_results, r.crosssell_results)) else None,
+            # Разбор предложений (analytics 0010): null — разбора нет, тогда в списке — правила
+            "offers": {"count": r.offers_count or 0, "accepted": r.offers_accepted or 0,
+                       "check_total": float(r.check_total) if r.check_total is not None else None}
+                      if r.offer_opportunity else None,
+            # Чего не оказалось в наличии (analytics 0012): «Нурофен Экспресс, Терафлю»
+            "unmet_demand": r.demand_items,
             "top_violation": r.top_violation,
             "top_violation_severity": r.top_violation_severity,
             "top_violation_evidence": r.top_violation_evidence,
@@ -815,6 +830,45 @@ async def get_conversation_detail(
         for o in objection_rows
     ]
 
+    # Разбор допродаж (analytics-engine 0010): каждое предложение с приёмом и реакцией
+    # клиента. None — разбор не выполнялся (звонок, старый разговор, сбой LLM).
+    offers_analysis = None
+    try:
+        o_row = (await db.execute(text("""
+            SELECT offer_opportunity, offers_count, offers_accepted, check_total, order_items,
+                   offer_missed, offer_better_phrase
+            FROM analytics.conversations WHERE id = :conv_id
+        """), {"conv_id": conversation_id})).fetchone()
+        if o_row and o_row.offer_opportunity is not None:
+            offer_rows = (await db.execute(text("""
+                SELECT item, category, kind, technique, response, is_focus, quote, customer_quote
+                FROM analytics.conversation_offers WHERE conversation_id = :conv_id ORDER BY sort_order
+            """), {"conv_id": conversation_id})).fetchall()
+            offers_analysis = {
+                "order_taken": o_row.offer_opportunity,
+                "offers_count": o_row.offers_count,
+                "offers_accepted": o_row.offers_accepted,
+                "check_total": float(o_row.check_total) if o_row.check_total is not None else None,
+                "order_items": o_row.order_items or [],
+                "missed": o_row.offer_missed,
+                "better_phrase": o_row.offer_better_phrase,
+                "offers": [dict(r._mapping) for r in offer_rows],
+            }
+    except Exception:
+        # Миграция 0010 ещё не применена — карточка открывается без разбора допродаж
+        await db.rollback()
+
+    # Неудовлетворённый спрос (analytics 0012): что спросили, а этого не оказалось
+    demand: list[dict] = []
+    try:
+        demand_rows = (await db.execute(text("""
+            SELECT item, item_key, category, reason, outcome, analog, quote, seller_quote
+            FROM analytics.conversation_demand WHERE conversation_id = :conv_id ORDER BY sort_order
+        """), {"conv_id": conversation_id})).fetchall()
+        demand = [dict(r._mapping) for r in demand_rows]
+    except Exception:
+        await db.rollback()
+
     seller_name = f"{row.seller_first_name or ''} {row.seller_last_name or ''}".strip() or None
     duration = transcript_data.get("duration_seconds") or (row.duration_seconds if hasattr(row, 'duration_seconds') else None)
 
@@ -841,6 +895,8 @@ async def get_conversation_detail(
         "upsell_results": row.upsell_results,
         "has_crosssell": row.has_crosssell,
         "crosssell_results": row.crosssell_results,
+        "offers_analysis": offers_analysis,
+        "unmet_demand": demand,
         "source": row.source,
         "call_direction": row.call_direction,
         "client_phone": row.client_phone,
